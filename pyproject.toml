@@ -1,0 +1,60 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "airseai"
+version = "2.0.0"
+description = "AIRSEAI 2.0 — tactile manipulation benchmark simulation for OpenArm bimanual robots"
+readme = "README.md"
+# The simulator needs 3.11, but this package is also imported from the gr00t
+# and lerobot environments, so the floor stays at 3.10. typing.override is
+# guarded by a typing_extensions fallback.
+requires-python = ">=3.10"
+
+# Core runtime shared by every subpackage. Heavy, environment-specific stacks
+# (dmrobotics, lerobot, jax) are declared as optional extras below so that
+# `tactile_codec` stays installable without them.
+dependencies = [
+    "numpy>=1.24",
+]
+
+[project.optional-dependencies]
+# Lossless uint16 tactile codec: ffv1/mkv encode-decode plus quantization specs.
+codec = [
+    "av>=12.0",
+]
+# Writing and reading LeRobot v3 datasets with the tactile `data` dtype.
+# `lerobot` itself is deliberately absent: its 0.5 wheels require Python 3.12
+# while Isaac Sim pins 3.11, so it is installed from source when needed
+# (README.md section 2).
+dataset = [
+    "pyarrow>=14.0",
+]
+# Real-robot visuotactile sensing via the Daimon DM-Tac SDK.
+sensors = [
+    "opencv-contrib-python>=4.6",
+]
+# Validation scripts and verification renderers under benchmark/dev/.
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.6",
+    "matplotlib>=3.8",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["sim*", "tactile_codec*", "lerobot_tactile_ext*"]
+
+[tool.ruff]
+line-length = 110
+target-version = "py311"
+src = ["src"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+ignore = ["E501"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]

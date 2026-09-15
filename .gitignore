@@ -216,3 +216,23 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Output data
+datasets/
+logs/
+outputs/
+
+# Robot and task USDs
+/assets/
+
+# Local assistant config
+.claude/
+CLAUDE.md
+.fuse_hidden*
+
+# Rendered video
+*.mp4
+*.mov
+*.mkv
+*.avi
+*.webm

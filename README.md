@@ -45,8 +45,8 @@ bash Miniconda3-latest-Linux-x86_64.sh -b -p "$HOME/miniconda3"
 
 ```bash
 sudo apt install -y git
-git clone ssh://git@github.com/zhouhongjun-cuhk/airship-2.0.git ~/airship-2.0
-bash ~/airship-2.0/scripts/install_benchmark.sh
+git clone git@github.com:AIRSEAI/AIRSEAI-2.0.git ~/AIRSEAI-2.0
+bash ~/AIRSEAI-2.0/scripts/install_benchmark.sh
 ```
 
 ### 2.4 the robot asset
@@ -61,7 +61,7 @@ finger or camera placement: `python benchmark/run/build_asset.py`.
 
 ## 3. The environments
 
-Seven registered scenes (`ENVS` in `benchmark/run/launch_env.py`):
+Five registered scenes (`ENVS` in `benchmark/run/launch_env.py`):
 
 | `--env` | what it is |
 | --- | --- |
@@ -69,9 +69,7 @@ Seven registered scenes (`ENVS` in `benchmark/run/launch_env.py`):
 | `stack_cube` | pick up a cube and stack it on a second one. The template every task layer copies |
 | `blind_peg_insertion` | pick up a peg, find a close-fitting hole by touch under an injected pose error, insert it |
 | `blind_peg_dim` | `blind_peg_insertion` with the lights at 0.15× — same board, peg, expert and criterion; only the illumination changes |
-| `force_budget_grasp` | lift and place a crushable can without exceeding a force budget it cannot see |
 | `texture_sort` | tell two similar-looking balls apart by surface and sort them, in light too dim to see the texture |
-| `handover` | pass a bar from one arm to the other, releasing only once the receiver has the load |
 
 ## 4. The pipeline
 
@@ -133,7 +131,7 @@ RENDER=1 PREVIEWS=1 bash scripts/run_collect.sh <task> <episodes>
 
 | | |
 | --- | --- |
-| `<task>` | `stack_cube` \| `blind_peg_insertion` \| `blind_peg_dim` \| `force_budget_grasp` \| `texture_sort` |
+| `<task>` | `stack_cube` \| `blind_peg_insertion` \| `blind_peg_dim` \| `texture_sort` |
 | `<episodes>` | demonstrations to record |
 | `[dataset_out]` | default `~/<task>_dataset` |
 | `RENDER=1` | write `<dataset_out>_run/<task>.mp4` |
@@ -168,6 +166,8 @@ observation keys they carry:
 
 ### Stage 4 — train
 
+> **TODO:** `scripts/run_train.sh` has not been migrated into this repo yet.
+
 ```bash
 DATASET=<name> VARIANT=tacff bash scripts/run_train.sh
 # POLICY= is any lerobot --policy.type; default act
@@ -190,6 +190,8 @@ for every image stream, tactile included; other policy types bring their own
 encoders.
 
 ### Stage 5 — evaluate
+
+> **TODO:** `scripts/run_eval.sh` and `benchmark/eval/evaluate.py` have not been migrated into this repo yet.
 
 ```bash
 bash scripts/run_eval.sh <task> <checkpoint_dir> [episodes] [seed]
@@ -279,18 +281,13 @@ src/sim/            simulation: tactile sensing, robot asset builder,
 src/tactile_codec/  quantisation profiles (float mm <-> uint16)
 src/lerobot_tactile_ext/  ffv1 codec + LeRobot v3 dataset writer
 scripts/run_*.sh    the pipeline entry points (collect, convert, train, eval)
-                    plus install_benchmark.sh; gr00t/ holds that host's wrapper
+                    plus install_benchmark.sh  (TODO: run_train, run_eval, gr00t/ not migrated yet)
 benchmark/run/      launch_env, collect_dataset, build_asset, render_previews,
                     make_*  (task assets, authored at install), verify_codec
 benchmark/tasks/    run_expert.py (the shared expert runner) + legacy per-task scripts
 benchmark/policy/   BC pipeline: dataset conversion, policy server
-benchmark/eval/     evaluate.py — the one evaluator
+benchmark/eval/     evaluate.py — the one evaluator  (TODO: not migrated yet)
 ```
-
-Adding a task: put the scene *and* its `TASK` object (phases, handover gate,
-termination, verdict — `sim.tasks.spec.Task`) in `src/sim/tasks/<task>.py`,
-then register it in `sim.tasks.registry`, `ENVS` (`launch_env.py`) and
-`TASKS` (`collect_dataset.py`).
 
 ## 7. Simulation vs. the real robot
 
