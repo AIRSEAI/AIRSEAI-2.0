@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 # ============================================================================
 # install_benchmark.sh — one-click installer for the Tactile Manipulation
-# Benchmark (README.md sections 2 + 3, automated).
+# Benchmark (README_Benchmark.md sections 2 + 3, automated).
 #
 # Interactive: asks for the conda env name at start (Enter = "airseai").
 # Non-interactive (no TTY, or AIRSEAI_USE_DEFAULT=1): uses defaults / env vars.
 #
 #   AIRSEAI_ENV_NAME   env name              (default: airseai)
 #   AIRSEAI_CONDA_ROOT conda install         (default: `conda info --base`, else $HOME/miniconda3)
-#   AIRSEAI_REPO_DIR   airship-2.0 repo      (default: parent of this script)
+#   AIRSEAI_REPO_DIR   AIRSEAI-2.0 repo      (default: parent of this script)
 #   AIRSEAI_OUT_BASE   work base             (default: $HOME/airseai-benchmark)
 #   AIRSEAI_GIT_MIRROR clone mirror prefix (default: https://gitclone.com/github.com/)
 #   AIRSEAI_FORCE_SDPA=1 use sdpa attention even where flash-attn is available
@@ -125,10 +125,8 @@ pick_source() {  # pick_source <label> <primary> <cn-mirror> -> echoes the winne
 select_sources() {
     PIP_INDEX="$(pick_source "pip index" "$PIP_INDEX" "$PIP_INDEX_CN")"
     TORCH_WHEELS="$(pick_source "torch wheels" "$TORCH_WHEELS" "$TORCH_WHEELS_CN")"
-    # An env var, not ~/.config/pip/pip.conf: this choice belongs to this
-    # install, not to every python project on the machine. It reaches every
-    # pip in this process tree (including the ones isaaclab.sh runs) and
-    # outranks a config file, while leaving nothing behind afterwards.
+    # An env var, not pip.conf: it reaches every pip in this process tree
+    # (including isaaclab.sh's) and leaves nothing behind afterwards.
     export PIP_INDEX_URL="$PIP_INDEX"
     echo "pip index   : $PIP_INDEX"
     echo "torch wheels: $TORCH_WHEELS"
@@ -144,9 +142,7 @@ pip_install() {  # pip install, retrying once through the regional mirror
 
 preflight() {
     grep PRETTY /etc/os-release
-    # Captured, not piped: through a pipe the exit status is head's, so a
-    # missing nvidia-smi would read as success and the driver check would pass
-    # on a machine with no driver at all.
+    # Captured, not piped, so a missing nvidia-smi fails the check.
     local smi drv
     if ! smi=$(nvidia-smi --query-gpu=name,driver_version --format=csv,noheader 2>&1); then
         echo "nvidia-smi is not usable — install the NVIDIA driver first:"
@@ -273,7 +269,28 @@ install_isaaclab() {
 }
 
 install_repo() {
-    ( cd "$REPO_DIR" && pip_install -e '.[codec,dataset,dev]' )
+    # The package was published as "airship" before the rename. Its editable
+    # .pth keeps the old checkout on sys.path, so `import sim` could resolve
+    # to the old tree; remove it before installing this one.
+    if pip show airship >/dev/null 2>&1; then
+        echo "removing legacy 'airship' package: $(pip show airship | grep -i '^Editable project location')"
+        pip uninstall -y airship || return 1
+    fi
+    ( cd "$REPO_DIR" && pip_install -e '.[codec,dataset,dev]' ) || return 1
+    # Every repo package must now import from REPO_DIR/src, not an old checkout.
+    ( cd / && python -c '
+import sys
+import re
+from pathlib import Path
+want = (Path(sys.argv[1]) / "src").resolve()
+bad = 0
+for name in ("sim", "tactile_codec", "lerobot_tactile_ext"):
+    got = Path(__import__(name).__file__).resolve()
+    ok = want in got.parents
+    bad += not ok
+    print(("ok  " if ok else "BAD ") + name + " -> " + str(got))
+raise SystemExit(bad)
+' "$REPO_DIR" )
 }
 
 install_lerobot() {
@@ -366,12 +383,9 @@ PY
         echo "!! above and add the matching rewrite to this step."
         return 1
     fi
-    # The GR00T policy's vendored Eagle backbone asserts on flash_attention_2,
-    # which has no wheel for every torch/CUDA pair — so it is repointed at sdpa
-    # only where flash-attn is missing. Doing it unconditionally would leave the
-    # attention kernel, and the rollout latency this benchmark reports, decided
-    # by how each host happened to be installed. AIRSEAI_FORCE_SDPA=1 pins sdpa
-    # everywhere instead. Idempotent; affects stages 4-5 only.
+    # The GR00T policy's vendored Eagle backbone asserts on flash_attention_2;
+    # repoint it at sdpa where flash-attn is not importable, or everywhere with
+    # AIRSEAI_FORCE_SDPA=1. Idempotent; affects stages 4-5 only.
     local eagle="$LEROBOT_DIR/src/lerobot/policies/groot/eagle2_hg_model"
     if [ ! -d "$eagle" ]; then
         echo "no vendored Eagle model at $eagle — nothing to repoint"
@@ -419,9 +433,8 @@ fetch_robot_asset() {
     if [ -d "$REPO_DIR/assets/usds/openarm_bimanual" ]; then
         echo "openarm_bimanual USD already present — skip"; return 0
     fi
-    # Only the bimanual USD directory is needed. The full repo also carries a
-    # unimanual USD and demo videos this benchmark never loads, so fetch that
-    # one path and keep the whole-repo clone as the fallback.
+    # Only the bimanual USD directory is needed: sparse-fetch that path, with a
+    # full clone as the fallback.
     local usds=source/openarm/openarm/tasks/manager_based/openarm_manipulation/usds
     rm -rf /tmp/openarm_isaac_lab
     git_clone_retry "$OPENARM_URL" /tmp/openarm_isaac_lab "" "$usds/openarm_bimanual" || {
@@ -437,14 +450,31 @@ fetch_robot_asset() {
 }
 
 make_task_assets() {
-    # Task furniture the tasks load from assets/usds/: authored here, from the
-    # generators, because the USDs are not committed. Idempotent.
+    # Regenerate every task's USDs under assets/usds/ from its generator,
+    # overwriting whatever is there.
     export OMNI_KIT_ACCEPT_EULA=YES ACCEPT_EULA=Y
     cd "$REPO_DIR" || return 1
-    [ -d assets/usds/peg_board ]     || python benchmark/run/make_peg_boards.py    --headless || return 1
-    [ -d assets/usds/texture_balls ] || python benchmark/run/make_texture_balls.py --headless || return 1
-    [ -d assets/usds/crush_cans ]    || python benchmark/run/make_crush_cans.py    --headless || return 1
+    local t
+    for t in blind_peg_insertion texture_sort handover_cup_transfer sleeve_on_shaft; do
+        rm -rf "assets/usds/$t"
+        python "benchmark/run/make_${t}_assets.py" --headless || return 1
+    done
     ls assets/usds/
+}
+
+install_ffmpeg() {
+    # Stage 3 decodes the ffv1 tactile streams with the ffmpeg CLI.
+    if command -v ffmpeg >/dev/null 2>&1; then
+        echo "ffmpeg present: $(ffmpeg -version 2>/dev/null | head -1)"; return 0
+    fi
+    if ! sudo -v; then
+        echo "!! ffmpeg is missing and sudo is unavailable — install it with:"
+        echo "!!     sudo apt-get install -y ffmpeg"
+        return 1
+    fi
+    sudo apt-get update && sudo apt-get install -y ffmpeg || return 1
+    ffmpeg -hide_banner -decoders 2>/dev/null | grep -q ffv1 \
+        || { echo "!! installed ffmpeg has no ffv1 decoder"; return 1; }
 }
 
 verify() {
@@ -457,6 +487,7 @@ verify() {
 
 step critical "package sources"      select_sources
 step critical "preflight"            preflight
+step critical "ffmpeg (apt)"         install_ffmpeg
 step critical "conda env ($ENV_NAME, py3.11)" make_env
 step critical "torch 2.7.0 cu128"    install_torch
 step critical "isaacsim 5.1.0.0"     install_isaacsim
