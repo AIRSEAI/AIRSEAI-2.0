@@ -1,6 +1,6 @@
 # Tactile Manipulation Benchmark — Quick Start
 
-A bimanual OpenArm with four GelSight tactile fingers in Isaac Sim, scripted
+A bimanual OpenArm with four tactile fingers in Isaac Sim, scripted
 task demonstrations, LeRobot v3 datasets carrying the tactile channels, and
 policy rollout in the same environment.
 

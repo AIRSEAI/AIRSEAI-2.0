@@ -222,6 +222,9 @@ datasets/
 logs/
 outputs/
 
+# doc
+doc/
+
 # Robot and task USDs
 /assets/
 
