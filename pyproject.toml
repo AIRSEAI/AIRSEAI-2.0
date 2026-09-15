@@ -35,7 +35,7 @@ dataset = [
 sensors = [
     "opencv-contrib-python>=4.6",
 ]
-# Validation scripts and verification renderers under benchmark/dev/.
+# Tests, lint and plotting.
 dev = [
     "pytest>=8.0",
     "ruff>=0.6",

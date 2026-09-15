@@ -61,7 +61,7 @@ finger or camera placement: `python benchmark/run/build_asset.py`.
 
 ## 3. The environments
 
-Five registered scenes (`ENVS` in `benchmark/run/launch_env.py`):
+Seven registered scenes (`ENVS` in `benchmark/run/launch_env.py`):
 
 | `--env` | what it is |
 | --- | --- |
@@ -69,7 +69,9 @@ Five registered scenes (`ENVS` in `benchmark/run/launch_env.py`):
 | `stack_cube` | pick up a cube and stack it on a second one. The template every task layer copies |
 | `blind_peg_insertion` | pick up a peg, find a close-fitting hole by touch under an injected pose error, insert it |
 | `blind_peg_dim` | `blind_peg_insertion` with the lights at 0.15× — same board, peg, expert and criterion; only the illumination changes |
+| `sleeve_on_shaft` | slide a split sleeve onto a shaft, gripping hard enough to carry it but not so hard its bore closes |
 | `texture_sort` | tell two similar-looking balls apart by surface and sort them, in light too dim to see the texture |
+| `handover` | pass a bar from one arm to the other, releasing only once the receiver has the load |
 
 ## 4. The pipeline
 
@@ -131,7 +133,7 @@ RENDER=1 PREVIEWS=1 bash scripts/run_collect.sh <task> <episodes>
 
 | | |
 | --- | --- |
-| `<task>` | `stack_cube` \| `blind_peg_insertion` \| `blind_peg_dim` \| `texture_sort` |
+| `<task>` | `stack_cube` \| `blind_peg_insertion` \| `blind_peg_dim` \| `texture_sort` \| `sleeve_on_shaft` |
 | `<episodes>` | demonstrations to record |
 | `[dataset_out]` | default `~/<task>_dataset` |
 | `RENDER=1` | write `<dataset_out>_run/<task>.mp4` |
