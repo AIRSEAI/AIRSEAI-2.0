@@ -49,6 +49,9 @@ git clone git@github.com:AIRSEAI/AIRSEAI-2.0.git ~/AIRSEAI-2.0
 bash ~/AIRSEAI-2.0/scripts/install_benchmark.sh
 ```
 
+Contributors: enable the DCO sign-off hook once per clone, see
+[section 8](#8-contributing).
+
 ### 2.4 the robot asset
 
 The robot asset comes from enactic's
@@ -285,6 +288,7 @@ benchmark/run/      launch_env, collect_dataset, build_asset, render_previews,
 benchmark/tasks/    run_expert.py, the shared expert runner
 benchmark/policy/   BC pipeline: dataset conversion, policy server
 benchmark/eval/     evaluate.py, the policy evaluator
+.githooks/          shared git hooks (DCO sign-off)
 ```
 
 ## 7. Simulation vs. the real robot
@@ -310,3 +314,38 @@ one for the other.
 `PREVIEWS=1` (stage 2) adds `observation.images.{depth,ff_shear}_{sensor}`
 renders beside the raw streams on sim data, as the real recorder does for
 its own fields.
+
+## 8. Contributing
+
+Every commit must carry a Developer Certificate of Origin (DCO) sign-off,
+or the pull request's DCO check fails. The repo ships a hook that adds it
+for you. Enable it once per clone:
+
+```bash
+git config core.hooksPath .githooks
+```
+
+From then on every `git commit`, from the terminal or an editor, ends with
+
+```
+Signed-off-by: Your Name <you@example.com>
+```
+
+taken from `user.name` and `user.email`. That email must match the one on
+your GitHub account.
+
+Check it works:
+
+```bash
+git commit --allow-empty -m "test sign-off"
+git log -1 --format=%B        # the last line is Signed-off-by
+git reset --soft HEAD~1       # drop the test commit, keep your changes
+```
+
+The hook does not run on rebase or cherry-pick. To sign commits that are
+already on your branch, rewrite them and force-push:
+
+```bash
+git rebase --signoff main
+git push --force-with-lease
+```
