@@ -1,0 +1,6 @@
+#!/bin/sh
+# Add a DCO Signed-off-by trailer for the committer, unless it is already there.
+MSG_FILE="$1"
+IDENT="$(git var GIT_COMMITTER_IDENT | sed 's/>.*/>/')"
+git interpret-trailers --in-place --if-exists addIfDifferent \
+    --trailer "Signed-off-by: $IDENT" "$MSG_FILE"
