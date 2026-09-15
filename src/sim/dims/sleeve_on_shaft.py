@@ -28,9 +28,9 @@ __all__ = [
     "shaft_radius",
 ]
 
-# The sleeve, metres. Outer diameter plus SPLIT_GAP must fit inside the open
-# gripper (`sim.envs.bimanual_tactile.gel_gap`); the height keeps the finger
-# housing clear of the shaft base once the sleeve is seated.
+# The sleeve, metres. Outer diameter plus SPLIT_GAP must fit between the open
+# gel faces; the height keeps the finger housing clear of the shaft base once
+# the sleeve is seated.
 SLEEVE_OUTER_R = 0.020
 SLEEVE_WALL = 0.002
 SLEEVE_INNER_R = SLEEVE_OUTER_R - SLEEVE_WALL

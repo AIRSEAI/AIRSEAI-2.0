@@ -3,16 +3,14 @@
 Two profiles exist and neither may drift:
 
 `daimon_v1`
-    What every real-robot dataset already on disk was written with:
+    The real-robot (Daimon DM-Tac) recording profile:
     ``clip(x * 1000 + 30000, 0, 65535)`` for depth, shear and deformation
     alike. 1 count = 1 um, representable range -30.000 .. +35.535 mm.
     Frozen verbatim so existing recordings stay decodable.
 
 `sim_v1`
-    The simulation profile, using the same 1 um resolution but sane offsets:
-    depth is non-negative so its offset is 0; shear/deformation are signed so
-    they centre on 32768. Typical signals (penetration <= 3 mm, shear
-    <= 2.2 mm) sit an order of magnitude inside the representable range.
+    The simulation profile, same 1 um resolution: depth is non-negative so
+    its offset is 0; shear/deformation are signed so they centre on 32768.
 
 Saturation is counted, not silenced: `quantize` returns how many values the
 clip touched.

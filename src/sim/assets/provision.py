@@ -81,8 +81,8 @@ def ensure_robot_asset(path: str | Path | None = None,
 
     from .build_robot_asset import graft
 
-    # A local copy of the GelSight finger avoids the Nucleus fetch, which can
-    # be arbitrarily slow (or hang) on hosts far from the asset CDN.
+    # AIRSEAI_GEL_USD: a local GelSight finger USD, used instead of the
+    # Nucleus download.
     gel_usd = os.environ.get("AIRSEAI_GEL_USD", "")
     if not gel_usd:
         from isaaclab.utils.assets import ISAACLAB_NUCLEUS_DIR

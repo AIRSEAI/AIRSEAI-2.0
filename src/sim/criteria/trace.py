@@ -9,15 +9,14 @@ slice by time and give the same verdict on a decimated trace.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from enum import Enum
+from enum import StrEnum
 
 import numpy as np
 
 __all__ = ["EpisodeTrace", "FailureMode", "Verdict"]
 
 
-# `str, Enum` rather than `StrEnum`, which needs Python 3.11+.
-class FailureMode(str, Enum):  # noqa: UP042
+class FailureMode(StrEnum):
     """The failure taxonomy shared by every task.
 
     Flat and closed, so failure distributions compare across tasks. Finer

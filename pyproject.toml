@@ -7,14 +7,11 @@ name = "airseai"
 version = "2.0.0"
 description = "AIRSEAI 2.0 — tactile manipulation benchmark simulation for OpenArm bimanual robots"
 readme = "README.md"
-# The simulator needs 3.11, but this package is also imported from the gr00t
-# and lerobot environments, so the floor stays at 3.10. typing.override is
-# guarded by a typing_extensions fallback.
-requires-python = ">=3.10"
+# Isaac Sim 5.x is built against Python 3.11, and Isaac Lab must match it.
+requires-python = ">=3.11"
 
-# Core runtime shared by every subpackage. Heavy, environment-specific stacks
-# (dmrobotics, lerobot, jax) are declared as optional extras below so that
-# `tactile_codec` stays installable without them.
+# Core runtime shared by every subpackage; environment-specific stacks are
+# optional extras so `tactile_codec` installs without them.
 dependencies = [
     "numpy>=1.24",
 ]
@@ -54,6 +51,10 @@ src = ["src"]
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
 ignore = ["E501"]
+
+[tool.ruff.lint.per-file-ignores]
+# Entry points start Kit before they can import Isaac Lab.
+"benchmark/**/*.py" = ["E402"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -145,7 +145,7 @@ PAD_TARGET = "{ENV_REGEX_NS}/puck_smooth"
 
 # ----- lighting --------------------------------------------------------------
 # Light level. `set_light_scale` multiplies both emitters; the sweep is the
-# task's visual-dose axis, the same values as `blind_peg_dim`.
+# task's visual-dose axis.
 DOME_INTENSITY = 3000.0
 
 KEY_LIGHT_INTENSITY = 3000.0
@@ -196,8 +196,7 @@ class TextureSortSceneCfg(BimanualTactileSceneCfg):
 
     Set `robot.spawn.usd_path` to the grafted asset before constructing, as
     with the parent class. Which puck is the target, and where it and the cups
-    stand, is drawn by the expert at reset; the pads are re-pointed at the
-    drawn puck through `sim.tasks.scene_utils.retarget_pads`.
+    stand, is drawn by the expert at reset.
     """
 
     table = AssetBaseCfg(

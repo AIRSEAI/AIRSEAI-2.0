@@ -20,26 +20,10 @@ import os
 
 from isaaclab.app import AppLauncher
 
-from sim.tasks.registry import TASKS as TASK_IDS  # noqa: E402  (Isaac-free)
+from sim.tasks.registry import TASKS as TASK_IDS
 
 parser = argparse.ArgumentParser(description="Scripted expert for a benchmark task.")
 parser.add_argument("--task", required=True, choices=sorted(TASK_IDS))
-
-
-def _joint_margin(h):
-    """[joint index, margin in degrees] of the active arm joint closest to a
-    position limit. Trace-only; separates an arm stalled on a limit from a
-    slipping grasp."""
-    try:
-        import torch
-        jids = h.ch["arm"].joint_ids
-        q = h.robot.data.joint_pos[0, jids]
-        lim = h.robot.data.soft_joint_pos_limits[0, jids]
-        m = torch.minimum(q - lim[:, 0], lim[:, 1] - q)
-        i = int(torch.argmin(m))
-        return [i, round(float(m[i]) * 57.2958, 1)]
-    except Exception:
-        return [-1, 0.0]
 parser.add_argument("--out", type=str, default="")
 parser.add_argument("--robot_usd", type=str, default="")
 parser.add_argument("--grid", type=int, nargs=2, default=(288, 384))
@@ -54,8 +38,6 @@ parser.add_argument("--video_tactile", action="store_true",
 parser.add_argument("--fps", type=int, default=30)
 parser.add_argument("--dump_trace", action="store_true",
                     help="write each episode's per-step signals to <out>/trace_epN.json")
-parser.add_argument("--save_frames", action="store_true",
-                    help="accepted for dispatcher parity; video is rendered inline")
 parser.add_argument("--keep_unclean", action="store_true",
                     help="also record episodes that are not demo_clean, with is_success set")
 AppLauncher.add_app_launcher_args(parser)
@@ -67,13 +49,13 @@ app_launcher = AppLauncher(_known)
 simulation_app = app_launcher.app
 
 # ---------------------------------------------------------------------------
-import numpy as np  # noqa: E402
-import torch  # noqa: E402
+import numpy as np
+import torch
 
-from sim.envs.bimanual_tactile import SENSOR_FEATURE_NAME, TACTILE_SENSORS  # noqa: E402
-from sim.harness import CTRL_FPS, DT, Harness  # noqa: E402
-from sim.tasks.registry import load_task  # noqa: E402
-from sim.tasks.spec import RetryReset  # noqa: E402
+from sim.envs.bimanual_tactile import SENSOR_FEATURE_NAME, TACTILE_SENSORS
+from sim.harness import CTRL_FPS, DT, Harness
+from sim.tasks.registry import load_task
+from sim.tasks.spec import RetryReset
 
 TASK, PINS = load_task(_known.task)
 for kname, knob in TASK.knobs.items():
@@ -82,6 +64,21 @@ args_cli = parser.parse_args()
 KNOBS = {k: getattr(args_cli, k) for k in TASK.knobs} | PINS   # the id's pins win
 
 REC_EVERY = int(round(1 / (CTRL_FPS * DT)))     # sim steps per dataset frame
+
+
+def _joint_margin(h):
+    """[joint index, margin in degrees] of the active arm joint closest to a
+    position limit. Trace-only; separates an arm stalled on a limit from a
+    slipping grasp."""
+    try:
+        jids = h.ch["arm"].joint_ids
+        q = h.robot.data.joint_pos[0, jids]
+        lim = h.robot.data.soft_joint_pos_limits[0, jids]
+        m = torch.minimum(q - lim[:, 0], lim[:, 1] - q)
+        i = int(torch.argmin(m))
+        return [i, round(float(m[i]) * 57.2958, 1)]
+    except Exception:
+        return [-1, 0.0]
 
 
 def main() -> int:

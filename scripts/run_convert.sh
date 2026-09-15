@@ -16,8 +16,7 @@
 #   BASE        default $BENCH_ROOT/datasets
 #
 # Output: $BASE/<name>_<variant> for each variant, where <name> is the raw
-# dataset's directory name -- so the converted sets carry the recording's
-# name, and run_train.sh takes DATASET=<name>.
+# dataset's directory name, so the converted sets carry the recording's name.
 set -eu
 RAW="${1:?usage: run_convert.sh <raw_dataset_dir>}"
 RAW="${RAW%/}"
@@ -56,4 +55,3 @@ for v in "${todo[@]}"; do
         --src "$RAW" --dst-root "$BASE" --name "$NAME" --variant "$v" --overwrite
 done
 echo "done:"; ls -d "$BASE/${NAME}_"* 
-echo "next:  DATASET=$NAME VARIANT=<variant> bash scripts/run_train.sh"

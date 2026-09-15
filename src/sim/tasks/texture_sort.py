@@ -106,9 +106,7 @@ class TextureSortTask(Task):
     instruction = "put the block in the matching cup"
     report_name = "texture_sort_scripted.json"
     knobs = {
-        "light_scale": Knob(0.15,
-                            "multiplier on the dome and key lights; shared "
-                            "axis with `blind_peg_dim`"),
+        "light_scale": Knob(0.15, "multiplier on the dome and key lights"),
         "rough_thresh_mm": Knob(0.030,
                                 "ripple RMS above which the puck is textured, mm"),
         "preload_mm": Knob(3.0,

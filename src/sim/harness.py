@@ -26,6 +26,8 @@ from sim.envs.bimanual_tactile import SENSOR_FEATURE_NAME, TACTILE_SENSORS
 from sim.physx_settings import small_scene_physx_cfg
 from sim.tactile import contact_area, taxel_pitch
 from sim.tactile.quantities import quat_apply
+from tactile_codec.tacff import DEPTH_MAX_MM as TACFF_DEPTH_MAX_MM
+from tactile_codec.tacff import SHEAR_MAX as TACFF_SHEAR_MAX
 
 __all__ = ["DT", "CTRL_FPS", "STEPS_PER_CTRL", "ARM_PADS", "Harness",
            "HoldPosePolicy", "RemotePolicy", "load_policy", "look_at",
@@ -35,10 +37,6 @@ DT = 1.0 / 60.0
 CTRL_FPS = 20                                  # dataset rate; policy rate too
 STEPS_PER_CTRL = int(round(1 / (CTRL_FPS * DT)))
 ARM_PADS = {"right": TACTILE_SENSORS[:2], "left": TACTILE_SENSORS[2:]}
-
-# tacff normalisation: the converter's numbers, imported, not re-typed.
-from tactile_codec.tacff import DEPTH_MAX_MM as TACFF_DEPTH_MAX_MM  # noqa: E402
-from tactile_codec.tacff import SHEAR_MAX as TACFF_SHEAR_MAX  # noqa: E402
 
 
 def look_at(eye, target, up=(0.0, 0.0, 1.0)):
@@ -556,9 +554,7 @@ class Harness:
                 + [f"observation.images.tacff_{s}" for s in stems]
                 + [f"observation.images.tacrgb_{s}" for s in stems])
         return (f"the checkpoint expects '{key}', which this harness cannot "
-                f"provide. It was trained on a dataset schema this benchmark no "
-                f"longer produces (e.g. single-arm keys such as tacff_middle). "
-                f"Keys available: {have}")
+                f"provide. Keys available: {have}")
 
 
 # ------------------------------------------------------------------ policies
@@ -577,7 +573,7 @@ class HoldPosePolicy:
 
 
 class RemotePolicy:
-    """Client for benchmark/policy/policy_server.py: same reset/select_action
+    """Client for the TCP policy server: same reset/select_action
     surface, plus the checkpoint's input keys so the caller can build exactly
     the observation the policy was trained on."""
 
@@ -614,9 +610,8 @@ class RemotePolicy:
 
 
 def load_policy(path: str, device: str):
-    """In-process lerobot policy with its pre/post processors, the same path
-    `policy_server.py` takes. The processors are required: lerobot keeps
-    normalisation outside the model."""
+    """In-process lerobot policy with its pre/post processors. The
+    processors are required: lerobot keeps normalisation outside the model."""
     from lerobot.configs.policies import PreTrainedConfig
     from lerobot.policies.factory import get_policy_class, make_pre_post_processors
 

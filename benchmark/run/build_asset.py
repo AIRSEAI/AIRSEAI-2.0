@@ -31,10 +31,10 @@ app_launcher = AppLauncher(args_cli)
 simulation_app = app_launcher.app
 
 # ---------------------------------------------------------------------------
-from isaaclab.utils.assets import ISAACLAB_NUCLEUS_DIR  # noqa: E402
+from isaaclab.utils.assets import ISAACLAB_NUCLEUS_DIR
 
-from sim.assets.build_robot_asset import graft  # noqa: E402
-from sim.assets.provision import ROBOT_USD, ensure_robot_asset, ensure_stock_asset  # noqa: E402
+from sim.assets.build_robot_asset import graft
+from sim.assets.provision import ROBOT_USD, ensure_robot_asset, ensure_stock_asset
 
 
 def main() -> int:

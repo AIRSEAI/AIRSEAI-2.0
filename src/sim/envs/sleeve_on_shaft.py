@@ -207,9 +207,8 @@ class SleeveOnShaftSceneCfg(BimanualTactileSceneCfg):
     """Minimal unit + table + shaft + both sleeve materials, four shells in all.
 
     Set `robot.spawn.usd_path` to the grafted asset before constructing, as
-    with the parent class. The expert draws a material at reset, moves its two
-    shells onto the table, parks the other, re-points the pads, and authors
-    the shell joint with that material's stiffness.
+    with the parent class. Both materials are spawned; the material not drawn
+    for the episode is parked at PARKED_POS.
     """
 
     table = AssetBaseCfg(

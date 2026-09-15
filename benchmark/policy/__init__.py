@@ -1,4 +1,1 @@
-"""Behaviour-cloning pipeline modules.
-
-Entry points: `scripts/run_{collect,convert,train,eval}.sh`.
-"""
+"""Behaviour-cloning pipeline modules, driven by the scripts under `scripts/`."""

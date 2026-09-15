@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ============================================================================
 # install_benchmark.sh — one-click installer for the Tactile Manipulation
-# Benchmark (README_Benchmark.md sections 2 + 3, automated).
+# Benchmark (README.md section 2, automated).
 #
 # Interactive: asks for the conda env name at start (Enter = "airseai").
 # Non-interactive (no TTY, or AIRSEAI_USE_DEFAULT=1): uses defaults / env vars.
@@ -42,9 +42,8 @@ REPO_DIR="${AIRSEAI_REPO_DIR:-$(dirname "$SCRIPT_DIR")}"
 OUT_BASE="${AIRSEAI_OUT_BASE:-$HOME/airseai-benchmark}"
 LEROBOT_DIR="${AIRSEAI_LEROBOT_DIR:-$HOME/lerobot}"
 ISAACLAB_DIR="${AIRSEAI_ISAACLAB_DIR:-$HOME/IsaacLab}"
-# Clone sources, same shape as the package sources below: github.com first, a
-# regional mirror only after it fails. Decided from the clone's exit status
-# rather than a probe — reachability does not predict a mid-transfer abort.
+# Clone sources: github.com first, the regional mirror only after the clone
+# itself fails.
 ISAACLAB_URL="${AIRSEAI_ISAACLAB_URL:-https://github.com/isaac-sim/IsaacLab.git}"
 LEROBOT_URL="${AIRSEAI_LEROBOT_URL:-https://github.com/huggingface/lerobot}"
 OPENARM_URL="${AIRSEAI_OPENARM_URL:-https://github.com/enactic/openarm_isaac_lab}"
@@ -89,9 +88,8 @@ summary() {
 }
 
 # ---------------- package sources ----------------
-# International sources are the default. Some networks (notably inside China)
-# cannot reach them at usable speed, so each has a regional mirror that is
-# selected *automatically* after $PROBE_RETRIES failed reachability probes.
+# International sources are the default; each has a regional mirror that is
+# selected automatically after $PROBE_RETRIES failed reachability probes.
 # Force either side explicitly with AIRSEAI_PIP_INDEX / AIRSEAI_TORCH_WHEELS,
 # or set AIRSEAI_NO_MIRROR_FALLBACK=1 to fail instead of falling back.
 PIP_INDEX="${AIRSEAI_PIP_INDEX:-https://pypi.org/simple/}"
@@ -125,8 +123,8 @@ pick_source() {  # pick_source <label> <primary> <cn-mirror> -> echoes the winne
 select_sources() {
     PIP_INDEX="$(pick_source "pip index" "$PIP_INDEX" "$PIP_INDEX_CN")"
     TORCH_WHEELS="$(pick_source "torch wheels" "$TORCH_WHEELS" "$TORCH_WHEELS_CN")"
-    # An env var, not pip.conf: it reaches every pip in this process tree
-    # (including isaaclab.sh's) and leaves nothing behind afterwards.
+    # Exported so every pip in this process tree (including isaaclab.sh's)
+    # uses the same index.
     export PIP_INDEX_URL="$PIP_INDEX"
     echo "pip index   : $PIP_INDEX"
     echo "torch wheels: $TORCH_WHEELS"
@@ -239,8 +237,6 @@ git_clone_retry() {  # git_clone_retry <url> <dir> [tag] [sparse-path]
 install_isaacsim() {
     if pip show isaacsim >/dev/null 2>&1; then echo "isaacsim already installed — skip"; return 0; fi
     # isaacsim 5.1.0.0 (incl. extscache) resolves from the selected index.
-    # pypi.nvidia.com is not used: it is unreachable on some networks and the
-    # regular index carries the same wheels.
     pip_install "isaacsim[all,extscache]==5.1.0.0"
 }
 
@@ -269,15 +265,8 @@ install_isaaclab() {
 }
 
 install_repo() {
-    # The package was published as "airship" before the rename. Its editable
-    # .pth keeps the old checkout on sys.path, so `import sim` could resolve
-    # to the old tree; remove it before installing this one.
-    if pip show airship >/dev/null 2>&1; then
-        echo "removing legacy 'airship' package: $(pip show airship | grep -i '^Editable project location')"
-        pip uninstall -y airship || return 1
-    fi
     ( cd "$REPO_DIR" && pip_install -e '.[codec,dataset,dev]' ) || return 1
-    # Every repo package must now import from REPO_DIR/src, not an old checkout.
+    # Every repo package must import from REPO_DIR/src.
     ( cd / && python -c '
 import sys
 import re
@@ -379,8 +368,7 @@ else:
     print("ok (already patched or absent): processor/pipeline.py")
 PY
     if ! python -m compileall -q "$LEROBOT_DIR/src/lerobot"; then
-        echo "!! lerobot does not compile under python 3.11 — see the error"
-        echo "!! above and add the matching rewrite to this step."
+        echo "!! lerobot does not compile under python 3.11 — see the error above"
         return 1
     fi
     # The GR00T policy's vendored Eagle backbone asserts on flash_attention_2;

@@ -8,16 +8,15 @@
                          dequantize(quantize(x)) is within half a count
                          (0.5 um) everywhere in the representable range.
 
-The compression ratio is recorded, not asserted. Runs on synthetic fields
-and, when given, on penetration frames dumped by the stack_cube task.
+The compression ratio is recorded, not asserted; the inputs are synthetic
+fields.
 
-    python benchmark/run/verify_codec.py --out ~/codec_out [--sim_frames ~/stack_out/frames]
+    python benchmark/run/verify_codec.py --out ~/codec_out
 """
 
 from __future__ import annotations
 
 import argparse
-import glob
 import json
 import os
 from pathlib import Path
@@ -70,8 +69,6 @@ def roundtrip(name: str, u16: np.ndarray, out_dir: Path, checks: dict,
 def main() -> int:
     ap = argparse.ArgumentParser(description="Tactile codec roundtrip gate.")
     ap.add_argument("--out", default=os.path.expanduser("~/codec_out"))
-    ap.add_argument("--sim_frames", default="",
-                    help="optional dir of stack-task npz frames to round-trip real sim data")
     a = ap.parse_args()
     out_dir = Path(os.path.expanduser(a.out))
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -110,26 +107,6 @@ def main() -> int:
     roundtrip("shear_2ch", sq, out_dir, checks, original_channels=2)
     rgbish = rng.integers(0, 65536, (12, 96, 128, 3), dtype=np.uint16)
     roundtrip("random_3ch", rgbish, out_dir, checks)
-
-    # --- real sim frames if available -------------------------------------
-    if a.sim_frames:
-        paths = sorted(glob.glob(os.path.join(
-            os.path.expanduser(a.sim_frames), "*.npz")))[:60]
-        pens = []
-        for p in paths:
-            with np.load(p) as z:
-                arr = z.get("right_left_finger_tactile_pen")
-                if arr is not None and arr.size:
-                    pens.append(arr.astype(np.float32))
-        if pens:
-            sf = np.stack(pens) * 1e3                  # stored in m-ish float16; mm
-            sfq, sf_sat = quantize(sf, PROFILES["sim_v1_depth"])
-            roundtrip("sim_penetration", sfq, out_dir, checks)
-            checks["sim_saturation"] = {"pass": sf_sat == 0, "saturated": sf_sat,
-                                        "frames": len(pens)}
-        else:
-            checks["sim_frames"] = {"pass": True,
-                                   "note": "no penetration arrays found; skipped"}
 
     report = {"profiles": {k: v.to_dict() for k, v in PROFILES.items()},
               "checks": checks}

@@ -10,7 +10,7 @@ policy rollout in the same environment.
 
 | | version |
 | --- | --- |
-| GPU | NVIDIA, ≥ 10 GB VRAM (developed on RTX 3080) |
+| GPU | NVIDIA, ≥ 10 GB VRAM |
 | disk | ~25 GB free (Isaac Sim is ~18 GB) |
 | driver | ≥ 580 |
 | OS | Ubuntu 22.04 |
@@ -133,7 +133,7 @@ RENDER=1 PREVIEWS=1 bash scripts/run_collect.sh <task> <episodes>
 
 | | |
 | --- | --- |
-| `<task>` | `stack_cube` \| `blind_peg_insertion` \| `blind_peg_dim` \| `texture_sort` \| `sleeve_on_shaft` |
+| `<task>` | `stack_cube` \| `blind_peg_insertion` \| `blind_peg_dim` \| `texture_sort` \| `sleeve_on_shaft` \| `handover` \| `handover_cup_transfer` |
 | `<episodes>` | demonstrations to record |
 | `[dataset_out]` | default `~/<task>_dataset` |
 | `RENDER=1` | write `<dataset_out>_run/<task>.mp4` |
@@ -168,8 +168,6 @@ observation keys they carry:
 
 ### Stage 4 — train
 
-> **TODO:** `scripts/run_train.sh` has not been migrated into this repo yet.
-
 ```bash
 DATASET=<name> VARIANT=tacff bash scripts/run_train.sh
 # POLICY= is any lerobot --policy.type; default act
@@ -192,8 +190,6 @@ for every image stream, tactile included; other policy types bring their own
 encoders.
 
 ### Stage 5 — evaluate
-
-> **TODO:** `scripts/run_eval.sh` and `benchmark/eval/evaluate.py` have not been migrated into this repo yet.
 
 ```bash
 bash scripts/run_eval.sh <task> <checkpoint_dir> [episodes] [seed]
@@ -283,12 +279,12 @@ src/sim/            simulation: tactile sensing, robot asset builder,
 src/tactile_codec/  quantisation profiles (float mm <-> uint16)
 src/lerobot_tactile_ext/  ffv1 codec + LeRobot v3 dataset writer
 scripts/run_*.sh    the pipeline entry points (collect, convert, train, eval)
-                    plus install_benchmark.sh  (TODO: run_train, run_eval, gr00t/ not migrated yet)
+                    plus install_benchmark.sh
 benchmark/run/      launch_env, collect_dataset, build_asset, render_previews,
                     make_*  (task assets, authored at install), verify_codec
-benchmark/tasks/    run_expert.py (the shared expert runner) + legacy per-task scripts
+benchmark/tasks/    run_expert.py, the shared expert runner
 benchmark/policy/   BC pipeline: dataset conversion, policy server
-benchmark/eval/     evaluate.py — the one evaluator  (TODO: not migrated yet)
+benchmark/eval/     evaluate.py, the policy evaluator
 ```
 
 ## 7. Simulation vs. the real robot

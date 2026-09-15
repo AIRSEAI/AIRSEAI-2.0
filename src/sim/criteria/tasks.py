@@ -1,8 +1,7 @@
 """Per-task success criteria, one function per benchmark task.
 
-Each returns a `Verdict` and takes its thresholds as keyword arguments;
-`tests/test_criteria.py` pins the defaults. Where several detectors fire, the
-precedence is chosen per task.
+Each returns a `Verdict` and takes its thresholds as keyword arguments. Where
+several detectors fire, the precedence is chosen per task.
 
 No criterion uses a tactile force threshold (TacSL magnitudes are
 uncalibrated); `hold_and_screw`'s torque window is a PhysX joint quantity.
@@ -39,7 +38,7 @@ def _placed(trace: EpisodeTrace, obj: str, target_xy, tol_m: float) -> tuple[boo
     return err < tol_m, err
 
 
-# -- Tier 1: single arm ----------------------------------------------------
+# -- single-arm tasks ---------------------------------------------------------
 
 def sleeve_on_shaft(trace: EpisodeTrace, *, min_seat_m: float = SLEEVE_MIN_SEAT,
                     pads: tuple[str, ...] = RIGHT_PADS) -> Verdict:
@@ -162,7 +161,7 @@ def texture_sort(trace: EpisodeTrace, *, chosen_bin: int, correct_bin: int,
     return Verdict(True, metrics=metrics)
 
 
-# -- Tier 2: loosely coupled bimanual --------------------------------------
+# -- loosely coupled bimanual tasks -------------------------------------------
 
 def bimanual_lift(trace: EpisodeTrace, target_xy, *, place_tol_m: float = 0.02,
                   drop_height_m: float = 0.05) -> Verdict:
@@ -274,7 +273,7 @@ def hold_and_screw(trace: EpisodeTrace, *, torque_target_nm: float = 0.30,
     return Verdict(True, metrics=metrics)
 
 
-# -- Tier 3: tightly coupled ------------------------------------------------
+# -- tightly coupled bimanual tasks -------------------------------------------
 
 def unfixed_socket_insertion(trace: EpisodeTrace, *, min_depth_m: float = 0.012,
                              max_socket_shift_m: float = 0.003,
@@ -300,7 +299,7 @@ def unfixed_socket_insertion(trace: EpisodeTrace, *, min_depth_m: float = 0.012,
     return Verdict(True, metrics=metrics)
 
 
-# -- Template task ----------------------------------------------------------
+# -- stack_cube ---------------------------------------------------------------
 
 def stack_cube(trace: EpisodeTrace, *, cube_size: float = CUBE_SIZE,
                min_area_mm2: float = 5.0, pads: tuple[str, ...] = RIGHT_PADS

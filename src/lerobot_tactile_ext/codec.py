@@ -11,8 +11,6 @@ deformation) as ffv1-compressed mkv streams. This module is the codec:
 * `Mp4Stream` / `DataStream`: incremental encoders held open across
   episodes, for the v3 layout where every episode of a feature shares one
   file addressed by timestamps.
-
-The pair is held to bit-exactness by `tactile_codec_roundtrip`.
 """
 
 from __future__ import annotations

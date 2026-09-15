@@ -1,11 +1,10 @@
 """Quantisation profiles for tactile fields, shared by sim and real robot.
 
-One table, both directions. The real robot's constants are not recorded in
-the datasets themselves; `to_dict()` is what goes into the dataset's
-`info.json` so a reader never has to guess.
+One table, both directions. `to_dict()` is what goes into the dataset's
+`info.json`, so a reader never has to guess.
 """
 
-from .quant import (  # noqa: F401
+from .quant import (
     DAIMON_V1,
     PROFILES,
     SIM_V1,

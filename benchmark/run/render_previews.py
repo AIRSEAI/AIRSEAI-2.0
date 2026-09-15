@@ -3,7 +3,7 @@
 
 For each tactile ``data`` stream, writes an ``observation.images.*`` mp4 that
 renders it for the eye, as the real robot's recordings carry. Display
-constants match `src/sensors/tactile_process.py`:
+constants:
 
   depth        (depth_mm * 0.25 * 255) -> "hot" colormap
   shear /      green arrows on black, one per 16-px cell, arrow length =

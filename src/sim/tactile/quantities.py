@@ -39,7 +39,7 @@ def contact_area(
     pitch_y: float,
     threshold: float = 0.0,
 ) -> dict[str, torch.Tensor]:
-    """Contact area from the taxel occupancy, matching DM's `getContactArea()`.
+    """Contact area from the taxel occupancy.
 
     This is a counting measurement, so it is quantised by the taxel pitch and
     only becomes accurate once a decent number of taxels are active.

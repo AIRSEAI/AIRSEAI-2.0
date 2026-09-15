@@ -35,20 +35,16 @@ PAD = PadGeometry()
 
 
 def taxel_pitch(grid: tuple[int, int],
-                pad: PadGeometry = PAD,
-                margin: float = 0.003) -> tuple[float, float]:
+                pad: PadGeometry = PAD) -> tuple[float, float]:
     """Taxel spacing in metres for a (rows, cols) grid, as (row_pitch, col_pitch).
 
-    Rows run along **x** and cols along **y**. TacSL does not simply inset the
-    bbox by `margin`: it insets asymmetrically so that the sensed region takes
-    the aspect ratio of the requested grid, which makes `margin` a lower bound
-    rather than the actual edge distance. The sensed fraction of the bbox is
-    therefore fixed.
+    Rows run along **x** and cols along **y**. TacSL insets the pad bbox
+    asymmetrically so that the sensed region takes the aspect ratio of the
+    requested grid, so the sensed fraction of the bbox is fixed.
     """
     rows, cols = grid
     # Fraction of the pad bbox that TacSL populates. Fixed across grids because
     # the inset follows the grid's aspect ratio.
     frac_x, frac_y = 0.7445, 0.7445
-    del margin  # kept in the signature for callers; see the docstring
     return (pad.span_x * frac_x / max(rows - 1, 1),
             pad.span_y * frac_y / max(cols - 1, 1))

@@ -658,7 +658,7 @@ class BlindPegInsertionTask(Task):
             "max_tilt_deg": round(float(max(hist["tilt"])), 2) if hist["tilt"] else 0.0,
             "depth_at_release_mm": ctx["depth_at_release_mm"],
             # A stalled-then-released success is a correct outcome but not a
-            # clean trajectory; the runner's `demo_clean` gates on this.
+            # clean demonstration.
             "insert_stalled": bool(ctx.get("insert_stalled", False)),
             "search_relevels": int(ctx.get("search_relevels", 0)),
             "grasp_crept": bool(ctx.get("grasp_crept", False)),

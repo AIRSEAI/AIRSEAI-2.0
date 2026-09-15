@@ -58,17 +58,17 @@ app_launcher = AppLauncher(args_cli)
 simulation_app = app_launcher.app
 
 # ---------------------------------------------------------------------------
-import math  # noqa: E402
+import math
 
-import isaaclab.sim as sim_utils  # noqa: E402
-import numpy as np  # noqa: E402
-from isaaclab.scene import InteractiveScene  # noqa: E402
-from isaaclab.sensors import TiledCamera, TiledCameraCfg  # noqa: E402
+import isaaclab.sim as sim_utils
+import numpy as np
+from isaaclab.scene import InteractiveScene
+from isaaclab.sensors import TiledCamera, TiledCameraCfg
 
-from sim.assets.provision import ensure_robot_asset  # noqa: E402
-from sim.envs.bimanual_tactile import TABLE_TOP_Z  # noqa: E402
-from sim.physx_settings import small_scene_physx_cfg  # noqa: E402
-from sim.tactile import (  # noqa: E402
+from sim.assets.provision import ensure_robot_asset
+from sim.envs.bimanual_tactile import TABLE_TOP_Z
+from sim.physx_settings import small_scene_physx_cfg
+from sim.tactile import (
     apply_sdf_collision,
     apply_triangle_mesh_collision,
 )
@@ -199,7 +199,6 @@ def main() -> int:
         dt=1 / 60, device=args_cli.device, physx=small_scene_physx_cfg()))
     cfg = spec.make_cfg()
     if args_cli.joint_deg:
-        import math
         for item in args_cli.joint_deg.split(","):
             name, deg = item.split("=")
             cfg.robot.init_state.joint_pos[name.strip()] = math.radians(float(deg))

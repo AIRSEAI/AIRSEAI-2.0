@@ -6,14 +6,12 @@ The writer is chosen at runtime from what is actually present:
     cv2                   next
     lerobot_tactile_ext   last, and only when PyAV is installed alongside it
 
-`Mp4Writer` exposes construct(path, fps), `add(frame)`, `close()` returning
-a dict with a `frames` count.
-
 Not a general video library: 8-bit RGB, constant frame rate, one stream.
 """
 
 from __future__ import annotations
 
+import importlib
 import os
 from pathlib import Path
 
@@ -29,20 +27,19 @@ def _backend() -> str:
     for lerobot that is PyAV, since its codec imports fine without it.
     """
     try:
-        import imageio  # noqa: F401
-        import imageio_ffmpeg  # noqa: F401
+        importlib.import_module("imageio")
+        importlib.import_module("imageio_ffmpeg")
         return "imageio"
     except Exception:
         pass
     try:
-        import cv2  # noqa: F401
+        importlib.import_module("cv2")
         return "cv2"
     except Exception:
         pass
     try:
-        import av  # noqa: F401  -- what lerobot's codec actually needs
-
-        from lerobot_tactile_ext.codec import Mp4Stream  # noqa: F401
+        importlib.import_module("av")
+        importlib.import_module("lerobot_tactile_ext.codec")
         return "lerobot"
     except Exception:
         pass

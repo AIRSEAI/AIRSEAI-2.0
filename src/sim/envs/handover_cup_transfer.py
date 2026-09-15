@@ -123,8 +123,8 @@ def _spawn_bar(prim: str, xy: tuple[float, float], z: float) -> RigidObjectCfg:
         # Mesh, not primitive: TacSL needs an SDF collision mesh on anything a
         # sensor tracks, and the bar is the only sensed object here.
         spawn=sim_utils.MeshCuboidCfg(
-            # Long axis local +z, so `tilt_deg` reads "how far off upright"
-            # directly, as it does for the peg.
+            # Long axis local +z, so `tilt_deg` reads how far off upright
+            # directly.
             size=(w, t, BAR_LENGTH),
             rigid_props=sim_utils.RigidBodyPropertiesCfg(
                 disable_gravity=False, max_depenetration_velocity=5.0,

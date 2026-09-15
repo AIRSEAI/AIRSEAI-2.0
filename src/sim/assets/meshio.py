@@ -1,8 +1,7 @@
 """Author a triangle mesh as a USD, with its winding checked first.
 
-Used by the generators in `benchmark/run/make_<task>_assets.py`. `pxr` is
-imported inside `write_usd`, so this module imports without Kit; call
-`write_usd` only after `AppLauncher` has started the app.
+`pxr` is imported inside `write_usd`, so this module imports without Kit;
+call `write_usd` only after `AppLauncher` has started the app.
 """
 
 from __future__ import annotations

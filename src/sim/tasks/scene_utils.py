@@ -157,8 +157,8 @@ def align_frame_quat(tcp_quat_w, axis_a_w, axis_b_w,
 def jaw_tilt_deg(jaw_axis_w) -> float:
     """How far the jaw axis is from horizontal, degrees.
 
-    The number to assert on before closing: a levelled grasp reads a few
-    degrees, and the uncorrected pose on this arm reads tens of degrees.
+    The number to assert on before closing; a levelled grasp reads a few
+    degrees.
     """
     v = np.asarray(jaw_axis_w, dtype=float)
     v = v / np.linalg.norm(v)

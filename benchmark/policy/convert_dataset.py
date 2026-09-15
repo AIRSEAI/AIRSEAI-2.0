@@ -158,7 +158,7 @@ def main() -> int:
             original_channels=2)
         print(f"  {pad} ff_shear decoded {s_u16.shape}", flush=True)
         # raw==0 is quantised NaN (shear is NaN off-contact). Map it to the
-        # offset (= shear 0), as `sim.harness.tacff_image_batch` does at eval.
+        # offset (= shear 0), the same mapping the evaluator applies.
         nan_px = int((s_u16 == 0).sum())
         if nan_px:
             print(f"  {pad} ff_shear: {nan_px} quantised-NaN px -> offset",
