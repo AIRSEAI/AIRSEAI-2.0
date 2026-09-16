@@ -176,24 +176,20 @@ The three differ only in which observation keys they carry:
 
 ```bash
 DATASET=<name> VARIANT=tacff bash scripts/run_train.sh
-# POLICY= is any lerobot --policy.type; default act
-DATASET=<name> VARIANT=tacff POLICY=diffusion bash scripts/run_train.sh
 ```
 
 | | |
 | --- | --- |
 | `DATASET=` | the raw dataset's directory name (what stage 3 named its outputs after) |
 | `VARIANT=` | `vision` \| `tacff` \| `tacrgb` — which stage-3 dataset |
-| `POLICY=` | lerobot `--policy.type`, default `act` |
 | `STEPS=` | default 50000 |
 | `SEED=` | default 1000 |
 | `GPU=` | default: the GPU with the most free memory |
 
-Output: `~/airseai-benchmark/outputs/<name>_<variant>_<policy>_s<seed>/checkpoints/`.
+Output: `~/airseai-benchmark/outputs/<name>_<variant>_act_s<seed>/checkpoints/`.
 If the stage-3 dataset does not exist, training does not start — it prints
-the `run_convert.sh` command to run and exits. ACT and diffusion use ResNet18
-for every image stream, tactile included; other policy types bring their own
-encoders.
+the `run_convert.sh` command to run and exits. The policy is ACT, which uses
+ResNet18 for every image stream, tactile included.
 
 ### Stage 5 — evaluate
 
@@ -205,7 +201,7 @@ VIDEO=1 bash scripts/run_eval.sh <task> <checkpoint_dir> [episodes]
 
 | | |
 | --- | --- |
-| `<task>` | `stack_cube` \| `blind_peg_insertion` \| `blind_peg_dim` |
+| `<task>` | `stack_cube` \| `blind_peg_insertion` \| `blind_peg_dim` \| `texture_sort` |
 | `<checkpoint_dir>` | lerobot `pretrained_model` dir (has `config.json`) |
 | `[episodes]` | default 25 |
 | `[seed]` | default 11 |
