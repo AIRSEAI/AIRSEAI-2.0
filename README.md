@@ -1,8 +1,26 @@
-# Tactile Manipulation Benchmark — Quick Start
+# AIRSEAI 2.0
 
-A bimanual OpenArm with four tactile fingers in Isaac Sim, scripted
-task demonstrations, LeRobot v3 datasets carrying the tactile channels, and
-policy rollout in the same environment.
+AIRS's open-source embodied-AI platform, 2.0: a dual-arm
+manipulator with vision-based tactile sensors, one data pipeline, and two
+places it runs — sim and the real robot.
+
+**In simulation, this repository.** A bimanual OpenArm with four tactile
+fingers in Isaac Sim, a scripted expert per task, LeRobot v3 datasets
+carrying the tactile channels, ACT training on them, and policy rollout in
+the same scenes.
+
+**On the real robot.** The same arms, the same recorded keys, collected by
+leader-follower teleoperation. Sim and real do not line up everywhere, and
+quantifying where they part is why the benchmark exists.
+
+## The tasks
+
+| | | |
+| :---: | :---: | :---: |
+| <img src="docs/media/stack_cube.webp" width="250" alt="stack_cube"> | <img src="docs/media/blind_peg_insertion.webp" width="250" alt="blind_peg_insertion"> | <img src="docs/media/blind_peg_dim.webp" width="250" alt="blind_peg_dim"> |
+| `stack_cube` — stack one cube on another | `blind_peg_insertion` — insert a peg into a hole that is not where the robot is told | `blind_peg_dim` — the same, at 0.15× light |
+| <img src="docs/media/sleeve_on_shaft.webp" width="250" alt="sleeve_on_shaft"> | <img src="docs/media/texture_sort.webp" width="250" alt="texture_sort"> | <img src="docs/media/handover.webp" width="250" alt="handover"> |
+| `sleeve_on_shaft` — slide a squeezable sleeve onto a shaft | `texture_sort` — sort two balls that differ only in surface, in the dark | `handover` — pass a bar from one arm to the other |
 
 ---
 
@@ -64,7 +82,8 @@ finger or camera placement: `python benchmark/run/build_asset.py`.
 
 ## 3. The environments
 
-Seven registered scenes (`ENVS` in `benchmark/run/launch_env.py`):
+Seven registered scenes (`ENVS` in `benchmark/run/launch_env.py`); the clips
+at the top of this file show one demonstration of each task scene:
 
 | `--env` | what it is |
 | --- | --- |
@@ -292,8 +311,18 @@ benchmark/eval/     evaluate.py, the policy evaluator
 
 ## 7. Simulation vs. the real robot
 
-The real robot (Daimon DM-Tac) records the same cameras, state and action,
-and these tactile keys per sensor:
+The hardware the simulation models:
+
+| subsystem | what it is |
+| --- | --- |
+| arms | OpenArm dual-arm, 7 DoF each, leader-follower teleoperation for collection |
+| end effector | two-finger electric gripper per arm |
+| cameras | RealSense D435 at the head, a D405 at each wrist |
+| tactile | vision-based fingertips (Daimon DM-Tac), four of them |
+| compute | Jetson AGX Orin on the robot, RTX workstation for training |
+
+It records the same cameras, state and action as the simulation, and these
+tactile keys per sensor:
 
 | key | dtype | shape | sim | real |
 | --- | --- | --- | --- | --- |
