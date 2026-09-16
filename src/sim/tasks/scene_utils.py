@@ -12,7 +12,7 @@ from typing import Any
 import numpy as np
 
 __all__ = ["align_frame_quat", "jaw_tilt_deg", "join_split_shells", "look_at",
-           "retarget_pads", "top_down_grasp_quat"]
+           "oblique_grasp_quat", "retarget_pads", "top_down_grasp_quat"]
 
 
 def look_at(eye, target, up=(0.0, 0.0, 1.0)) -> tuple[float, float, float, float]:
@@ -152,6 +152,34 @@ def align_frame_quat(tcp_quat_w, axis_a_w, axis_b_w,
     A = _orthonormal_frame(R.T @ a, R.T @ b)
     B = _orthonormal_frame(ta, tb)
     return _quat_from_mat(B @ A.T)
+
+
+def oblique_grasp_quat(tcp_quat_w, jaw_axis_w, approach_w, pitch_deg: float,
+                       yaw_deg: float | None = None) -> np.ndarray:
+    """Wrist orientation for a grasp from the front and above, the way a hand
+    reaches: jaws level, blade pitched `pitch_deg` below horizontal.
+
+    `yaw_deg` is the blade's heading in the world xy plane; None keeps the
+    heading of the measured approach, so the hand keeps pointing the way the
+    arm reached. 90 degrees of pitch is the straight-down grasp of
+    `top_down_grasp_quat` without its fixed jaw direction.
+
+    Arguments are world-frame vectors. Returns (w, x, y, z) for pose IK.
+    """
+    a = np.asarray(approach_w, dtype=float)
+    a = a / np.linalg.norm(a)
+    if yaw_deg is None:
+        h = a[:2]
+        if np.linalg.norm(h) < 1e-6:           # pointing straight down: use the jaw
+            j = np.asarray(jaw_axis_w, dtype=float)
+            h = np.array([j[1], -j[0]])
+        psi = math.atan2(h[1], h[0])
+    else:
+        psi = math.radians(yaw_deg)
+    th = math.radians(pitch_deg)
+    blade = (math.cos(th) * math.cos(psi), math.cos(th) * math.sin(psi), -math.sin(th))
+    jaw = (-math.sin(psi), math.cos(psi), 0.0)
+    return align_frame_quat(tcp_quat_w, approach_w, jaw_axis_w, blade, jaw)
 
 
 def jaw_tilt_deg(jaw_axis_w) -> float:

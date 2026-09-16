@@ -117,6 +117,7 @@ class Harness:
         self.robot = None
         self.sensors = {}
         self._hold = None                # latched joint command; see `latch`
+        self._posture = {}               # side -> (rest joints, gain); see `set_posture_bias`
         self._joint_idx = None           # name -> index, built on first use
         self._chains = {}
         self.ch: dict = {}
@@ -297,11 +298,45 @@ class Harness:
             self.ik_pose.set_command(torch.cat([pos, q_cmd], dim=-1))
             jac = jac_all[:, :, jids]
             qdes = self.ik_pose.compute(pos_b, quat_b, jac, r.data.joint_pos[:, jids])
+        bias = self._posture.get(ch["side"])
+        if bias is not None:
+            qdes = qdes + self._null_space_step(jac, r.data.joint_pos[:, jids], *bias)
         target = (self._hold if self._hold is not None else r.data.joint_pos).clone()
         target[:, jids] = qdes
         target[:, ch["grip_ids"]] = grip_m
         r.set_joint_position_target(target)
         r.write_data_to_sim()
+
+    def set_posture_bias(self, joint_pos: dict | None, gain: float = 0.05) -> None:
+        """Pull each arm's IK null space toward a rest posture.
+
+        `joint_pos` (name -> radians) names the rest posture; an arm is biased
+        only when all seven of its joints are named. `gain` is the fraction of
+        the posture error removed per step, projected so that it moves no task
+        coordinate the IK is controlling. None clears the bias.
+
+        Without a bias the redundant motion stays wherever the episode
+        started, so an arm keeps HOME's shoulder yaw all the way to the object.
+        """
+        self._posture = {}
+        if joint_pos is None:
+            return
+        names = list(self.robot.joint_names)
+        for side, chain in self._chains.items():
+            arm = [names[i] for i in chain["arm"].joint_ids]
+            if all(n in joint_pos for n in arm):
+                rest = torch.tensor([[float(joint_pos[n]) for n in arm]],
+                                    dtype=torch.float32, device=self.sim.device)
+                self._posture[side] = (rest, float(gain))
+
+    @staticmethod
+    def _null_space_step(jac: torch.Tensor, q: torch.Tensor, rest: torch.Tensor,
+                         gain: float) -> torch.Tensor:
+        """Joint step toward `rest` with its task-space component removed:
+        (I - J+ J) * gain * (rest - q)."""
+        jp = torch.linalg.pinv(jac)
+        eye = torch.eye(jac.shape[-1], dtype=jac.dtype, device=jac.device).unsqueeze(0)
+        return ((eye - jp @ jac) @ (gain * (rest - q)).unsqueeze(-1)).squeeze(-1)
 
     def step_joint_toward(self, joint_pos: dict, grip_m: float) -> None:
         """One control step driven in JOINT space: hold `joint_pos` (name ->

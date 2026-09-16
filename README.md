@@ -144,6 +144,8 @@ RENDER=1 PREVIEWS=1 bash scripts/run_collect.sh <task> <episodes>
 
 Output: the dataset at `dataset_out`, and `<dataset_out>_run/` with the
 per-episode report. Task knobs (light level, clearance) are fixed by the task.
+`dataset_out/review/third_person/` holds a third-person view of each kept
+episode; it is not used in training by default.
 
 ### Stage 3 — convert to training datasets
 
@@ -160,8 +162,9 @@ FORCE=1 bash scripts/run_convert.sh <raw_dataset_dir>
 | `FORCE=1` | reconvert an existing variant |
 
 Output: `~/airseai-benchmark/datasets/<name>_<variant>` for each variant, where
-`<name>` is the raw dataset's directory name. The three differ only in which
-observation keys they carry:
+`<name>` is the raw dataset's directory name. Each has a third-person view of
+its episodes under `review/third_person/`, not used in training by default.
+The three differ only in which observation keys they carry:
 
 | variant | observation keys |
 | --- | --- |

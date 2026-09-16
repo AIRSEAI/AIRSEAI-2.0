@@ -2,7 +2,7 @@
 
 Phases::
 
-    unfold -> home -> above_pick -> orient -> descend -> probe -> close -> settle
+    home -> above_pick -> orient -> descend -> probe -> close -> settle
         -> lift -> above_shaft -> align -> insert -> open -> retreat
 """
 
@@ -19,20 +19,18 @@ from sim.dims.sleeve_on_shaft import (
     SLEEVE_INNER_R,
     SPLIT_GAP,
 )
-from sim.envs.bimanual_tactile import ARM_LIFTED_JOINT_POS, RIGHT_ARM_SENSORS, TABLE_TOP_Z, gel_gap
+from sim.envs.bimanual_tactile import RIGHT_ARM_SENSORS, TABLE_TOP_Z, gel_gap
 from sim.envs.sleeve_on_shaft import (
     MATERIALS,
     PARKED_POS,
-    PICK_XY,
     SHAFT_TOP_Z,
-    SHAFT_XY,
     SLEEVE_SPAWN_Z,
-    SPAWN_JITTER,
     SleeveOnShaftSceneCfg,
     material_prims,
+    sample_layout,
 )
 from sim.tactile import apply_sdf_collision, apply_triangle_mesh_collision
-from sim.tasks.scene_utils import join_split_shells, retarget_pads, top_down_grasp_quat
+from sim.tasks.scene_utils import join_split_shells, oblique_grasp_quat, retarget_pads
 from sim.tasks.spec import Knob, Task
 
 __all__ = ["TASK", "SleeveOnShaftTask"]
@@ -58,8 +56,10 @@ GRASP_TCP_Z = TABLE_TOP_Z + SLEEVE_HEIGHT - GRASP_BELOW_TOP
 # Transit height: the carried sleeve's rim clears the shaft top by ~19 mm,
 # low enough that the levelled wrist stays inside its joint range.
 HOVER_TCP_Z = TABLE_TOP_Z + 0.105
-# Where the wrist is levelled, just above the grasp.
-ORIENT_TCP_Z = GRASP_TCP_Z + 0.030
+# m back along the blade from the grasp point to the pre-grasp point, where the
+# wrist turns; the hand then moves in along its own blade.
+APPROACH_BACKOFF = 0.060
+HOME_ABOVE_PREGRASP = 0.030   # m above the pre-grasp point where `home` ends
 # The sleeve's rim this far above the shaft top before the insertion starts,
 # and this far below it as the insertion's goal.
 INSERT_START_GAP = 0.008
@@ -76,24 +76,34 @@ AREA_CONTACT = 5.0            # mm2 per pad; below this a pad is not bearing loa
 PROBE_HOLD_S = 0.4
 # Squeeze past contact per called material, metres per jaw: the soft sleeve's
 # bore stays open at its setting, the stiff sleeve needs the force of its own.
-GRIP_SQUEEZE = {"soft": 0.0020, "stiff": 0.0055}
+# First contact is read where the pads happen to land, which moves with the
+# layout, so the soft setting leaves the bore margin room for that shift.
+GRIP_SQUEEZE = {"soft": 0.0015, "stiff": 0.0055}
 
 # --- motion ----------------------------------------------------------------
 # Commanded TCP speed limits, m/s. The command point advances from the
 # previous command, so the position term keeps pulling while pose IK turns
 # the wrist.
 FREE_SPEED = 0.25
+APPROACH_SPEED = 0.10         # along the blade into the grasp
 CARRY_SPEED = 0.10
 INSERT_SPEED = 0.02
 CARRY_PHASES = ("settle", "lift", "above_shaft", "align")
 
 # --- phase completion ------------------------------------------------------
-ORIENT_TILT_DEG = 6.0         # blade tilt that counts as levelled above the grasp
+ORIENT_TOL_DEG = 3.0          # wrist within this of its grasp orientation
 # Measured gel gap, m, before the level orientation is computed. The jaw axis
 # is the difference of the two gel centroids, which has no reliable sign while
 # the gels overlap.
 LEVEL_MIN_GEL_GAP = 0.010
 ALIGN_XY_TOL = 0.0015         # m, rim centre to shaft axis before inserting
+# Integral correction on the align target: pose IK settles a few mm short in
+# xy and stays there, so the commanded xy carries the accumulated miss. The
+# completion test still reads the TRUE rim offset. Not applied to `insert`,
+# where a sideways push would jam the sleeve on the shaft.
+XY_BIAS_GAIN = 0.05           # per step at 60 Hz
+XY_BIAS_MAX = 0.010           # m
+BIAS_PHASES = ("align",)
 SETTLE_STEPS = 30             # steps held before t = 0
 
 
@@ -117,10 +127,10 @@ class SleeveOnShaftTask(Task):
                              "taxel penetration quantile used as a pad's reading"),
         "sdf_resolution": Knob(128, "PhysX SDF grid per shell; four are cooked at sim.reset()",
                                type=int),
+        "grasp_pitch_deg": Knob(45.0, "blade pitch below horizontal at the grasp, deg"),
+        "grasp_yaw_deg": Knob(0.0, "blade heading in the world xy plane, deg; 0 is +x"),
     }
     phases = [
-        # Joint space, not IK. Episode starts at HOME.
-        ("unfold", 2.0),
         # home 3 s: from HOME the hands start low and forward.
         ("home", 3.0), ("above_pick", 2.5), ("orient", 3.0), ("descend", 4.0),
         ("probe", 4.0), ("close", 4.0), ("settle", 1.0), ("lift", 3.0),
@@ -130,7 +140,6 @@ class SleeveOnShaftTask(Task):
     # The policy takes control at t = 0: no prologue, the whole episode is
     # recorded, HOME included.
     handover_phase = None
-    joint_phases = ("unfold",)
     horizon_s = 38.0
     scene_cam = ((0.70, -0.42, 0.34), (0.26, -0.085, 0.24))
     _sdf_resolution = 128
@@ -189,16 +198,16 @@ class SleeveOnShaftTask(Task):
         pool = [MATERIAL_BY_NAME[n] for n in str(knobs["materials"]).split(",") if n]
         # The hidden draw. `material` is never read by the controller after this.
         material = pool[int(rng.integers(len(pool)))]
-        pick = _np.asarray(PICK_XY) + rng.uniform(-SPAWN_JITTER, SPAWN_JITTER, 2)
-        shaft = _np.asarray(SHAFT_XY) + rng.uniform(-SPAWN_JITTER, SPAWN_JITTER, 2)
+        # Both stands redrawn every episode, anywhere in the reachable band.
+        layout = sample_layout(rng)
+        pick, shaft = _np.asarray(layout["pick"]), _np.asarray(layout["shaft"])
         h.place(h.scene["shaft"], shaft, TABLE_TOP_Z)
         self._place_material(h, material, pick)
         self._retarget(h, material)
         h.reset_robot()
-        # Hold HOME, jaws still shut, while the sleeve settles.
-        for _ in range(SETTLE_STEPS):
-            h.step_ik_toward(h.tcp_pos(), 0.0)
-            h.step()
+        # Hold HOME exactly, jaws shut, while the sleeve settles: the first
+        # recorded frame is the robot's HOME.
+        h.hold_default(SETTLE_STEPS)
         return {
             "side": "right",
             "true_material": material.name,
@@ -206,6 +215,7 @@ class SleeveOnShaftTask(Task):
             "pick": pick, "shaft": shaft,
             "pen_q": float(knobs["pen_quantile"]),
             "level_quat": None,
+            "xy_bias": _np.zeros(2),
             "grip": 0.0,
             "goal": None,
             "cmd_pos": None,
@@ -221,6 +231,21 @@ class SleeveOnShaftTask(Task):
             "probe_failed": False,
             "margin_at_insert": None,
         }
+
+    @staticmethod
+    def _blade(knobs) -> _np.ndarray:
+        """Unit blade direction at the grasp, from the pitch and heading knobs."""
+        th = _np.radians(float(knobs["grasp_pitch_deg"]))
+        psi = _np.radians(float(knobs["grasp_yaw_deg"]))
+        return _np.array([_np.cos(th) * _np.cos(psi), _np.cos(th) * _np.sin(psi), -_np.sin(th)])
+
+    @staticmethod
+    def _wrist_err_deg(h, ctx) -> float:
+        """Angle between the TCP orientation and the locked grasp orientation."""
+        if ctx["level_quat"] is None:
+            return 180.0
+        d = abs(float(_np.dot(h.tcp_quat(), _np.asarray(ctx["level_quat"], dtype=float))))
+        return float(_np.degrees(2.0 * _np.arccos(min(1.0, d))))
 
     # ---- signals -----------------------------------------------------------
     def signals(self, h, ctx) -> dict:
@@ -252,10 +277,6 @@ class SleeveOnShaftTask(Task):
 
     # ---- phases ------------------------------------------------------------
     def phase_target(self, h, ctx, name, t_phase, sig, knobs):
-        if name == "unfold":
-            # Joint space: the working configuration, jaws still shut as the
-            # robot's HOME leaves them. `home` opens them.
-            return dict(ARM_LIFTED_JOINT_POS), 0.0, None
         pick, shaft = ctx["pick"], ctx["shaft"]
         grip = ctx["grip"]
         probe = ctx["probe"]
@@ -272,23 +293,28 @@ class SleeveOnShaftTask(Task):
             over_shaft = tcp[:2] + (shaft - sig["rim"][:2])
         rim_below_tcp = (ctx["rim_below_tcp"] if ctx["rim_below_tcp"] is not None
                          else SLEEVE_HEIGHT - GRASP_BELOW_TOP)
+        grasp = _np.array([pick[0], pick[1], GRASP_TCP_Z])
+        pregrasp = grasp - self._blade(knobs) * APPROACH_BACKOFF
         if name == "home":
-            grip = OPEN_WIDTH
-            tgt = [pick[0], pick[1], HOVER_TCP_Z]
+            # Jaws still shut, as HOME leaves them; `above_pick` opens them.
+            grip = 0.0
+            tgt = [pregrasp[0], pregrasp[1], pregrasp[2] + HOME_ABOVE_PREGRASP]
         elif name == "above_pick":
             grip = OPEN_WIDTH
-            tgt = [pick[0], pick[1], ORIENT_TCP_Z]
+            tgt = pregrasp.tolist()
         elif name == "orient":
             grip = OPEN_WIDTH
-            # Approach on position IK, then level the wrist in place and keep
+            # Approach on position IK, then turn the wrist in place and keep
             # that orientation for the rest of the episode.
             if quat is None and gel_gap(h.grip_measured()) >= LEVEL_MIN_GEL_GAP:
-                quat = ctx["level_quat"] = top_down_grasp_quat(
-                    h.tcp_quat(), h.jaw_axis(), h.approach_axis())
-            tgt = [pick[0], pick[1], ORIENT_TCP_Z]
+                quat = ctx["level_quat"] = oblique_grasp_quat(
+                    h.tcp_quat(), h.jaw_axis(), h.approach_axis(),
+                    float(knobs["grasp_pitch_deg"]), float(knobs["grasp_yaw_deg"]))
+            tgt = pregrasp.tolist()
         elif name == "descend":
+            # In along the blade to the grasp point.
             grip = OPEN_WIDTH
-            tgt = [pick[0], pick[1], GRASP_TCP_Z]
+            tgt = grasp.tolist()
         elif name == "probe":
             # Close until both pads touch, then hold a fixed squeeze past that
             # contact; how far the jaws actually follow says how much the
@@ -325,7 +351,13 @@ class SleeveOnShaftTask(Task):
             tgt = [rel[0], rel[1], HOVER_TCP_Z]
         ctx["grip"] = grip
         ctx["goal"] = list(tgt)
+        if name in BIAS_PHASES:
+            ctx["xy_bias"][:] = _np.clip(
+                ctx["xy_bias"] + XY_BIAS_GAIN * (_np.asarray(tgt[:2]) - h.tcp_pos()[:2]),
+                -XY_BIAS_MAX, XY_BIAS_MAX)
+            tgt = [tgt[0] + ctx["xy_bias"][0], tgt[1] + ctx["xy_bias"][1], tgt[2]]
         speed = (INSERT_SPEED if name == "insert"
+                 else APPROACH_SPEED if name == "descend"
                  else CARRY_SPEED if name in CARRY_PHASES else FREE_SPEED)
         return self._rate_limited(h, ctx, tgt, speed), grip, quat
 
@@ -341,11 +373,6 @@ class SleeveOnShaftTask(Task):
         return ctx["cmd_pos"].tolist()
 
     def phase_done(self, h, ctx, name, t_phase, sig, target, knobs) -> bool:
-        if name == "unfold":
-            # Every commanded joint within a degree of its target.
-            names = h._joint_name_index
-            q = h.robot.data.joint_pos[0]
-            return all(abs(float(q[names[n]]) - v) < 0.017 for n, v in target.items())
         if name in ("probe", "close", "settle", "lift") and int(round(t_phase / DT)) % 3 == 0:
             ctx["grip_log"].append([
                 name, round(t_phase, 3), round(ctx["grip"] * 1e3, 3),
@@ -361,7 +388,8 @@ class SleeveOnShaftTask(Task):
             return h.tcp_err(goal) < 0.015
         if name == "orient":
             return (ctx["level_quat"] is not None and t_phase > 0.3
-                    and sig["tilt"] < ORIENT_TILT_DEG and h.tcp_err(goal) < 0.015)
+                    and self._wrist_err_deg(h, ctx) < ORIENT_TOL_DEG
+                    and h.tcp_err(goal) < 0.015)
         if name == "descend":
             return h.tcp_err(goal) < 0.004
         if name == "probe":

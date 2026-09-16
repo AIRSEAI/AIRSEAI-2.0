@@ -16,7 +16,7 @@ from sim.dims.stack_cube import (
     CUBE_SIZE,
 )
 from sim.envs.bimanual_tactile import RIGHT_ARM_SENSORS as _GRASP_PADS
-from sim.envs.bimanual_tactile import TABLE_TOP_Z
+from sim.envs.bimanual_tactile import TABLE_TOP_Z, gel_gap
 from sim.envs.stack_cube import (
     CUBE_A_XY,
     CUBE_B_XY,
@@ -24,7 +24,7 @@ from sim.envs.stack_cube import (
     StackCubeSceneCfg,
 )
 from sim.tactile import apply_sdf_collision
-from sim.tasks.scene_utils import top_down_grasp_quat
+from sim.tasks.scene_utils import oblique_grasp_quat
 from sim.tasks.spec import Knob, Task
 
 # Controller parameters.
@@ -36,7 +36,15 @@ GRASP_TCP_ABOVE_TABLE = 0.034
 # 1.5 mm into the gel.
 OPEN_WIDTH = 0.027
 CLOSE_WIDTH = 0.02225
-ORIENT_TILT_DEG = 3.0         # blade tilt that counts as levelled, degrees
+ORIENT_TOL_DEG = 3.0          # wrist within this of its grasp orientation, degrees
+# m back along the blade from the grasp point to the pre-grasp point.
+APPROACH_BACKOFF = 0.060
+HOME_ABOVE_PREGRASP = 0.030   # m above the pre-grasp point where `home` ends
+APPROACH_SPEED = 0.10         # m/s, the command point's speed into the grasp
+DT = 1.0 / 60.0
+# Measured gel gap, m, before the grasp orientation is computed: the jaw axis
+# has no reliable sign while the gels overlap.
+LEVEL_MIN_GEL_GAP = 0.010
 
 
 class StackCubeTask(Task):
@@ -46,15 +54,17 @@ class StackCubeTask(Task):
     knobs = {
         "open_width": Knob(OPEN_WIDTH, "jaw command while approaching (m)"),
         "close_width": Knob(CLOSE_WIDTH, "jaw command while holding (m)"),
+        "grasp_pitch_deg": Knob(45.0, "blade pitch below horizontal at the grasp, deg"),
+        "grasp_yaw_deg": Knob(0.0, "blade heading in the world xy plane, deg; 0 is +x"),
     }
     # Advancement is by condition where one exists (position reached, contact
     # made), by timeout otherwise -- a pure-timeout machine hides IK failures.
     phases = [
-        ("home", 1.2), ("above_a", 2.0), ("orient", 2.0), ("descend", 1.5),
+        ("home", 3.0), ("above_a", 2.0), ("orient", 2.0), ("descend", 2.0),
         ("close", 0.8), ("lift", 1.2), ("above_b", 2.0), ("lower", 1.5),
         ("open", 0.6), ("retreat", 1.0),
     ]
-    handover_phase = None          # the policy drives from t = 0
+    handover_phase = None          # the policy drives from t = 0, the robot's HOME
     horizon_s = 25.0
     scene_cam = ((0.85, -0.45, 0.45 + 0.10),
                  (0.5 * (CUBE_A_XY[0] + CUBE_B_XY[0]),
@@ -81,7 +91,7 @@ class StackCubeTask(Task):
         a0 = h.scene["cube_a"].data.root_pos_w[0].detach().cpu().numpy().copy()
         b0 = h.scene["cube_b"].data.root_pos_w[0].detach().cpu().numpy().copy()
         return {"side": "right", "a0": a0, "b0": b0, "held_area": [],
-                "level_quat": None}
+                "level_quat": None, "approach_cmd": None}
 
     def signals(self, h, ctx) -> dict:
         return {"areas": h.pad_areas(),
@@ -89,25 +99,54 @@ class StackCubeTask(Task):
                 "a_pos": h.scene["cube_a"].data.root_pos_w[0].detach().cpu().numpy().copy(),
                 "b_pos": h.scene["cube_b"].data.root_pos_w[0].detach().cpu().numpy().copy()}
 
+    @staticmethod
+    def _blade(knobs) -> _np.ndarray:
+        """Unit blade direction at the grasp, from the pitch and heading knobs."""
+        th = _np.radians(float(knobs["grasp_pitch_deg"]))
+        psi = _np.radians(float(knobs["grasp_yaw_deg"]))
+        return _np.array([_np.cos(th) * _np.cos(psi), _np.cos(th) * _np.sin(psi), -_np.sin(th)])
+
+    @staticmethod
+    def _wrist_err_deg(h, ctx) -> float:
+        """Angle between the TCP orientation and the locked grasp orientation."""
+        if ctx["level_quat"] is None:
+            return 180.0
+        d = abs(float(_np.dot(h.tcp_quat(), _np.asarray(ctx["level_quat"], dtype=float))))
+        return float(_np.degrees(2.0 * _np.arccos(min(1.0, d))))
+
     def phase_target(self, h, ctx, name, t_phase, sig, knobs):
         a0, b0 = ctx["a0"], ctx["b0"]
         ow, cw = float(knobs["open_width"]), float(knobs["close_width"])
         stack_z = TABLE_TOP_Z + CUBE_SIZE + GRASP_TCP_ABOVE_TABLE + 0.004
+        grasp = _np.array([a0[0], a0[1], TABLE_TOP_Z + GRASP_TCP_ABOVE_TABLE])
+        pregrasp = grasp - self._blade(knobs) * APPROACH_BACKOFF
         if name == "home":
-            return [a0[0], a0[1], TABLE_TOP_Z + HOVER + 0.05], ow, None
+            # Jaws still shut, as HOME leaves them; `above_a` opens them.
+            return [pregrasp[0], pregrasp[1], pregrasp[2] + HOME_ABOVE_PREGRASP], 0.0, None
         if name == "above_a":
-            return [a0[0], a0[1], TABLE_TOP_Z + HOVER], ow, None
-        # Approach on position IK, then level the wrist in place and keep that
+            return pregrasp.tolist(), ow, None
+        # Approach on position IK, then turn the wrist in place and keep that
         # orientation locked for the rest of the episode: commanding position
-        # and orientation together from afar stalls short of the target.
-        if ctx["level_quat"] is None:
-            ctx["level_quat"] = top_down_grasp_quat(
-                h.tcp_quat(), h.jaw_axis(), h.approach_axis())
+        # and orientation together from afar stalls short of the target. The
+        # jaw axis is only meaningful once the gels have opened apart.
+        if ctx["level_quat"] is None and gel_gap(h.grip_measured()) >= LEVEL_MIN_GEL_GAP:
+            ctx["level_quat"] = oblique_grasp_quat(
+                h.tcp_quat(), h.jaw_axis(), h.approach_axis(),
+                float(knobs["grasp_pitch_deg"]), float(knobs["grasp_yaw_deg"]))
         q = ctx["level_quat"]
         if name == "orient":
-            return [a0[0], a0[1], TABLE_TOP_Z + HOVER], ow, q
+            return pregrasp.tolist(), ow, q
         if name == "descend":
-            return [a0[0], a0[1], TABLE_TOP_Z + GRASP_TCP_ABOVE_TABLE], ow, q
+            # In along the blade: the command point slides from where the TCP
+            # is to the grasp point at APPROACH_SPEED.
+            if ctx["approach_cmd"] is None:
+                ctx["approach_cmd"] = h.tcp_pos().astype(float)
+            d = grasp - ctx["approach_cmd"]
+            n = float(_np.linalg.norm(d))
+            step = APPROACH_SPEED * DT
+            ctx["approach_cmd"] = ctx["approach_cmd"] + d * (step / n) if n > step else grasp
+            ctx["approach_goal"] = grasp.tolist()
+            return ctx["approach_cmd"].tolist(), ow, q
         if name == "close":
             return [a0[0], a0[1], TABLE_TOP_Z + GRASP_TCP_ABOVE_TABLE], cw, q
         if name == "lift":
@@ -127,10 +166,11 @@ class StackCubeTask(Task):
         if name in ("home", "above_a", "lift", "above_b", "retreat"):
             return h.tcp_err(target) < 0.015
         if name == "orient":
-            return (t_phase > 0.3 and sig["tilt"] < ORIENT_TILT_DEG
+            return (t_phase > 0.3 and self._wrist_err_deg(h, ctx) < ORIENT_TOL_DEG
                     and h.tcp_err(target) < 0.015)
         if name == "descend":
-            return h.tcp_err(target) < 0.008
+            # The true grasp point, not the sliding command point.
+            return h.tcp_err(ctx["approach_goal"]) < 0.008
         if name == "close":
             return t_phase > 0.4 and sum(sig["areas"].values()) > 5.0
         if name in ("open", "lower"):
