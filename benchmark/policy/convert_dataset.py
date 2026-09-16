@@ -4,7 +4,10 @@ input variant.
 
 Reads the dataset written by `scripts/run_collect.sh` and writes
 <dst-root>/<name>_<variant> through `LeRobotDataset.create`, keeping only
-successful episodes. Variants: `vision` (cameras, state, action), `tacff`
+successful episodes. Each kept episode's third-person review video, when the
+recording has one, is copied to <dst>/review/third_person/ under its new
+episode index; it is for looking at, not a dataset feature, so no policy
+trains on it. Variants: `vision` (cameras, state, action), `tacff`
 (+ each pad's force field as a 3-channel image: R = depth, G/B = shear x/y),
 `tacrgb` (+ the raw tactile RGB renders); `both` = vision + tacff.
 
@@ -26,6 +29,8 @@ from tactile_codec import PROFILES, dequantize
 from tactile_codec.tacff import tacff_image
 
 FPS = 20
+# Review videos beside the dataset, not inside its features.
+REVIEW_DIR = Path("review") / "third_person"
 # Filled in main(): both arms' pad feature names and the camera keys.
 PADS: tuple = ()
 VISION_KEYS: tuple = ()
@@ -95,6 +100,27 @@ def fast_decode_mkv(path: Path, original_channels: int) -> np.ndarray:
 
 
 
+def copy_review_videos(src_root: Path, dst: Path, keep_eps: list[int],
+                       variant: str) -> None:
+    """Copy each kept episode's third-person review mp4, renumbered to the
+    converted dataset's episode index (kept episodes are saved in order)."""
+    have = src_root / REVIEW_DIR
+    if not have.is_dir():
+        print(f"[{variant}] no review videos in the recording", flush=True)
+        return
+    out = dst / REVIEW_DIR
+    out.mkdir(parents=True, exist_ok=True)
+    missing = []
+    for new_idx, ep in enumerate(keep_eps):
+        f = have / f"episode_{ep:06d}.mp4"
+        if f.exists():
+            shutil.copy2(f, out / f"episode_{new_idx:06d}.mp4")
+        else:
+            missing.append(ep)
+    print(f"[{variant}] review videos: {len(keep_eps) - len(missing)} -> {out}"
+          + (f", missing for episodes {missing}" if missing else ""), flush=True)
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--src", required=True, help="raw recording root")
@@ -119,6 +145,7 @@ def main() -> int:
                    "observation.images.left_wrist")
 
     src = Path(args.src)
+    src_root = src
     name = args.name or src.name.rstrip("/")
     table = pq.read_table(src / "data" / "chunk-000" / "file-000.parquet")
     state = np.stack(table["observation.state"].to_pylist()).astype(np.float32)
@@ -246,6 +273,7 @@ def main() -> int:
             ds.save_episode()
             print(f"[{variant}] episode {ep} saved ({len(sel)} frames)",
                   flush=True)
+        copy_review_videos(src_root, dst, keep_eps, variant)
         print(f"[{variant}] done -> {dst}", flush=True)
     return 0
 

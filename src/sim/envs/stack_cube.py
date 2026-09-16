@@ -16,7 +16,7 @@ from sim.dims.stack_cube import (
     CUBE_SIZE,
 )
 from sim.envs.bimanual_tactile import (
-    ARM_LIFTED_JOINT_POS,
+    REAL_HOME_JOINT_POS,
     TABLE_TOP_Z,
     BimanualTactileSceneCfg,
     point_pads_at,
@@ -45,10 +45,12 @@ SPAWN_JITTER = 0.02            # metres, uniform +/- on x and y, per episode
 
 
 # ----- start state -----------------------------------------------------------
-# Jaw opening at the start of every episode, metres per jaw.
-START_JAW_WIDTH = {"right": 0.020, "left": 0.010}
-# Arm pose at the start of every episode.
-START_JOINT_POS = ARM_LIFTED_JOINT_POS
+# Jaw opening at the start of every episode, metres per jaw: shut, as the
+# robot's HOME leaves them. The expert opens them only above the cube.
+START_JAW_WIDTH = {"right": 0.0, "left": 0.0}
+# Arm pose at the start of every episode: the robot's own HOME, so a
+# demonstration's first frames match a rollout's.
+START_JOINT_POS = REAL_HOME_JOINT_POS
 # The prim every tactile pad senses. TacSL follows one prim per pad.
 PAD_TARGET = "{ENV_REGEX_NS}/cube_a"
 

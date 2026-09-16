@@ -44,17 +44,20 @@ __all__ = [
     "MATERIALS",
     "PAD_TARGET",
     "PARKED_POS",
+    "LAYOUT_MIN_SEP",
+    "LAYOUT_X",
+    "LAYOUT_Y",
     "PICK_XY",
     "SHAFT_TOP_Z",
     "SHAFT_XY",
     "SLEEVE_SPAWN_Z",
-    "SPAWN_JITTER",
     "START_JAW_WIDTH",
     "START_JOINT_POS",
     "SleeveMaterial",
     "SleeveOnShaftSceneCfg",
     "ensure_assets",
     "material_prims",
+    "sample_layout",
     "ring_stiffness",
 ]
 
@@ -130,12 +133,34 @@ def material_prims(name: str) -> tuple[str, str]:
 
 
 # ----- layout ----------------------------------------------------------------
-# Where the sleeve stands, and where the shaft stands, metres.
+# Nominal stands for the sleeve and the shaft, metres. `sample_layout` redraws
+# both every episode; these are where the scene spawns them and the fallback.
 PICK_XY = (0.26, -0.15)
 
 SHAFT_XY = (0.26, -0.02)
 
-SPAWN_JITTER = 0.010           # metres, uniform +/- on x and y of both, per episode
+# Per-episode layout: bounds on the sleeve's and the shaft's centres, inside
+# the right arm's reachable band, metres.
+LAYOUT_X = (0.22, 0.30)
+
+LAYOUT_Y = (-0.24, -0.06)
+
+# Minimum distance between the two centres, metres: the shaft base and the
+# sleeve touch at 50 mm, and the open jaws need room beside the sleeve.
+LAYOUT_MIN_SEP = 0.100
+
+
+def sample_layout(rng, tries: int = 2000) -> dict[str, tuple[float, float]]:
+    """Draw xy for the sleeve and the shaft, rejecting draws closer than
+    LAYOUT_MIN_SEP. Falls back to the nominal stands if `tries` is exhausted.
+    """
+    import numpy as np
+    for _ in range(tries):
+        pts = np.column_stack([rng.uniform(*LAYOUT_X, 2), rng.uniform(*LAYOUT_Y, 2)])
+        if float(np.linalg.norm(pts[0] - pts[1])) >= LAYOUT_MIN_SEP:
+            return {n: (float(p[0]), float(p[1]))
+                    for n, p in zip(("pick", "shaft"), pts, strict=True)}
+    return {"pick": PICK_XY, "shaft": SHAFT_XY}
 
 # Sleeve centre height when standing on the table.
 SLEEVE_SPAWN_Z = TABLE_TOP_Z + SLEEVE_HEIGHT / 2 + 0.002

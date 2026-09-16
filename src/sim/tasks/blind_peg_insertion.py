@@ -2,7 +2,7 @@
 
 Phases::
 
-    unfold -> home -> above_peg -> descend -> close -> lift -> measure
+    home -> above_peg -> orient -> descend -> close -> lift -> measure
         -> level -> above_hole -> probe -> search -> insert -> release
         -> retreat
 """
@@ -24,7 +24,7 @@ from sim.dims.blind_peg_insertion import (
     DEFAULT_CLEARANCE,
     PEG_LENGTH,
 )
-from sim.envs.bimanual_tactile import ARM_LIFTED_JOINT_POS, TABLE_TOP_Z
+from sim.envs.bimanual_tactile import TABLE_TOP_Z, gel_gap
 from sim.envs.blind_peg_insertion import (
     BOARD_TOP_Z,
     DEFAULT_LIGHT_SCALE,
@@ -36,6 +36,7 @@ from sim.envs.blind_peg_insertion import (
 )
 from sim.tactile import apply_ccd, apply_sdf_collision, apply_triangle_mesh_collision
 from sim.tactile.quantities import quat_apply as _quat_apply
+from sim.tasks.scene_utils import oblique_grasp_quat
 from sim.tasks.spec import Knob, RetryReset, Task
 
 # Controller parameters.
@@ -95,6 +96,15 @@ ENTRY_DEPTH = 0.0015          # m below the mouth that counts as entered
 OPEN_WIDTH = 0.016            # m per jaw, approaching
 CLOSE_WIDTH = 0.0030          # m per jaw, gripping the peg
 
+# --- pick approach ----------------------------------------------------------
+APPROACH_BACKOFF = 0.060      # m back along the blade from the grasp to the pre-grasp point
+HOME_ABOVE_PREGRASP = 0.030   # m above the pre-grasp point where `home` ends
+APPROACH_SPEED = 0.10         # m/s, the command point's speed into the grasp
+ORIENT_TOL_DEG = 3.0          # wrist within this of its pick orientation
+# Measured gel gap, m, before the pick orientation is computed: the jaw axis
+# has no reliable sign while the gels overlap.
+LEVEL_MIN_GEL_GAP = 0.010
+
 
 def _search_offsets(spacing: float, r_max: float) -> list[tuple[float, float]]:
     """Lattice points inside the search disc, ordered by distance from centre."""
@@ -134,11 +144,14 @@ class BlindPegInsertionTask(Task):
                              "seconds lifted clear of the board between search waypoints"),
         "hole_y": Knob(None, "probe: override the hole's y (metres)"),
         "table_raise": Knob(0.0, "probe: raise the whole scene rigidly (metres)"),
+        # Shallower than the top-grasp tasks: a steeper blade puts the fingertips
+        # on the board before the peg is fully in.
+        "grasp_pitch_deg": Knob(30.0, "blade pitch below horizontal at the pick, deg"),
+        "grasp_yaw_inward_deg": Knob(30.0, "blade heading at the pick, deg toward the midline"),
     }
     phases = [
-        # Joint space, not IK; the episode starts at HOME.
-        ("unfold", 2.0),
-        ("home", 3.0), ("above_peg", 2.5), ("descend", 3.0), ("close", 2.5),
+        # The episode starts at HOME; the first move from there is long.
+        ("home", 3.0), ("above_peg", 2.5), ("orient", 2.5), ("descend", 3.0), ("close", 2.5),
         ("lift", 2.0), ("measure", 0.4), ("level", 2.5), ("above_hole", 3.0),
         # search is long: the lattice grows as the clearance shrinks.
         ("probe", 2.0), ("search", 300.0), ("insert", 6.0), ("release", 0.6),
@@ -146,7 +159,6 @@ class BlindPegInsertionTask(Task):
     ]
     # Record from t = 0, HOME included. The pick uses the peg's true pose.
     handover_phase = None
-    joint_phases = ("unfold",)
     horizon_s = 30.0
     scene_cam = ((0.68, -0.42, 0.26 + 0.10), (0.26, 0.0, TABLE_TOP_Z + 0.06))
 
@@ -234,10 +246,9 @@ class BlindPegInsertionTask(Task):
         # A standing peg is metastable; re-drop until it stands.
         for attempt in range(5):
             h.place(peg, p_xy, g["table_top"] + PEG_LENGTH / 2 + 0.002)
-            # Hold HOME, jaws still shut, while the peg settles.
-            for _ in range(30):                     # settle
-                h.step_ik_toward(h.tcp_pos(), 0.0)
-                h.step()
+            # Hold HOME exactly, jaws shut, while the peg settles: the first
+            # recorded frame is the robot's HOME.
+            h.hold_default(30)
             # The peg must settle near upright: the jaws descend on its base,
             # and past ~3 deg the top leans outside the open jaw.
             if self._tilt(h) < 3.0:
@@ -262,6 +273,7 @@ class BlindPegInsertionTask(Task):
             "wp_axial_free": None, "wp_axial_hop": [], "wp_axial_win": [], "contact_kinds": {},
             "wp_err_win": [], "area_support": [],
             "entered": False, "depth_now": 0.0, "upright": None,
+            "pick_quat": None, "approach_cmd": None, "pick_goal": None,
             "lat_by_phase": {}, "area_by_phase": {}, "depth_at_release_mm": 0.0,
         }
 
@@ -342,20 +354,60 @@ class BlindPegInsertionTask(Task):
                 "tip_above_mm": self._tip_above_board(h, ctx) * 1e3,
                 "peg_pos": p.copy()}
 
+    # -- pick geometry ---------------------------------------------------------
+    @staticmethod
+    def _pick_yaw_deg(ctx, knobs) -> float:
+        """Blade heading at the pick: toward the midline, mirrored per arm."""
+        sgn = 1.0 if ctx["side"] == "right" else -1.0
+        return sgn * float(knobs["grasp_yaw_inward_deg"])
+
+    def _blade(self, ctx, knobs) -> _np.ndarray:
+        """Unit blade direction at the pick, from the pitch and heading knobs."""
+        th = _math.radians(float(knobs["grasp_pitch_deg"]))
+        psi = _math.radians(self._pick_yaw_deg(ctx, knobs))
+        return _np.array([_math.cos(th) * _math.cos(psi), _math.cos(th) * _math.sin(psi),
+                          -_math.sin(th)])
+
+    @staticmethod
+    def _wrist_err_deg(h, q_want) -> float:
+        """Angle between the TCP orientation and `q_want`."""
+        if q_want is None:
+            return 180.0
+        d = abs(float(_np.dot(h.tcp_quat(), _np.asarray(q_want, dtype=float))))
+        return float(_np.degrees(2.0 * _np.arccos(min(1.0, d))))
+
     # -- phase machine --------------------------------------------------------
     def phase_target(self, h, ctx, name, t_phase, sig, knobs):
         g, xy, p_xy = ctx["geom"], ctx["hole_seen"], ctx["peg_xy"]
-        grip, quat = CLOSE_WIDTH, ctx["upright"]
-        if name == "unfold":
-            # Joint space: the working configuration, jaws still shut as the
-            # robot's HOME leaves them. `home` opens them.
-            return dict(ARM_LIFTED_JOINT_POS), 0.0, None
+        # Before the peg is levelled, the pick orientation (None until the
+        # jaws are open, i.e. position IK); after, the upright one.
+        grip = CLOSE_WIDTH
+        quat = ctx["upright"] if ctx["upright"] is not None else ctx["pick_quat"]
+        grasp = _np.array([p_xy[0], p_xy[1], g["grasp_tcp"]])
+        pregrasp = grasp - self._blade(ctx, knobs) * APPROACH_BACKOFF
         if name == "home":
-            grip, tgt = OPEN_WIDTH, [p_xy[0], p_xy[1], g["hover_tcp"]]
-        elif name == "above_peg":
-            grip, tgt = OPEN_WIDTH, [p_xy[0], p_xy[1], g["grasp_tcp"] + 0.06]
+            # Jaws still shut, as HOME leaves them; `above_peg` opens them.
+            grip = 0.0
+            tgt = [pregrasp[0], pregrasp[1], pregrasp[2] + HOME_ABOVE_PREGRASP]
+        elif name in ("above_peg", "orient"):
+            grip, tgt = OPEN_WIDTH, pregrasp.tolist()
+            if (name == "orient" and ctx["pick_quat"] is None
+                    and gel_gap(h.grip_measured()) >= LEVEL_MIN_GEL_GAP):
+                ctx["pick_quat"] = quat = oblique_grasp_quat(
+                    h.tcp_quat(), h.jaw_axis(), h.approach_axis(),
+                    float(knobs["grasp_pitch_deg"]), self._pick_yaw_deg(ctx, knobs))
         elif name == "descend":
-            grip, tgt = OPEN_WIDTH, [p_xy[0], p_xy[1], g["grasp_tcp"]]
+            # In along the blade: the command point slides to the grasp point.
+            grip = OPEN_WIDTH
+            if ctx["approach_cmd"] is None:
+                ctx["approach_cmd"] = h.tcp_pos().astype(float)
+            d = grasp - ctx["approach_cmd"]
+            n = float(_np.linalg.norm(d))
+            from sim.harness import DT
+            step = APPROACH_SPEED * DT
+            ctx["approach_cmd"] = ctx["approach_cmd"] + d * (step / n) if n > step else grasp
+            ctx["pick_goal"] = grasp.tolist()
+            tgt = ctx["approach_cmd"].tolist()
         elif name == "close":
             grip = OPEN_WIDTH + (CLOSE_WIDTH - OPEN_WIDTH) * min(1.0, t_phase / 1.0)
             tgt = [p_xy[0], p_xy[1], g["grasp_tcp"]]
@@ -453,20 +505,18 @@ class BlindPegInsertionTask(Task):
                                          sum(areas.values()))
         if name == "insert":
             ctx["depth_at_release_mm"] = round(depth * 1e3, 2)
-        if name == "unfold":
-            # Every commanded joint within a degree of its target. Time-boxed
-            # by the phase timeout like everything else.
-            names = h._joint_name_index
-            q = h.robot.data.joint_pos[0]
-            return all(abs(float(q[names[n]]) - v) < 0.017 for n, v in target.items())
         if name in ("home", "above_peg", "lift", "above_hole", "retreat"):
             return h.tcp_err(target) < 0.015
+        if name == "orient":
+            return (t_phase > 0.3 and self._wrist_err_deg(h, ctx["pick_quat"]) < ORIENT_TOL_DEG
+                    and h.tcp_err(target) < 0.015)
         if name == "measure":
             return t_phase > 0.3
         if name == "level":
             return t_phase > 0.5 and sig["tilt"] < 2.0
         if name == "descend":
-            return h.tcp_err(target) < 0.004
+            # The true grasp point, not the sliding command point.
+            return ctx["pick_goal"] is not None and h.tcp_err(ctx["pick_goal"]) < 0.004
         if name == "close":
             return t_phase > 1.1 and sum(areas.values()) > 5.0
         if name == "probe":
@@ -699,7 +749,9 @@ class BlindPegInsertionTask(Task):
                 "table_raise_m": g["raise"],
                 "board_top_z_m": g["board_top"], "clearance_m": float(knobs["clearance"]),
                 "hole_diameter_m": self._hole_d, "light_scale": self._light,
-                "pose_err_m": float(knobs["pose_err"])}
+                "pose_err_m": float(knobs["pose_err"]),
+                "grasp_pitch_deg": float(knobs["grasp_pitch_deg"]),
+                "grasp_yaw_inward_deg": float(knobs["grasp_yaw_inward_deg"])}
 
 
 TASK = BlindPegInsertionTask()

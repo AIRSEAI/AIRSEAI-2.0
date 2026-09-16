@@ -217,8 +217,9 @@ class HandoverCupTransferTask(Task):
             yaw = _np.radians(rng.uniform(-yj, yj)) / 2.0
             h.place(bar, b_xy, BAR_FOOT_Z + BAR_LENGTH / 2 + 0.001,
                     quat=(float(_np.cos(yaw)), 0.0, 0.0, float(_np.sin(yaw))))
+            # Jaws shut, as HOME leaves them.
             for _ in range(40):
-                h.step_ik_toward(h.tcp_pos(), OPEN_WIDTH)
+                h.step_ik_toward(h.tcp_pos(), 0.0)
                 h.step()
             if _tilt(_bar_pq(h)[1]) < 6.0:
                 break
@@ -268,7 +269,8 @@ class HandoverCupTransferTask(Task):
 
         # -- left: top-down pick ----------------------------------------------
         if name == "home":
-            grip = OPEN_WIDTH
+            # Jaws still shut, as HOME leaves them; `above_bar` opens them.
+            grip = 0.0
             tgt = [b_xy[0], b_xy[1], BAR_FOOT_Z + lh + 0.090]
         elif name == "above_bar":
             grip = OPEN_WIDTH

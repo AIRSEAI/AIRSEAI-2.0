@@ -166,14 +166,15 @@ class HandoverTask(Task):
         h.reset_robot()
         for side in ("right", "left"):
             h.select_arm(side)
+            # Jaws shut, as HOME leaves them; each arm opens on its way in.
             for _ in range(SETTLE_STEPS // 2):
-                h.step_ik_toward(h.tcp_pos(), OPEN_WIDTH)
+                h.step_ik_toward(h.tcp_pos(), 0.0)
                 h.step()
         return {
             "side": "right",
             "give": give, "take": take, "z_hand": float(z_hand),
             "phase_i": 0,
-            "grip": {"left": OPEN_WIDTH, "right": OPEN_WIDTH},
+            "grip": {"left": 0.0, "right": 0.0},
             "touched": {},                 # side -> jaw command at first solid contact
             "frozen": {},                  # side -> TCP position held through an aim
             "aimed": {},                   # side -> wrist quaternion after its aim

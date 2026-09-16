@@ -30,7 +30,7 @@ parser.add_argument("--grid", type=int, nargs=2, default=(288, 384))
 parser.add_argument("--episodes", type=int, default=10)
 parser.add_argument("--seed", type=int, default=7)
 parser.add_argument("--record_dataset", type=str, default="",
-                    help="write a LeRobot v3.0 dataset to this directory")
+                    help="write a LeRobot v3.0 dataset here, plus a review mp4 per kept episode")
 parser.add_argument("--video", type=str, default="",
                     help="write a third-person mp4 of the run to this path")
 parser.add_argument("--video_tactile", action="store_true",
@@ -52,7 +52,7 @@ simulation_app = app_launcher.app
 import numpy as np
 import torch
 
-from sim.envs.bimanual_tactile import SENSOR_FEATURE_NAME, TACTILE_SENSORS
+from sim.envs.bimanual_tactile import REAL_HOME_JOINT_POS, SENSOR_FEATURE_NAME, TACTILE_SENSORS
 from sim.harness import CTRL_FPS, DT, Harness
 from sim.tasks.registry import load_task
 from sim.tasks.spec import RetryReset
@@ -81,14 +81,41 @@ def _joint_margin(h):
         return [-1, 0.0]
 
 
+# HOME in the 16-dim layout's 14 arm slots, degrees: right joints 1-7, left 1-7.
+HOME_ARM_DEG = np.asarray([math.degrees(REAL_HOME_JOINT_POS[f"openarm_{a}_joint{i}"])
+                           for a in ("right", "left") for i in range(1, 8)])
+ARM_SLOTS = np.r_[0:7, 8:15]
+GRIP_SLOTS = [7, 15]
+# The third-person review video is written at the dataset rate.
+REVIEW_DIRNAME = ("review", "third_person")
+
+
+def _arm_extremes(h, acc: dict) -> None:
+    """Fold the active arm's wrist angles and joint-limit margins into `acc`:
+    the peak of joints 6 and 7, and the joint that came closest to a limit."""
+    jids = h.ch["arm"].joint_ids
+    q = h.robot.data.joint_pos[0, jids]
+    lim = h.robot.data.soft_joint_pos_limits[0, jids]
+    deg = (q * 57.2958).tolist()
+    margin = (torch.minimum(q - lim[:, 0], lim[:, 1] - q) * 57.2958).tolist()
+    acc["j6_peak_deg"] = max(acc.get("j6_peak_deg", 0.0), abs(deg[5]))
+    acc["j7_peak_deg"] = max(acc.get("j7_peak_deg", 0.0), abs(deg[6]))
+    i = int(np.argmin(margin))
+    if margin[i] < acc.get("margin_min_deg", float("inf")):
+        acc["margin_min_deg"] = margin[i]
+        acc["margin_min_joint"] = f"{h.ch['side']}_joint{i + 1}"
+
+
 def main() -> int:
     out = os.path.expanduser(args_cli.out or f"~/{TASK.name}_out")
     os.makedirs(out, exist_ok=True)
 
     cfg = TASK.make_scene_cfg(KNOBS)
+    # The scene camera also feeds the per-episode review video of a recording.
+    want_scene_cam = bool(args_cli.video or args_cli.record_dataset)
     h = Harness(cfg, device=args_cli.device, grid=tuple(args_cli.grid),
                 robot_usd=args_cli.robot_usd,
-                scene_cam=TASK.scene_cam if args_cli.video else None)
+                scene_cam=TASK.scene_cam if want_scene_cam else None)
     TASK.apply_collision(h)
     h.start()
     task_id = TASK.task_id(KNOBS)
@@ -192,8 +219,39 @@ def main() -> int:
         return (float(d.penetration_depth[0].max()) * 1e3,
                 float(contact_area(d.penetration_depth, *h.pitch)["area_mm2"][0]))
 
-    def record_frame():
-        h.update_cams()
+    # ---- third-person review video: one mp4 per kept dataset episode ----
+    # Named by the DATASET episode index, which skips dropped episodes, so
+    # stage 3 can pair each video with the episode it converts.
+    review = {"dir": None, "writer": None, "path": None}
+    if writer is not None and h.scene_cam is not None:
+        from pathlib import Path
+
+        from sim.video import Mp4Writer
+        root = Path(os.path.expanduser(args_cli.record_dataset))
+        review["dir"] = root.joinpath(*REVIEW_DIRNAME)
+
+    def review_add(frame: np.ndarray) -> None:
+        if review["dir"] is None:
+            return
+        if review["writer"] is None:
+            review["path"] = review["dir"] / "_pending.mp4"
+            review["writer"] = Mp4Writer(review["path"], CTRL_FPS)
+        review["writer"].add(frame)
+
+    def review_close(ep_index: int | None) -> None:
+        """Keep the pending video as `episode_<ep_index>.mp4`, or drop it."""
+        if review["writer"] is None:
+            return
+        review["writer"].close()
+        if ep_index is None:
+            review["path"].unlink(missing_ok=True)
+        else:
+            review["path"].rename(review["dir"] / f"episode_{ep_index:06d}.mp4")
+        review["writer"] = None
+
+    def record_frame() -> np.ndarray:
+        # Taken before the physics step, so no camera has been updated yet.
+        h.update_cams(include_scene_cam=True)
         fr = {f"observation.images.{k}": h.cam_rgb(k) for k in ("base", "left_wrist", "right_wrist")}
         fr["observation.state"] = h.to16(h.robot.data.joint_pos[0])
         fr["action"] = h.action16_recorded()
@@ -204,8 +262,12 @@ def main() -> int:
             fr[f"observation.depth.{sname}_tactile"] = pen
             fr[f"observation.ff_shear.{sname}_tactile"] = sh
         writer.add_frame(fr)
+        if h.scene_cam is not None:
+            review_add(h.cam_rgb("scene"))
+        return fr["observation.state"]
 
     episodes = []
+    n_saved = 0                      # dataset episode index of the next kept episode
     for ep in range(args_cli.episodes):
         # ---- reset ----
         # One RNG stream per episode, seeded (seed, ep): episode N gets the same
@@ -219,6 +281,7 @@ def main() -> int:
         pregrasp_failed = False
         for attempt in range(3):
             ctx = None
+            review_close(None)       # an abandoned attempt keeps no video
             try:
                 ctx = TASK.reset(h, ep_rng, ep, KNOBS)
             except RetryReset as e:
@@ -229,10 +292,12 @@ def main() -> int:
                 print("STEP nominal tactile captured", flush=True)
 
             rec = {"episode": ep, "arm": ctx["side"], "timeouts": []}
+            arm_acc: dict = {}
             # Record every key the task's `signals` produces, so task-specific
             # quantities reach `build_trace`.
             hist = {"t": []}
             recording = TASK.handover_phase is None  # t=0 tasks record from the start
+            rec_i = 0                # sim steps since recording started
             pregrasp_failed = False
             t_ep = 0.0
             trace_rows = []
@@ -257,6 +322,17 @@ def main() -> int:
                     else:
                         h.step_ik_toward(target, grip, quat,
                                          max_speed=v, max_ang_speed=w)
+                    # A dataset frame is taken after the command is set and
+                    # before the physics step, so the first frame of a t = 0
+                    # episode is the settled HOME.
+                    if recording:
+                        if rec_i % REC_EVERY == 0:
+                            _arm_extremes(h, arm_acc)
+                            if "start_state" not in rec:
+                                rec["start_state"] = h.to16(h.robot.data.joint_pos[0])
+                            if writer is not None:
+                                record_frame()
+                        rec_i += 1
                     h.step()
                     if vid is not None:
                         h.scene_cam.update(DT)
@@ -266,8 +342,6 @@ def main() -> int:
                                 + (f"  wp {ctx.get('wp_idx', 0) + 1}" if name == "search" else "")
                                 + (f"  depth {ctx.get('depth_now', 0.0) * 1e3:4.1f} mm"
                                    if name in ("search", "insert") else "")))
-                    if writer is not None and recording and frame_i % REC_EVERY == 0:
-                        record_frame()
                     frame_i += 1
                     t_phase += DT
                     t_ep += DT
@@ -320,6 +394,7 @@ def main() -> int:
                 if not recording and nxt == TASK.handover_phase:
                     if TASK.handover_ok(h, ctx, sig):
                         recording = True
+                        rec_i = 0
                         t_ep = 0.0
                         print(f"STEP ep{ep}: recording from {nxt} "
                               f"(area {sum(sig['areas'].values()):.0f} mm2)", flush=True)
@@ -341,16 +416,25 @@ def main() -> int:
         if ctx is None:
             # Three draws and the task rejected all of them. Not the same thing
             # as a failed grasp: the episode never started.
+            review_close(None)
             episodes.append({"episode": ep, "arm": None,
                              "verdict": {"success": False, "failure": "reset",
                                          "metrics": {}, "notes": []}})
             continue
         if pregrasp_failed or not recording:
+            review_close(None)
+            rec.pop("start_state", None)
             print(f"STEP ep{ep}: SKIPPED (prologue failed 3x)", flush=True)
             rec["verdict"] = {"success": False, "failure": "pregrasp", "metrics": {}, "notes": []}
             episodes.append(rec)
             continue
 
+        rec["arm_extremes"] = {k: (round(v, 1) if isinstance(v, float) else v)
+                               for k, v in arm_acc.items()}
+        st = rec.pop("start_state", None)
+        if st is not None and TASK.handover_phase is None:
+            rec["start_pose_err_deg"] = round(float(np.abs(st[ARM_SLOTS] - HOME_ARM_DEG).max()), 2)
+            rec["start_grip_mm"] = [round(float(st[i]), 2) for i in GRIP_SLOTS]
         if args_cli.dump_trace:
             with open(os.path.join(out, f"trace_ep{ep}.json"), "w") as f:
                 json.dump({"episode": ep, "arm": ctx["side"], "rows": trace_rows}, f)
@@ -367,15 +451,23 @@ def main() -> int:
             if rec["demo_clean"] or args_cli.keep_unclean:
                 stats = writer.save_episode(scalars={"is_intervention": 0, "control_mode": 0,
                                                      "is_success": int(v.success)})
+                review_close(n_saved)
+                rec["dataset_episode_index"] = n_saved
+                n_saved += 1
                 print(f"STEP dataset episode {ep}: {stats}", flush=True)
             else:
                 n_drop = writer.discard_episode()
+                review_close(None)
                 print(f"STEP dataset episode {ep}: DROPPED ({n_drop} frames; "
                       f"success={v.success} stalled={rec.get('insert_stalled')} "
                       f"attempts={rec.get('prologue_attempts')})", flush=True)
         episodes.append(rec)
+        ext = rec["arm_extremes"]
         print(f"STEP episode {ep}: {'OK ' if v.success else 'FAIL'} {v.failure.value:14s} "
-              f"arm={ctx['side']} timeouts={rec['timeouts']}", flush=True)
+              f"arm={ctx['side']} timeouts={rec['timeouts']} "
+              f"start_err={rec.get('start_pose_err_deg')}deg grip0={rec.get('start_grip_mm')}mm "
+              f"j6max={ext.get('j6_peak_deg')} j7max={ext.get('j7_peak_deg')} "
+              f"margin={ext.get('margin_min_deg')}@{ext.get('margin_min_joint')}", flush=True)
 
     if vid is not None:
         stats = vid.close()

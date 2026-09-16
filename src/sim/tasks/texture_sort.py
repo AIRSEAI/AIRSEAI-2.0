@@ -28,7 +28,7 @@ from sim.envs.texture_sort import (
     sample_layout,
 )
 from sim.tactile import apply_sdf_collision, apply_triangle_mesh_collision
-from sim.tasks.scene_utils import retarget_pads, top_down_grasp_quat
+from sim.tasks.scene_utils import oblique_grasp_quat, retarget_pads
 from sim.tasks.spec import Knob, Task
 
 # Controller parameters.
@@ -51,6 +51,11 @@ HOVER_TCP_Z = GRASP_TCP_Z + 0.060
 # m, gel centre above the table when releasing: the puck's base hangs 45 mm
 # below it and must clear the cup rim.
 BIN_DROP_Z = TABLE_TOP_Z + BIN_WALL_HEIGHT + 0.070
+# m back along the blade from the grasp point to the pre-grasp point: the hand
+# lines up there and then moves in along its own blade.
+APPROACH_BACKOFF = 0.060
+# m above the pre-grasp point where `home` ends, so the wrist turns clear of the puck.
+HOME_ABOVE_PREGRASP = 0.030
 
 # --- closing ramp ----------------------------------------------------------
 # Fast across the free travel, slow once a pad feels anything, so the preload
@@ -78,6 +83,7 @@ RIPPLE_PATCH_TAXELS = 200     # minimum loaded taxels for a usable sample
 # displacement the first one. The command point advances from the previous
 # command, so the position term keeps pulling while pose IK turns the wrist.
 FREE_SPEED = 0.30
+APPROACH_SPEED = 0.10         # along the blade into the grasp
 CARRY_SPEED = 0.18
 CARRY_PHASES = ("close", "classify", "lift", "above_bin", "lower")
 
@@ -91,7 +97,7 @@ XY_BIAS_MAX = 0.030           # m
 BIAS_PHASES = ("above_bin", "lower")
 
 # --- phase completion ------------------------------------------------------
-ORIENT_TILT_DEG = 3.0         # blade tilt that counts as levelled
+ORIENT_TOL_DEG = 3.0          # wrist within this of its grasp orientation
 # Measured gel gap, m, before the level orientation is computed. The jaw axis
 # is the difference of the two gel centroids, which has no reliable sign while
 # the shut gels overlap.
@@ -113,6 +119,8 @@ class TextureSortTask(Task):
                            "total penetration across the two pads to close to"),
         "sdf_resolution": Knob(96,
                                "PhysX SDF grid resolution for the pucks", type=int),
+        "grasp_pitch_deg": Knob(45.0, "blade pitch below horizontal at the grasp, deg"),
+        "grasp_yaw_deg": Knob(0.0, "blade heading in the world xy plane, deg; 0 is +x"),
     }
     phases = [
         ("home", 2.0), ("above_target", 2.5), ("orient", 3.0), ("descend", 5.0),
@@ -165,11 +173,9 @@ class TextureSortTask(Task):
         retarget_pads(h.sensors, spec.name)
         h.reset_robot()
         h.reset_ik()
-        # Settle with the jaws SHUT, at the robot's own HOME gripper command,
-        # so opening them is the demonstration's first action.
-        for _ in range(SETTLE_STEPS):
-            h.step_ik_toward(h.tcp_pos(), START_JAW_WIDTH["right"])
-            h.step()
+        # Hold HOME exactly, jaws shut, while the puck settles: the first
+        # recorded frame is the robot's HOME.
+        h.hold_default(SETTLE_STEPS)
 
         # Aim at where the puck IS, read after the settle: only the class is
         # hidden, not the pose.
@@ -195,6 +201,21 @@ class TextureSortTask(Task):
             "blade_tilt_deg": float("nan"),
             "drop_offset_mm": float("nan"),
         }
+
+    @staticmethod
+    def _blade(knobs) -> _np.ndarray:
+        """Unit blade direction at the grasp, from the pitch and heading knobs."""
+        th = _np.radians(float(knobs["grasp_pitch_deg"]))
+        psi = _np.radians(float(knobs["grasp_yaw_deg"]))
+        return _np.array([_np.cos(th) * _np.cos(psi), _np.cos(th) * _np.sin(psi), -_np.sin(th)])
+
+    @staticmethod
+    def _wrist_err_deg(h, ctx) -> float:
+        """Angle between the TCP orientation and the locked grasp orientation."""
+        if ctx["level_quat"] is None:
+            return 180.0
+        d = abs(float(_np.dot(h.tcp_quat(), _np.asarray(ctx["level_quat"], dtype=float))))
+        return float(_np.degrees(2.0 * _np.arccos(min(1.0, d))))
 
     # ---- signals -----------------------------------------------------------
     def _ripple_mm(self, h, ctx) -> float:
@@ -241,21 +262,27 @@ class TextureSortTask(Task):
     def phase_target(self, h, ctx, name, t_phase, sig, knobs):
         seat, bins = ctx["seat"], ctx["bins"]
         grip = ctx["grip"]
+        grasp = _np.array([seat[0], seat[1], GRASP_TCP_Z])
+        pregrasp = grasp - self._blade(knobs) * APPROACH_BACKOFF
         if name == "home":
-            grip = OPEN_WIDTH
-            tgt = [seat[0], seat[1], HOVER_TCP_Z]
-            # Armed in the first phase so the wrist has the whole approach to
-            # slew; position IK only until the jaws have opened the gels apart.
-            if (ctx["level_quat"] is None
-                    and gel_gap(h.grip_measured()) >= LEVEL_MIN_GEL_GAP):
-                ctx["level_quat"] = top_down_grasp_quat(
-                    h.tcp_quat(), h.jaw_axis(), h.approach_axis())
+            # Jaws still shut, as HOME leaves them; `above_target` opens them.
+            grip = START_JAW_WIDTH["right"]
+            tgt = [pregrasp[0], pregrasp[1], pregrasp[2] + HOME_ABOVE_PREGRASP]
         elif name in ("above_target", "orient"):
             grip = OPEN_WIDTH
-            tgt = [seat[0], seat[1], GRASP_TCP_Z + 0.05]
+            tgt = pregrasp.tolist()
+            # Position IK only until the jaws have opened the gels apart: the
+            # jaw axis has no reliable sign while they overlap.
+            if (ctx["level_quat"] is None
+                    and gel_gap(h.grip_measured()) >= LEVEL_MIN_GEL_GAP):
+                ctx["level_quat"] = oblique_grasp_quat(
+                    h.tcp_quat(), h.jaw_axis(), h.approach_axis(),
+                    float(knobs["grasp_pitch_deg"]), float(knobs["grasp_yaw_deg"]))
         elif name == "descend":
+            # In along the blade: the command point slides from the pre-grasp
+            # point to the grasp point on a straight line.
             grip = OPEN_WIDTH
-            tgt = [seat[0], seat[1], GRASP_TCP_Z]
+            tgt = grasp.tolist()
         elif name == "close":
             # Latch on the MEASURED jaw position once the preload is reached;
             # the drive lags a moving command and would keep closing into it.
@@ -301,7 +328,8 @@ class TextureSortTask(Task):
                 ctx["xy_bias"] + XY_BIAS_GAIN * (_np.asarray(tgt[:2]) - h.tcp_pos()[:2]),
                 -XY_BIAS_MAX, XY_BIAS_MAX)
             tgt = [tgt[0] + ctx["xy_bias"][0], tgt[1] + ctx["xy_bias"][1], tgt[2]]
-        speed = CARRY_SPEED if name in CARRY_PHASES else FREE_SPEED
+        speed = (CARRY_SPEED if name in CARRY_PHASES
+                 else APPROACH_SPEED if name == "descend" else FREE_SPEED)
         return self._rate_limited(h, ctx, tgt, speed), grip, ctx["level_quat"]
 
     def _rate_limited(self, h, ctx, goal, speed: float) -> list:
@@ -323,7 +351,7 @@ class TextureSortTask(Task):
         if name in ("home", "above_target"):
             return h.tcp_err(target) < 0.015
         if name == "orient":
-            return t_phase > 0.3 and sig["tilt"] < ORIENT_TILT_DEG
+            return t_phase > 0.3 and self._wrist_err_deg(h, ctx) < ORIENT_TOL_DEG
         if name == "descend":
             return h.tcp_err(target) < 0.005
         if name == "close":
@@ -403,7 +431,9 @@ class TextureSortTask(Task):
     def report_extra(self, knobs) -> dict:
         return {"light_scale": float(knobs["light_scale"]),
                 "rough_thresh_mm": float(knobs["rough_thresh_mm"]),
-                "preload_mm": float(knobs["preload_mm"])}
+                "preload_mm": float(knobs["preload_mm"]),
+                "grasp_pitch_deg": float(knobs["grasp_pitch_deg"]),
+                "grasp_yaw_deg": float(knobs["grasp_yaw_deg"])}
 
 
 TASK = TextureSortTask()

@@ -21,7 +21,7 @@ from sim.dims.handover_cup_transfer import (
     CUP_HEIGHT,
 )
 from sim.envs.bimanual_tactile import (
-    ARM_LIFTED_JOINT_POS,
+    REAL_HOME_JOINT_POS,
     TABLE_TOP_Z,
     BimanualTactileSceneCfg,
     point_pads_at,
@@ -102,15 +102,11 @@ SPAWN_YAW_JITTER = 20.0              # degrees, uniform +/- on the bar's yaw, pe
 
 
 # ----- start state -----------------------------------------------------------
-# Jaw opening at the start of every episode, metres per jaw.
-START_JAW_WIDTH = {"right": 0.010, "left": 0.010}
-# Arm pose at the start of every episode: arms spread wide so neither gel is
-# near the bar or a cup, and each arm has a clean descent onto its own cup.
-START_JOINT_POS = dict(ARM_LIFTED_JOINT_POS) | {
-    "openarm_left_joint2": -0.55, "openarm_right_joint2": 0.55,
-    "openarm_left_joint4": 1.9, "openarm_right_joint4": 1.9,
-    "openarm_left_joint6": -0.6, "openarm_right_joint6": -0.6,
-}
+# Jaw opening at the start of every episode, metres per jaw: shut, as the
+# robot's HOME leaves them.
+START_JAW_WIDTH = {"right": 0.0, "left": 0.0}
+# Arm pose at the start of every episode: the robot's own HOME.
+START_JOINT_POS = REAL_HOME_JOINT_POS
 # The prim every tactile pad senses.
 PAD_TARGET = "{ENV_REGEX_NS}/bar"
 
