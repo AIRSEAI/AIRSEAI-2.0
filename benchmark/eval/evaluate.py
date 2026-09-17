@@ -130,18 +130,21 @@ def main() -> int:
     print(f"EVAL observation keys (from the checkpoint): {keys}", flush=True)
 
     episodes = []
+    nominal_captured = False
     for ep in range(args_cli.episodes):
         # One RNG stream per episode; reset and prologue are retried together.
         ep_rng = np.random.default_rng([args_cli.seed, ep])
         ctx, handoff = None, False
-        for attempt in range(3):
+        for _attempt in range(3):
             try:
                 ctx = TASK.reset(h, ep_rng, ep, KNOBS)
             except RetryReset as e:
                 print(f"EVAL ep{ep}: reset retry ({e})", flush=True)
                 continue
-            if ep == 0 and attempt == 0:
+            # Once, after the first reset that succeeds.
+            if not nominal_captured:
                 h.initial_render()
+                nominal_captured = True
                 # Check the checkpoint's keys once, after the nominal tactile
                 # render exists.
                 h.update_cams()

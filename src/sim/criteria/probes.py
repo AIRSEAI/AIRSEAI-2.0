@@ -73,21 +73,25 @@ def insertion_depth(pos, quat, *, length: float, hole_xy, mouth_z: float,
     return max(0.0, mouth_z - float(tip[2]))
 
 
-def seated_in_cup(pos, quat, *, length: float, cup_xy, bore_r: float,
-                  rim_z: float, max_tilt_deg: float = 30.0) -> float:
-    """How far a bar's foot is below a cup's rim, zero unless it is in the cup.
+def seated_in_cup(pos, quat, *, length: float, cup_xy, rim_z: float, xy_tol: float,
+                  max_tilt_deg: float = 10.0) -> float:
+    """How far a sleeve's lower rim is below a cup's rim, zero unless the
+    sleeve stands centred in the cup.
 
-    Gated like `insertion_depth`: the foot must be below the rim, inside the
-    bore in xy, and the bar near upright. `max_tilt_deg` is looser than for a
-    peg because a thin bar in a wide bore can lean and still be in the cup.
+    Gated like `insertion_depth`: the lower rim must be below the cup's rim,
+    its centre within `xy_tol` of the cup's centre, and the sleeve near
+    upright. The gate reads the lower rim, not the sleeve's middle: a seated
+    sleeve leaning a few degrees against the bore moves its middle further
+    than its rim. A sleeve resting on something in the cup off its centre, or
+    lying across the cup, reads zero.
     """
-    tip = tip_position(pos, quat, length)
+    rim = tip_position(pos, quat, length)
     if tilt_deg(quat) > max_tilt_deg:
         return 0.0
     cup_xy = np.asarray(cup_xy, dtype=float).reshape(2)
-    if float(np.linalg.norm(tip[:2] - cup_xy)) > bore_r:
+    if float(np.linalg.norm(rim[:2] - cup_xy)) > xy_tol:
         return 0.0
-    return max(0.0, rim_z - float(tip[2]))
+    return max(0.0, rim_z - float(rim[2]))
 
 
 def seated_on_shaft(pos, quat, *, height: float, shaft_xy, shaft_top_z: float,

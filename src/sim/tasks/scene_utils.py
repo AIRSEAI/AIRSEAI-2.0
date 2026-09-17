@@ -196,7 +196,8 @@ def jaw_tilt_deg(jaw_axis_w) -> float:
 def join_split_shells(half_a: str, half_b: str, *, stiffness: float,
                       damping: float, break_force: float, travel: float,
                       gap: float, axis: str = "Y",
-                      name: str = "split_joint") -> str:
+                      name: str = "split_joint", rest: float = 0.0,
+                      limits: tuple[float, float] | None = None) -> str:
     """Author (or re-author) the D6 joint that holds a split object together.
 
     A hollow part modelled as two rigid half-shells gets its compliance from
@@ -205,6 +206,11 @@ def join_split_shells(half_a: str, half_b: str, *, stiffness: float,
     of `stiffness` (N/m, along the gripper's closing axis), limits it to
     `travel`, and carries `physics:breakForce` (`inf` for a part that only
     deforms). The shells are collision-filtered against each other.
+
+    `rest` is where the spring is relaxed, as a change in separation from the
+    spawn `gap`: zero for a part at rest as spawned, positive for one that
+    spawns compressed and opens when let go. `limits` replaces the symmetric
+    `travel` with an explicit (low, high) change in separation.
 
     A D6 joint, because a drive on a PhysX prismatic joint discards its
     stiffness. `breakForce` is ignored on articulation joints, so the shells
@@ -244,10 +250,11 @@ def join_split_shells(half_a: str, half_b: str, *, stiffness: float,
     for token in ("transX", "transY", "transZ", "rotX", "rotY", "rotZ"):
         limit = UsdPhysics.LimitAPI.Apply(prim, token)
         if token == free:
-            # Symmetric, so the part is squeezable whichever sign the
-            # closing direction has.
-            limit.CreateLowAttr(-float(travel))
-            limit.CreateHighAttr(float(travel))
+            # Symmetric by default, so the part is squeezable whichever sign
+            # the closing direction has.
+            low, high = limits if limits is not None else (-float(travel), float(travel))
+            limit.CreateLowAttr(float(low))
+            limit.CreateHighAttr(float(high))
         else:
             limit.CreateLowAttr(1.0)
             limit.CreateHighAttr(-1.0)
@@ -264,7 +271,7 @@ def join_split_shells(half_a: str, half_b: str, *, stiffness: float,
     drive.CreateTypeAttr("force")
     drive.CreateStiffnessAttr(float(stiffness))
     drive.CreateDampingAttr(float(damping))
-    drive.CreateTargetPositionAttr(0.0)
+    drive.CreateTargetPositionAttr(float(rest))
     drive.CreateMaxForceAttr(float("inf"))
 
     # Filter the pair from both sides; a single-sided filter is not reliable.

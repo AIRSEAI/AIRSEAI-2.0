@@ -119,11 +119,6 @@ def _handover_cfg():
     return HandoverSceneCfg(num_envs=1, env_spacing=3.0)
 
 
-def _cups_cfg():
-    from sim.envs.handover_cup_transfer import HandoverCupTransferSceneCfg
-    return HandoverCupTransferSceneCfg(num_envs=1, env_spacing=3.0)
-
-
 def _sleeve_cfg():
     from sim.envs.sleeve_on_shaft import SleeveOnShaftSceneCfg
     return SleeveOnShaftSceneCfg(num_envs=1, env_spacing=3.0)
@@ -149,14 +144,11 @@ ENVS = {
                              tri_prims=("board",),
                              look_at=(0.20, -0.08, 0.18),
                              eye=(1.05, -0.80, 0.62)),
-    # The bar is parked under the floor until the controller places it, so
-    # this env on its own shows an empty pair of grippers by design.
-    "handover": EnvSpec(_handover_cfg, sdf_prims=("manipuland",),
-                        look_at=(0.26, -0.04, 0.20), eye=(0.70, -0.34, 0.44)),
-    # Framed to show both cup rims and the bar clear of the arms' start pose.
-    "handover_cup_transfer": EnvSpec(
-        _cups_cfg, sdf_prims=("bar",), tri_prims=("cup_src", "cup_dst"),
-        look_at=(0.26, 0.0, TABLE_TOP_Z + 0.05), eye=(0.92, -0.60, 0.50)),
+    # Framed to show both cups and the sleeve standing in the source one.
+    "handover": EnvSpec(_handover_cfg, sdf_prims=("sleeve_a", "sleeve_b"),
+                        tri_prims=("cup_source", "cup_target"),
+                        look_at=(0.22, 0.0, TABLE_TOP_Z + 0.05), eye=(0.95, -0.50, 0.60),
+                        sdf_resolution=128),
     "sleeve_on_shaft": EnvSpec(
         _sleeve_cfg,
         sdf_prims=("soft_a", "soft_b", "stiff_a", "stiff_b"),
