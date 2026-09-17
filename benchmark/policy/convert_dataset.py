@@ -20,11 +20,16 @@ from __future__ import annotations
 
 import argparse
 import shutil
+import subprocess
+import tempfile
 from pathlib import Path
 
+import av
 import numpy as np
 import pyarrow.parquet as pq
+from lerobot.datasets.lerobot_dataset import LeRobotDataset
 
+from lerobot_tactile_ext.codec import encode_data_frames
 from tactile_codec import PROFILES, dequantize
 from tactile_codec.tacff import tacff_image
 
@@ -43,7 +48,6 @@ def _short(pad: str) -> str:
 
 
 def decode_mp4(path: Path) -> np.ndarray:
-    import av
     frames = []
     with av.open(str(path)) as c:
         for f in c.decode(c.streams.video[0]):
@@ -51,16 +55,26 @@ def decode_mp4(path: Path) -> np.ndarray:
     return np.stack(frames)
 
 
+def _gbrp_plane_order() -> list[int]:
+    """Plane indices that put the ffmpeg CLI's gbrp16le output back into the
+    channel order the frames were written in, found on a probe frame whose
+    three channels differ."""
+    probe = np.zeros((1, 2, 2, 3), np.uint16)
+    probe[..., 0], probe[..., 1], probe[..., 2] = 1000, 2000, 3000
+    with tempfile.TemporaryDirectory() as d:
+        p = Path(d) / "probe.mkv"
+        encode_data_frames(probe, p, fps=FPS)
+        raw = subprocess.run(
+            ["ffmpeg", "-v", "error", "-i", str(p),
+             "-f", "rawvideo", "-pix_fmt", "gbrp16le", "-"],
+            stdout=subprocess.PIPE, check=True).stdout
+    planes = np.frombuffer(raw, np.uint16).reshape(3, 2, 2)[:, 0, 0]
+    return [int(np.flatnonzero(planes == v)[0]) for v in (1000, 2000, 3000)]
+
+
 def fast_decode_mkv(path: Path, original_channels: int) -> np.ndarray:
-    """ffv1/mkv -> uint16 frames via the ffmpeg CLI (faster than per-frame PyAV).
-
-    The plane order of the gbrp16le output is calibrated against a PyAV decode
-    of the first frame, so the values match a PyAV decode.
-    """
-    import subprocess
-
-    import av
-
+    """ffv1/mkv -> uint16 frames via the ffmpeg CLI (faster than per-frame PyAV),
+    channels in the order they were written."""
     with av.open(str(path)) as c:
         st = c.streams.video[0]
         h, w = st.codec_context.height, st.codec_context.width
@@ -73,31 +87,11 @@ def fast_decode_mkv(path: Path, original_channels: int) -> np.ndarray:
         stdout=subprocess.PIPE, check=True).stdout
 
     if single:
-        # (N,H,W), same shape contract as codec.decode_data_frames.
+        # (N,H,W)
         return np.frombuffer(raw, np.uint16).reshape(-1, h, w)
     planes = np.frombuffer(raw, np.uint16).reshape(-1, 3, h, w)
-    out = planes.transpose(0, 2, 3, 1)                    # (N,H,W,3), order fixed below
-
-    # calibrate plane order against PyAV on the first frame
-    with av.open(str(path)) as c:
-        ref = None
-        for f in c.decode(c.streams.video[0]):
-            ref = f.to_ndarray(format="gbrp16le")
-            break
-    ref = np.asarray(ref).astype(np.uint16)
-    if ref.ndim == 3 and ref.shape[0] == 3:               # (3,H,W) planar
-        ref = ref.transpose(1, 2, 0)
-    first = out[0]
-    if not np.array_equal(first, ref):
-        import itertools
-        for perm in itertools.permutations(range(3)):
-            if np.array_equal(first[..., list(perm)], ref):
-                out = out[..., list(perm)]
-                break
-        else:
-            raise RuntimeError(f"{path}: cannot align ffmpeg/PyAV plane order")
+    out = planes.transpose(0, 2, 3, 1)[..., _gbrp_plane_order()]
     return out[..., :original_channels]
-
 
 
 def copy_review_videos(src_root: Path, dst: Path, keep_eps: list[int],
@@ -206,8 +200,6 @@ def main() -> int:
     keep_eps = sorted({int(e) for e, ok in zip(ep_idx, success, strict=True) if ok})
     dropped = sorted({int(e) for e in ep_idx} - set(keep_eps))
     print(f"episodes: keep {len(keep_eps)}, drop (failed) {dropped}", flush=True)
-
-    from lerobot.datasets.lerobot_dataset import LeRobotDataset
 
     for variant in variants:
         dst = Path(args.dst_root) / f"{name}_{variant}"
