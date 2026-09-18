@@ -400,8 +400,16 @@ PY
 
 install_groot_deps() {
     # GR00T N1.5 policy deps; the probe below reports what is still missing.
-    pip_install transformers accelerate einops diffusers peft \
-                pyserial deepdiff jsonlines termcolor draccus wandb imageio || true
+    # lerobot sits on PYTHONPATH and is never pip-installed, so its own pins do
+    # not apply here. draccus is pinned because a newer one writes policy
+    # configs without the "type" key stage 5 reads back; transformers follows
+    # Isaac Lab's pin, taken from its setup.py so only one file carries it.
+    local tf
+    tf=$(grep -o 'transformers[=<>~!]*[0-9.]*' \
+              "$ISAACLAB_DIR/source/isaaclab/setup.py" 2>/dev/null | head -1)
+    [ -n "$tf" ] || tf="transformers"
+    pip_install "draccus==0.10.0" "$tf" accelerate einops diffusers peft \
+                pyserial deepdiff jsonlines termcolor wandb imageio || true
     python - <<'PY'
 import importlib, traceback
 try:
@@ -414,6 +422,29 @@ for name in ("groot", "gr00t", "gr00t_n1_5"):
         break
     except Exception as e:
         print("policy type", name, "not loadable:", type(e).__name__, e)
+PY
+}
+
+verify_policy_io() {
+    # Stage 4 writes a checkpoint that stage 5 loads back. Both ends break
+    # silently on the wrong dependency version, so check them here instead of
+    # after a training run.
+    python - <<'PY'
+import io
+import json
+
+import draccus
+from lerobot.policies.act.configuration_act import ACTConfig
+from lerobot.policies.factory import get_policy_class
+
+buf = io.StringIO()
+with draccus.config_type("json"):
+    draccus.dump(ACTConfig(), buf)
+if "type" not in json.loads(buf.getvalue()):
+    raise SystemExit("draccus writes no 'type' key: stage 5 cannot load a "
+                     "stage 4 checkpoint. Needs draccus==0.10.0.")
+get_policy_class("act")
+print("policy save/load ok")
 PY
 }
 
@@ -443,7 +474,7 @@ make_task_assets() {
     export OMNI_KIT_ACCEPT_EULA=YES ACCEPT_EULA=Y
     cd "$REPO_DIR" || return 1
     local t
-    for t in blind_peg_insertion texture_sort handover_cup_transfer sleeve_on_shaft; do
+    for t in blind_peg_insertion texture_sort handover sleeve_on_shaft; do
         rm -rf "assets/usds/$t"
         python "benchmark/run/make_${t}_assets.py" --headless || return 1
     done
@@ -484,6 +515,7 @@ step critical "repo -e .[codec,dataset,dev]" install_repo
 step critical "lerobot 0.5.1 (source, py3.11)" install_lerobot
 step critical "lerobot py3.11 compat patches" patch_lerobot_py311
 step soft     "gr00t policy deps"    install_groot_deps
+step critical "policy save/load"     verify_policy_io
 step critical "OpenArm robot asset"  fetch_robot_asset
 step critical "task assets (boards, balls, cans)" make_task_assets
 step soft     "verify"               verify
