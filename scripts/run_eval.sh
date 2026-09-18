@@ -16,6 +16,13 @@
 #   $4  seed        default 11
 #   OUT         report dir, default ~/<task>_eval
 #   VIDEO=1     also record base / active-wrist / third-person mp4s
+#   TRACE=1     also write each episode's per-step policy action, joint
+#               state and task signals as npz
+#   HORIZON_S   policy control time in seconds, default the task's
+#   ACTIONS_PER_CHUNK  if set, serve actions through a chunk queue like
+#               lerobot async inference (CHUNK_THRESHOLD default 0.5,
+#               AGGREGATE default weighted_average) instead of the
+#               checkpoint's own select_action
 #   INPROCESS=1 load the policy inside the Isaac process instead of serving
 #               it from a separate process
 #
@@ -32,6 +39,7 @@ EP="${3:-25}"
 SEED="${4:-11}"
 OUT="${OUT:-$HOME/${TASK}_eval}"
 VID_ARGS=(); [ "${VIDEO:-0}" = 1 ] && VID_ARGS=(--video_dir "${OUT}_videos")
+[ "${TRACE:-0}" = 1 ] && VID_ARGS+=(--trace_dir "${OUT}_traces")
 
 cd "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 LEROBOT_DIR="${AIRSEAI_LEROBOT_DIR:-$HOME/lerobot}"
@@ -42,6 +50,7 @@ PY="${SIM_PY:-$CONDA_ENVS/airseai/bin/python}"
 PORT="${PORT:-5555}"
 
 COMMON=(--task "$TASK" --headless --enable_cameras --episodes "$EP" --seed "$SEED" --out "$OUT")
+[ -n "${HORIZON_S:-}" ] && COMMON+=(--horizon_s "$HORIZON_S")
 
 if [ "$CKPT" = hold ] || [ "${INPROCESS:-0}" = 1 ]; then
     exec "$PY" benchmark/eval/evaluate.py "${COMMON[@]}" --policy "$CKPT" \
@@ -50,7 +59,11 @@ fi
 
 [ -f "$CKPT/config.json" ] || { echo "not a lerobot checkpoint dir: $CKPT"; exit 1; }
 SLOG=$(mktemp /tmp/policy_server.XXXX.log)
-"$PY" benchmark/policy/policy_server.py --policy "$CKPT" --port "$PORT" > "$SLOG" 2>&1 &
+QUEUE_ARGS=()
+[ -n "${ACTIONS_PER_CHUNK:-}" ] && QUEUE_ARGS=(--actions_per_chunk "$ACTIONS_PER_CHUNK"
+    --chunk_size_threshold "${CHUNK_THRESHOLD:-0.5}" --aggregate_fn_name "${AGGREGATE:-weighted_average}")
+"$PY" benchmark/policy/policy_server.py --policy "$CKPT" --port "$PORT" \
+    ${QUEUE_ARGS[@]+"${QUEUE_ARGS[@]}"} > "$SLOG" 2>&1 &
 SPID=$!
 trap 'kill $SPID 2>/dev/null' EXIT
 for _ in $(seq 1 90); do grep -q listening "$SLOG" && break; sleep 2; done

@@ -14,13 +14,16 @@ import inspect
 import numpy as np
 import pytest
 
-from sim.criteria import FailureMode, detect_mistiming
+from sim.criteria import FailureMode, detect_drop, detect_mistiming
 from sim.criteria.tasks import (
     bimanual_lift,
+    blind_peg_insertion,
     handover,
     hold_and_screw,
     sleeve_on_shaft,
     slip_detect_regrasp,
+    stack_cube,
+    texture_sort,
 )
 from sim.criteria.trace import EpisodeTrace, Verdict
 
@@ -222,6 +225,7 @@ def test_no_force_valued_thresholds_remain():
 def _sleeve(seat_mm, margin_mm=2.0, n=100, area=20.0):
     """A held sleeve whose seat depth (mm, scalar or per-step) and bore margin are given."""
     tr = _trace(n=n, area=area)
+    tr.object_pos = {"sleeve": tr.object_pos["manipuland"]}
     seat = np.asarray(seat_mm, dtype=float) * 1e-3
     tr.extra["seat_depth_m"] = np.full(n, float(seat)) if seat.ndim == 0 else seat
     margin = np.asarray(margin_mm, dtype=float) * 1e-3
@@ -290,6 +294,93 @@ def test_sleeve_seat_threshold_moves_the_verdict():
     tr = _sleeve(12.0)
     assert not sleeve_on_shaft(tr).success
     assert sleeve_on_shaft(tr, min_seat_m=0.010).success
+
+
+# -- held, then let fall ------------------------------------------------------
+
+def _dropped(obj, release_step=40, fall_m=0.10, n=100):
+    """Held for the first `release_step` steps, then no contact while the
+    object falls `fall_m` to rest."""
+    tr = _trace(n=n)
+    tr.pad_area = {p: np.where(np.arange(n) < release_step, 20.0, 0.0)
+                   for p in tr.pad_area}
+    pos = tr.object_pos.pop("manipuland")
+    pos[release_step + 5:, 2] -= fall_m
+    tr.object_pos[obj] = pos
+    return tr
+
+
+def test_drop_is_detected_after_a_hold():
+    fell, m = detect_drop(_dropped("target"), "target", (PAD_R1, PAD_R2))
+    assert fell
+    assert m["lost_at_s"] == pytest.approx(39 * 0.05)
+    assert m["moved_after_release_m"] == pytest.approx(0.10)
+
+
+def test_an_object_knocked_over_after_losing_contact_is_a_drop():
+    tr = _dropped("target", fall_m=0.0)
+    tr.object_pos["target"][60:, :2] += (0.08, -0.03)   # slid away, never lifted
+    fell, _ = detect_drop(tr, "target", (PAD_R1, PAD_R2))
+    assert fell
+
+
+def test_setting_an_object_down_is_not_a_drop():
+    fell, _ = detect_drop(_dropped("target", fall_m=0.005), "target", (PAD_R1, PAD_R2))
+    assert not fell
+
+
+def test_holding_to_the_end_is_not_a_drop():
+    fell, _ = detect_drop(_dropped("target", release_step=100), "target", (PAD_R1, PAD_R2))
+    assert not fell
+
+
+def test_opening_the_jaws_outside_the_goal_is_a_release_not_a_drop():
+    tr = _dropped("target")
+    jaw = np.full(100, 20.0)
+    jaw[20:] = np.linspace(20.0, 26.0, 80)          # opening ramp before the loss
+    tr.extra["jaw_command_mm"] = jaw
+    fell, m = detect_drop(tr, "target", (PAD_R1, PAD_R2))
+    assert not fell and m["jaw_opened_at_loss_mm"] > m["max_open_mm"]
+    assert texture_sort(tr, chosen_bin=-1, correct_bin=0).failure is FailureMode.UNFINISHED
+
+
+def test_losing_the_object_with_the_jaws_shut_is_still_a_drop():
+    tr = _dropped("target")
+    tr.extra["jaw_command_mm"] = np.full(100, 20.0)
+    fell, _ = detect_drop(tr, "target", (PAD_R1, PAD_R2))
+    assert fell
+
+
+def test_texture_sort_puck_dropped_outside_both_bins_is_slip():
+    v = texture_sort(_dropped("target"), chosen_bin=-1, correct_bin=0)
+    assert v.failure is FailureMode.SLIP
+
+
+def test_texture_sort_puck_dropped_into_the_wrong_bin_is_unfinished():
+    v = texture_sort(_dropped("target"), chosen_bin=1, correct_bin=0)
+    assert v.failure is FailureMode.UNFINISHED
+
+
+def test_texture_sort_puck_dropped_into_the_right_bin_is_a_success():
+    assert texture_sort(_dropped("target"), chosen_bin=0, correct_bin=0).success
+
+
+def test_stack_cube_dropped_off_the_stack_is_slip():
+    tr = _dropped("cube_a")
+    tr.object_pos["cube_b"] = np.tile([0.5, 0.0, 0.0], (100, 1))
+    assert stack_cube(tr).failure is FailureMode.SLIP
+
+
+def test_peg_dropped_short_of_the_hole_is_slip():
+    tr = _dropped("peg")
+    tr.extra["insertion_depth_m"] = np.zeros(100)
+    assert blind_peg_insertion(tr).failure is FailureMode.SLIP
+
+
+def test_sleeve_dropped_off_the_shaft_is_slip():
+    tr = _dropped("sleeve")
+    tr.extra["seat_depth_m"] = np.zeros(100)
+    assert sleeve_on_shaft(tr).failure is FailureMode.SLIP
 
 
 def test_every_failing_verdict_names_a_mode():

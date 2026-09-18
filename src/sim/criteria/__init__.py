@@ -11,6 +11,7 @@ so traces can be re-judged with other values.
 from __future__ import annotations
 
 from sim.criteria.detectors import (
+    detect_drop,
     detect_grasp_failure,
     detect_mistiming,
     detect_slip,
@@ -22,6 +23,7 @@ __all__ = [
     "EpisodeTrace",
     "FailureMode",
     "Verdict",
+    "detect_drop",
     "detect_grasp_failure",
     "detect_mistiming",
     "detect_slip",

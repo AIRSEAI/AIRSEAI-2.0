@@ -12,6 +12,7 @@ from __future__ import annotations
 import numpy as np
 
 from sim.criteria.detectors import (
+    detect_drop,
     detect_grasp_failure,
     detect_mistiming,
     detect_slip,
@@ -60,13 +61,15 @@ def sleeve_on_shaft(trace: EpisodeTrace, *, min_seat_m: float = SLEEVE_MIN_SEAT,
 
     Precedence: never held `GRASP_FAILURE` -> forced on through a shut bore
     `OVERFORCE` -> seated, success -> not seated with the bore shut while the
-    pads held the sleeve `OVERFORCE` -> otherwise `UNFINISHED`.
+    pads held the sleeve `OVERFORCE` -> held, then let fall (`detect_drop`)
+    `SLIP` -> otherwise `UNFINISHED`.
     """
     dropped, m_grasp = detect_grasp_failure(trace, pads)
+    fell, m_drop = detect_drop(trace, "sleeve", pads)
     notes: list[str] = []
     seat = trace.extra.get("seat_depth_m")
     margin = trace.extra.get("bore_margin_m")
-    metrics = {**m_grasp, "min_seat_m": min_seat_m}
+    metrics = {**m_grasp, **m_drop, "min_seat_m": min_seat_m}
     if seat is None:
         notes.append("no seat_depth_m recorded; cannot judge a seat")
         seat_arr = np.zeros(len(trace.t))
@@ -96,6 +99,8 @@ def sleeve_on_shaft(trace: EpisodeTrace, *, min_seat_m: float = SLEEVE_MIN_SEAT,
         return Verdict(True, metrics=metrics, notes=tuple(notes))
     if shut_while_held:
         return Verdict(False, FailureMode.OVERFORCE, metrics, tuple(notes))
+    if fell:
+        return Verdict(False, FailureMode.SLIP, metrics, tuple(notes))
     return Verdict(False, FailureMode.UNFINISHED, metrics, tuple(notes))
 
 
@@ -127,38 +132,47 @@ def blind_peg_insertion(trace: EpisodeTrace, *, min_depth_m: float = 0.025,
     final depth, not the deepest moment.
 
     The jam test is on tilt, not lateral force: tilt separates a peg still
-    upright in the grasp from one that has rotated out of it.
+    upright in the grasp from one that has rotated out of it. A peg held and
+    then let fall short of the depth (`detect_drop`) is also `SLIP`.
     """
     depth = np.asarray(trace.extra.get("insertion_depth_m", [0.0]), dtype=float)
     tilt = np.asarray(trace.extra.get("peg_tilt_deg", [0.0]), dtype=float)
     dropped, m_grasp = detect_grasp_failure(trace, pads)
+    fell, m_drop = detect_drop(trace, "peg", pads)
     metrics = {"depth_m": float(depth[-1]), "peak_depth_m": float(depth.max()),
                "min_depth_m": min_depth_m,
                "peak_tilt_deg": float(tilt.max()), "max_tilt_deg": max_tilt_deg,
-               **m_grasp}
+               **m_grasp, **m_drop}
     if dropped:
         return Verdict(False, FailureMode.GRASP_FAILURE, metrics)
     if float(tilt.max()) > max_tilt_deg:
         return Verdict(False, FailureMode.SLIP, metrics)
-    if float(depth[-1]) < min_depth_m:
-        return Verdict(False, FailureMode.UNFINISHED, metrics)
-    return Verdict(True, metrics=metrics)
+    if float(depth[-1]) >= min_depth_m:
+        return Verdict(True, metrics=metrics)
+    if fell:
+        return Verdict(False, FailureMode.SLIP, metrics)
+    return Verdict(False, FailureMode.UNFINISHED, metrics)
 
 
 def texture_sort(trace: EpisodeTrace, *, chosen_bin: int, correct_bin: int,
                  pads: tuple[str, ...] = RIGHT_PADS) -> Verdict:
     """Classify by surface, place in the matching bin.
 
-    A wrong bin reports UNFINISHED; the failure taxonomy is closed.
+    `chosen_bin` is the bin the puck ended in, -1 for neither. A wrong bin
+    reports UNFINISHED; the failure taxonomy is closed. A puck held and then
+    let fall outside both bins (`detect_drop`) is `SLIP`.
     """
     dropped, m_grasp = detect_grasp_failure(trace, pads)
+    fell, m_drop = detect_drop(trace, "target", pads)
     metrics = {"chosen_bin": float(chosen_bin), "correct_bin": float(correct_bin),
-               **m_grasp}
+               **m_grasp, **m_drop}
     if dropped:
         return Verdict(False, FailureMode.GRASP_FAILURE, metrics)
-    if chosen_bin != correct_bin:
-        return Verdict(False, FailureMode.UNFINISHED, metrics)
-    return Verdict(True, metrics=metrics)
+    if chosen_bin == correct_bin:
+        return Verdict(True, metrics=metrics)
+    if chosen_bin < 0 and fell:
+        return Verdict(False, FailureMode.SLIP, metrics)
+    return Verdict(False, FailureMode.UNFINISHED, metrics)
 
 
 # -- loosely coupled bimanual tasks -------------------------------------------
@@ -307,7 +321,8 @@ def stack_cube(trace: EpisodeTrace, *, cube_size: float = CUBE_SIZE,
     """Cube A stacked on cube B.
 
     A must end within half a cube of B in xy and one cube up, and the pads
-    must have held a load-bearing contact during the carry.
+    must have held a load-bearing contact during the carry. Cube A held and
+    then let fall off the stack (`detect_drop`) is `SLIP`.
     """
     a = np.asarray(trace.object_pos["cube_a"], dtype=float)[-1]
     b = np.asarray(trace.object_pos["cube_b"], dtype=float)[-1]
@@ -315,10 +330,13 @@ def stack_cube(trace: EpisodeTrace, *, cube_size: float = CUBE_SIZE,
     z_err = float(abs(a[2] - (b[2] + cube_size)))
     stacked = xy_err < cube_size / 2 and z_err < cube_size / 2
     dropped, m_grasp = detect_grasp_failure(trace, pads, area_mm2=min_area_mm2)
+    fell, m_drop = detect_drop(trace, "cube_a", pads, area_mm2=min_area_mm2)
     metrics = {"xy_err_m": xy_err, "z_err_m": z_err, "cube_size_m": cube_size,
-               **m_grasp}
+               **m_grasp, **m_drop}
     if dropped:
         return Verdict(False, FailureMode.GRASP_FAILURE, metrics)
-    if not stacked:
-        return Verdict(False, FailureMode.UNFINISHED, metrics)
-    return Verdict(True, metrics=metrics)
+    if stacked:
+        return Verdict(True, metrics=metrics)
+    if fell:
+        return Verdict(False, FailureMode.SLIP, metrics)
+    return Verdict(False, FailureMode.UNFINISHED, metrics)

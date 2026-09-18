@@ -41,6 +41,9 @@ parser.add_argument("--grid", type=int, nargs=2, default=(288, 384))
 parser.add_argument("--video_dir", default="",
                     help="if set, write per-episode mp4s (base, active wrist, "
                          "third-person) here")
+parser.add_argument("--trace_dir", default="",
+                    help="if set, write each episode's per-step record (policy "
+                         "action, joint state, task signals) here as an npz")
 AppLauncher.add_app_launcher_args(parser)
 _known, _rest = parser.parse_known_args()
 app_launcher = AppLauncher(_known)
@@ -179,6 +182,10 @@ def main() -> int:
                 frames["scene"].append(h.cam_rgb("scene"))
             with torch.inference_mode():
                 a16 = policy.select_action(obs)
+            hist.setdefault("state", []).append(h.state16()[0].cpu().numpy())
+            hist.setdefault("tcp_pos", []).append(np.asarray(h.tcp_pos(), dtype=float))
+            hist.setdefault("action", []).append(
+                np.asarray(torch.as_tensor(a16).reshape(-1).cpu(), dtype=np.float32))
             for _ in range(STEPS_PER_CTRL):
                 h.apply_action16(a16)
                 h.step()
@@ -189,6 +196,10 @@ def main() -> int:
                 break
 
         trace = TASK.build_trace(h, ctx, hist)
+        # The active arm's commanded jaw opening, so a criterion can tell a
+        # release from a drop.
+        jaw_col = 7 if ctx["side"] == "right" else 15
+        trace.extra.setdefault("jaw_command_mm", np.asarray(hist["action"])[:, jaw_col])
         v = TASK.verdict(trace, ctx, KNOBS)
         rec = {"episode": ep, "arm": ctx["side"], "success": v.success,
                "failure": v.failure.value, "metrics": v.metrics,
@@ -198,6 +209,8 @@ def main() -> int:
         episodes.append(rec)
         if frames is not None and frames["base"]:
             _write_videos(frames, os.path.expanduser(args_cli.video_dir), ep)
+        if args_cli.trace_dir:
+            _write_trace(hist, os.path.expanduser(args_cli.trace_dir), ep)
         print(f"EVAL episode {ep}: {'OK ' if v.success else 'FAIL'} {v.failure.value:14s} "
               f"arm={ctx['side']}", flush=True)
 
@@ -210,6 +223,23 @@ def main() -> int:
         json.dump(report, f, indent=2, default=float)
     print(f"EVAL_DONE {n_ok}/{len(episodes)}  report: {out}/eval_report.json", flush=True)
     return 0
+
+
+def _write_trace(hist: dict, tdir: str, ep: int) -> None:
+    """Numeric per-step fields as arrays; dict-valued signals (per-pad areas)
+    become one array per key, named <signal>.<key>."""
+    os.makedirs(tdir, exist_ok=True)
+    arrays = {}
+    for k, seq in hist.items():
+        if seq and isinstance(seq[0], dict):
+            for sub in seq[0]:
+                arrays[f"{k}.{sub}"] = np.asarray([d[sub] for d in seq], dtype=float)
+            continue
+        try:
+            arrays[k] = np.asarray(seq, dtype=float)
+        except (TypeError, ValueError):
+            pass
+    np.savez(os.path.join(tdir, f"episode_{ep:03d}.npz"), **arrays)
 
 
 def _write_videos(frames: dict, vdir: str, ep: int) -> None:
