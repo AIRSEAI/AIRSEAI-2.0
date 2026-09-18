@@ -238,6 +238,7 @@ class HandoverSceneCfg(BimanualTactileSceneCfg):
         ensure_assets()
         self.robot.init_state.joint_pos = start_joint_pos(START_JOINT_POS, START_JAW_WIDTH)
         park_default_manipuland(self, PARKED_POS)
+        self.manipuland.spawn.rigid_props.kinematic_enabled = True
         point_pads_at(self, PAD_TARGET)
 
     def set_target_bore(self, bore: float) -> float:

@@ -43,7 +43,12 @@ from sim.envs.handover import (
     sample_layout,
 )
 from sim.tactile import apply_sdf_collision, apply_triangle_mesh_collision
-from sim.tasks.scene_utils import join_split_shells, oblique_grasp_quat, retarget_pads
+from sim.tasks.scene_utils import (
+    enable_cross_arm_collision,
+    join_split_shells,
+    oblique_grasp_quat,
+    retarget_pads,
+)
 from sim.tasks.spec import Knob, RetryReset, Task
 
 __all__ = ["TASK", "HandoverTask"]
@@ -74,11 +79,13 @@ ORIENT_WIDTH = 0.009
 GRIP_MIN_WIDTH = 0.006
 
 # --- grasp geometry --------------------------------------------------------
-# Gel height on the sleeve, metres above its lower rim. The giver holds high,
-# above the source rim; the receiver holds lower on the same sleeve, above
-# the target rim once seated, with room between the two gel windows.
-GIVER_GRASP_H = 0.065
-RECEIVER_GRASP_H = 0.035
+# Gel height on the sleeve, metres above its lower rim. Each hand holds as
+# near the sleeve's middle as the other allows, so it hangs nearly upright
+# in the gel: the giver above the source rim, the receiver above the target
+# rim once seated, the two far enough apart that the hands' fingers do not
+# touch.
+GIVER_GRASP_H = 0.095
+RECEIVER_GRASP_H = 0.045
 # Blade heading per arm, degrees in the world xy plane: 30 degrees in toward
 # the centreline from straight ahead, where the wrist's sixth joint keeps its
 # margin; heading straight across puts it on its limit.
@@ -86,9 +93,11 @@ GRASP_YAW_DEG = {"left": -30.0, "right": 30.0}
 # The pick comes straight down onto the standing sleeve from this far above
 # its grasp point, metres.
 PICK_ABOVE = 0.030
-# The receiver turns its wrist this far back along its own blade from its
-# grasp point, then slides in along the blade.
-RECEIVE_BACKOFF = 0.060
+# The receiver turns its wrist this far back from its grasp point along the
+# horizontal part of its blade, at the grasp's height, then slides in level:
+# its fingers stay below the giver's, which reach down toward the sleeve
+# from above.
+RECEIVE_BACKOFF = 0.080
 HOME_ABOVE_PREGRASP = 0.030   # m above the pre-grasp point where `home` ends
 # How far the hand rises to draw the sleeve out of the source cup, beyond the
 # cup's depth, metres; the sleeve slips a few millimetres in the grasp as its
@@ -143,7 +152,9 @@ RECEIVE_AREA_MM2 = 60.0
 FREE_SPEED = 0.25
 APPROACH_SPEED = 0.10         # the last few centimetres into a grasp
 DRAW_SPEED = 0.03             # drawing the sleeve out of the source bore
-CARRY_SPEED = 0.12
+# The giver carries the sleeve by its upper part; slow enough that it does
+# not swing out of upright in the gel.
+CARRY_SPEED = 0.08
 # The receiver carries the sleeve by its lower part only, so it moves slowly
 # and keeps the grip it took until the sleeve is over the target.
 CARRY_HELD_SPEED = 0.06
@@ -230,7 +241,7 @@ class HandoverTask(Task):
     phases = [
         # -- left: out of the source cup, across to the exchange --------------
         ("home_l", 4.0), ("above_sleeve", 2.5), ("orient_l", 3.0), ("descend_l", 3.0),
-        ("close_l", 3.0), ("pinch", 3.0), ("draw", 3.0), ("carry_in", 4.0),
+        ("close_l", 3.0), ("pinch", 3.0), ("draw", 3.0), ("carry_in", 5.0),
         ("present", 1.0),
         # -- right: onto the lower part; the left lets go and backs off -------
         ("home_r", 4.0), ("standoff", 2.5), ("orient_r", 3.0), ("open_r", 1.0), ("slide_on", 2.5),
@@ -272,15 +283,21 @@ class HandoverTask(Task):
                     for p in SHELL_PRIMS)
         n_tri = sum(len(apply_triangle_mesh_collision(f"/World/envs/env_0/{c}"))
                     for c in ("cup_source", "cup_target"))
+        # The two hands work on one sleeve a few centimetres apart: let them
+        # collide with each other.
+        n_pairs = enable_cross_arm_collision("/World/envs/env_0/Robot")
+        # The shells' spring, authored with the scene: a joint that first
+        # appears at a reset kicks the standing sleeve out of its cup.
+        self._author_joint()
         lo, hi = gap_window(self._bore)
+        print(f"STEP cross-arm link pairs colliding: {n_pairs}", flush=True)
         print(f"STEP sdf on shells: {n_sdf}; cup meshes: {n_tri}; target bore "
               f"{self._bore * 1e3:.1f} mm, gap window {lo * 1e3:.2f}-{hi * 1e3:.2f} mm", flush=True)
 
     # ---- episode -----------------------------------------------------------
     def _author_joint(self) -> None:
         """The spring between the shells, relaxed at REST_GAP and stopped at
-        GAP_MIN. PhysX keeps the joint first authored in a process, so this
-        is re-authored with the same values every reset."""
+        GAP_MIN, before `sim.reset()` so it is built with the scene."""
         a, b = (f"/World/envs/env_0/{p}" for p in SHELL_PRIMS)
         opening = REST_GAP - SPAWN_GAP
         closing = SPAWN_GAP - GAP_MIN
@@ -313,7 +330,6 @@ class HandoverTask(Task):
         sx, sy = layout[SOURCE]
         h.place(h.scene[SHELL_PRIMS[0]], (sx, sy + SPAWN_GAP / 2), SLEEVE_SPAWN_Z, quat=SHELL_QUAT)
         h.place(h.scene[SHELL_PRIMS[1]], (sx, sy - SPAWN_GAP / 2), SLEEVE_SPAWN_Z, quat=SHELL_QUAT)
-        self._author_joint()
         # As at scene build: the right pads each sense one shell, the left
         # pads the same shell. Rebuilt every reset.
         retarget_pads({SIDE_PADS["right"][0]: h.sensors[SIDE_PADS["right"][0]]}, SHELL_PRIMS[0])
@@ -346,6 +362,10 @@ class HandoverTask(Task):
             # The held sleeve's grasp point relative to the TCP, measured once
             # each hand has the sleeve.
             "grasp_off": {"left": None, "right": None},
+            # How far the sleeve's lower rim hangs below the receiver's TCP,
+            # measured once the receiver holds it alone: the seat's depth is
+            # set from where the sleeve actually sits in the gel.
+            "rim_below": None,
             "regrasps": 0,
             "release_pos": None,
             "xy_bias": _np.zeros(2),
@@ -405,7 +425,7 @@ class HandoverTask(Task):
     def _receiver_grasp(self, h, ctx):
         """(grasp point, pre-grasp point) for the receiver, read from the sleeve."""
         grasp = _sleeve_point(h, RECEIVER_GRASP_H)
-        return grasp, grasp - _blade(ctx["pitch"], GRASP_YAW_DEG[RECEIVER]) * RECEIVE_BACKOFF
+        return grasp, grasp - _blade(0.0, GRASP_YAW_DEG[RECEIVER]) * RECEIVE_BACKOFF
 
     def _over(self, ctx, side: str, axis_xy) -> list:
         """TCP xy that puts the held sleeve's axis over `axis_xy`."""
@@ -444,6 +464,7 @@ class HandoverTask(Task):
         speed = FREE_SPEED
         tcp = h.tcp_pos()
         pick_z = CUP_FLOOR_Z + GIVER_GRASP_H
+        rim_below = RECEIVER_GRASP_H if ctx["rim_below"] is None else ctx["rim_below"]
 
         # -- left: pick from the source cup ---------------------------------
         if name == "home_l":
@@ -490,7 +511,7 @@ class HandoverTask(Task):
         elif name == "home_r":
             grip["right"] = 0.0
             _g, pre = self._receiver_grasp(h, ctx)
-            tgt = [pre[0], pre[1], pre[2] + HOME_ABOVE_PREGRASP]
+            tgt = pre.tolist()
         elif name in ("standoff", "orient_r", "open_r"):
             grip["right"] = OPEN_WIDTH if name == "open_r" else ORIENT_WIDTH
             if name == "orient_r":
@@ -520,7 +541,7 @@ class HandoverTask(Task):
         elif name in ("carry_out", "above_target"):
             # Held as taken; the separation is set once over the target.
             speed = CARRY_HELD_SPEED
-            z = CUP_RIM_Z[TARGET] + SEAT_APPROACH_CLEAR + RECEIVER_GRASP_H
+            z = CUP_RIM_Z[TARGET] + SEAT_APPROACH_CLEAR + rim_below
             if name == "carry_out":
                 tgt = [float(tcp[0]), float(tcp[1]), max(float(tcp[2]), z)]
             else:
@@ -543,7 +564,7 @@ class HandoverTask(Task):
                 tgt = [xy[0], xy[1], ctx["prev_goal"][2]]
             else:
                 speed = SEAT_SPEED
-                tgt = [xy[0], xy[1], CUP_FLOOR_Z + RECEIVER_GRASP_H]
+                tgt = [xy[0], xy[1], CUP_FLOOR_Z + rim_below]
         elif name == "open":
             grip["right"] = OPEN_WIDTH
             if ctx["release_pos"] is None:
@@ -634,6 +655,7 @@ class HandoverTask(Task):
                     and t_phase > RELEASE_OPEN_S)
             if done:
                 ctx["grasp_off"]["right"] = sig["sleeve_pos"][:2] - h.tcp_pos()[:2]
+                ctx["rim_below"] = float(h.tcp_pos()[2] - sig["bottom_z"])
             return done
         if name == "align":
             miss = float(_np.linalg.norm(_np.asarray(ctx["layout"][TARGET]) - sig["bottom_xy"]))

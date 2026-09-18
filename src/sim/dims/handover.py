@@ -43,11 +43,12 @@ __all__ = [
 # cups. Narrow enough that, opened into the target's window, it still clears
 # the fully open jaws by a few millimetres a side, so a hand letting go can
 # slide off it. Long enough for a grasp above the source cup's rim and for two
-# grasps one above the other at the exchange.
+# grasps one above the other at the exchange, with the two hands' fingers
+# clear of each other.
 SLEEVE_OUTER_R = 0.018
 SLEEVE_WALL = 0.003
 SLEEVE_INNER_R = SLEEVE_OUTER_R - SLEEVE_WALL
-SLEEVE_LENGTH = 0.080
+SLEEVE_LENGTH = 0.120
 SLEEVE_COLOR = (0.78, 0.80, 0.82)
 
 SHELL_MESH_NAMES = ("sleeve_half_a", "sleeve_half_b")

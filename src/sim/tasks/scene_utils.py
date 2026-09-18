@@ -1,7 +1,8 @@
 """Helpers shared by the task experts.
 
-Camera and wrist orientation quaternions, tactile pad retargeting, and the D6
-joint that holds a split object's two shells together.
+Camera and wrist orientation quaternions, tactile pad retargeting, the D6
+joint that holds a split object's two shells together, and collision between
+the two arms.
 """
 
 from __future__ import annotations
@@ -11,8 +12,9 @@ from typing import Any
 
 import numpy as np
 
-__all__ = ["align_frame_quat", "jaw_tilt_deg", "join_split_shells", "look_at",
-           "oblique_grasp_quat", "retarget_pads", "top_down_grasp_quat"]
+__all__ = ["align_frame_quat", "enable_cross_arm_collision", "jaw_tilt_deg",
+           "join_split_shells", "look_at", "oblique_grasp_quat", "retarget_pads",
+           "top_down_grasp_quat"]
 
 
 def look_at(eye, target, up=(0.0, 0.0, 1.0)) -> tuple[float, float, float, float]:
@@ -286,3 +288,61 @@ def join_split_shells(half_a: str, half_b: str, *, stiffness: float,
         if Sdf.Path(other) not in (rel.GetTargets() or []):
             rel.AddTarget(Sdf.Path(other))
     return path
+
+
+def enable_cross_arm_collision(robot_path: str, sides=("left", "right")) -> int:
+    """Let one arm's links collide with the other's, and nothing else within
+    the robot. Returns the number of link pairs left colliding.
+
+    Both arms are one articulation, whose self-collision is all or nothing:
+    turned on as is, a gripper's own gels, which overlap with the jaws shut,
+    push each other apart. So every pair of links on the same arm, and every
+    pair involving a link on neither arm, is filtered out. Must run before
+    `sim.reset()`.
+    """
+    import omni.usd
+    from pxr import PhysxSchema, Sdf, UsdPhysics
+
+    stage = omni.usd.get_context().get_stage()
+    root = stage.GetPrimAtPath(robot_path)
+    if not root.IsValid():
+        raise ValueError(f"no robot prim at {robot_path}")
+
+    def walk(prim):
+        yield prim
+        for child in prim.GetChildren():
+            yield from walk(child)
+
+    links = [p for p in walk(root) if p.HasAPI(UsdPhysics.RigidBodyAPI)]
+    art = [p for p in walk(root) if p.HasAPI(UsdPhysics.ArticulationRootAPI)]
+    if not art:
+        raise ValueError(f"no articulation root under {robot_path}")
+
+    def side_of(prim) -> str | None:
+        # By the top-level prim under the robot: the tactile fingers are
+        # grafted bodies (`openarm_<side>_..._tactile/gelsight_finger`) whose
+        # own names carry no side.
+        top = prim.GetPath().MakeRelativePath(root.GetPath()).pathString.split("/")[0]
+        return next((s for s in sides if top.startswith(f"openarm_{s}_")), None)
+
+    kept = 0
+    for i, a in enumerate(links):
+        filt = (UsdPhysics.FilteredPairsAPI(a) if a.HasAPI(UsdPhysics.FilteredPairsAPI)
+                else UsdPhysics.FilteredPairsAPI.Apply(a))
+        rel = filt.CreateFilteredPairsRel()
+        targets = set(rel.GetTargets() or [])
+        for j, b in enumerate(links):
+            if i == j:
+                continue
+            sa, sb = side_of(a), side_of(b)
+            if sa is None or sb is None or sa == sb:
+                if b.GetPath() not in targets:
+                    rel.AddTarget(Sdf.Path(b.GetPath()))
+            elif i < j:
+                kept += 1
+    for prim in art:
+        api = (PhysxSchema.PhysxArticulationAPI(prim)
+               if prim.HasAPI(PhysxSchema.PhysxArticulationAPI)
+               else PhysxSchema.PhysxArticulationAPI.Apply(prim))
+        api.CreateEnabledSelfCollisionsAttr(True)
+    return kept
