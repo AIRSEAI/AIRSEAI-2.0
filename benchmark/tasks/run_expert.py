@@ -267,6 +267,7 @@ def main() -> int:
         return fr["observation.state"]
 
     episodes = []
+    nominal_captured = False
     n_saved = 0                      # dataset episode index of the next kept episode
     for ep in range(args_cli.episodes):
         # ---- reset ----
@@ -287,8 +288,11 @@ def main() -> int:
             except RetryReset as e:
                 print(f"STEP ep{ep}: reset retry ({e})", flush=True)
                 continue
-            if ep == 0 and attempt == 0:
+            # Once, after the first reset that succeeds: a reset that asks for
+            # a retry leaves the scene in no state to render the baseline from.
+            if not nominal_captured:
                 h.initial_render()
+                nominal_captured = True
                 print("STEP nominal tactile captured", flush=True)
 
             rec = {"episode": ep, "arm": ctx["side"], "timeouts": []}

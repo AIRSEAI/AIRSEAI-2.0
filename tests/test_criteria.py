@@ -89,59 +89,112 @@ def test_bimanual_lift_fails_when_the_load_falls():
 
 # -- handover ---------------------------------------------------------------
 
-def _handover_trace(n=100, dt=0.05, release_step=60, catch_step=50):
+def _handover_trace(n=100, dt=0.05, release_step=60, catch_step=50, seat_step=80,
+                    gap_mm=4.0):
+    """Left pads hold, right pads take over, the sleeve ends seated and let go."""
     tr = _trace(n=n, dt=dt)
     giver = np.zeros(n)
-    giver[:release_step] = 20.0        # left pad holds, then lets go
+    giver[:release_step] = 20.0        # left pads hold, then let go
     receiver = np.zeros(n)
-    receiver[catch_step:] = 20.0       # right pad takes over
-    tr.pad_area[PAD_L1] = giver
-    tr.pad_area[PAD_R1] = receiver
-    tr.extra["tilt_deg"] = np.zeros(n)
+    receiver[catch_step:seat_step] = 20.0   # right pads take over, then set it down
+    for p in (PAD_L1, PAD_L2):
+        tr.pad_area[p] = giver
+    for p in (PAD_R1, PAD_R2):
+        tr.pad_area[p] = receiver
+    tr.object_pos["sleeve"] = tr.object_pos.pop("manipuland")
+    tr.extra["gap_m"] = np.full(n, gap_mm * 1e-3)
+    over = np.zeros(n)
+    over[seat_step - 10:] = 1.0        # above the target for the last stretch
+    tr.extra["over_target"] = over
+    seat = np.zeros(n)
+    seat[seat_step:] = 0.020           # down over the key once set down
+    tr.extra["seat_depth_m"] = seat
     return tr
 
 
-def test_handover_accepts_a_short_overlap():
-    # receiver has load at 2.5 s, giver releases at 3.0 s: 0.5 s gap, at the bar
-    tr = _handover_trace(catch_step=50, release_step=60)
-    v = handover(tr)
+def test_handover_accepts_a_seated_sleeve():
+    v = handover(_handover_trace())
     assert v.success, v.metrics
 
 
-def test_handover_flags_release_before_the_catch():
-    tr = _handover_trace(catch_step=70, release_step=50)   # negative gap
-    v = handover(tr)
-    assert v.failure is FailureMode.MISTIMING
-    assert v.metrics["gap_s"] < 0
+def test_handover_fall_outranks_everything():
+    tr = _handover_trace()
+    pos = tr.object_pos["sleeve"].copy()
+    pos[70:, 2] -= 0.06                # onto the table
+    tr.object_pos["sleeve"] = pos
+    assert handover(tr).failure is FailureMode.COORDINATION
 
 
-def test_handover_flags_holding_on_too_long():
-    tr = _handover_trace(catch_step=20, release_step=95)   # 3.75 s of tug-of-war
-    assert handover(tr).failure is FailureMode.MISTIMING
+def test_handover_needs_the_giver_to_have_held():
+    tr = _handover_trace()
+    for p in (PAD_L1, PAD_L2):
+        tr.pad_area[p] = np.zeros(len(tr.t))
+    assert handover(tr).failure is FailureMode.GRASP_FAILURE
 
 
-def test_handover_tilt_is_judged_only_up_to_the_release():
-    """A bar that sags after the giver has let go is a single-arm carry."""
-    tr = _handover_trace(catch_step=50, release_step=60)
-    tilt = np.zeros(len(tr.t))
-    tilt[70:] = 40.0                       # sags long after the giver let go
-    tr.extra["tilt_deg"] = tilt
-    v = handover(tr)
-    assert v.success, v.metrics
-    # ... and the number is still reported rather than quietly dropped.
-    assert v.metrics["peak_tilt_deg"] == 0.0
-    assert v.metrics["peak_tilt_after_deg"] == 40.0
-
-
-def test_handover_still_fails_on_tilt_during_the_transfer():
-    """The window is narrower, not absent."""
-    tr = _handover_trace(catch_step=50, release_step=60)
-    tilt = np.zeros(len(tr.t))
-    tilt[40:55] = 40.0                     # swinging while both still hold
-    tr.extra["tilt_deg"] = tilt
+def test_handover_window_too_open_is_coordination():
+    tr = _handover_trace(gap_mm=7.0)   # wider than the 42 mm bore admits
+    tr.extra["seat_depth_m"] = np.zeros(len(tr.t))     # resting on the rim
     v = handover(tr)
     assert v.failure is FailureMode.COORDINATION
-    assert v.metrics["peak_tilt_deg"] == 40.0
+    assert v.metrics["gap_at_target_m"] > v.metrics["gap_hi_m"]
+
+
+def test_handover_window_too_closed_is_overforce():
+    tr = _handover_trace(gap_mm=1.0)   # squeezed below the key
+    tr.extra["seat_depth_m"] = np.zeros(len(tr.t))     # resting on the key
+    v = handover(tr)
+    assert v.failure is FailureMode.OVERFORCE
+    assert v.metrics["gap_at_target_m"] < v.metrics["gap_lo_m"]
+
+
+def test_handover_seated_below_the_window_is_still_overforce():
+    tr = _handover_trace(gap_mm=2.0)   # wedged open over the key and seated anyway
+    v = handover(tr)
+    assert v.failure is FailureMode.OVERFORCE
+    assert v.metrics["seat_depth_m"] >= v.metrics["min_seat_m"]
+
+
+def test_handover_too_open_and_still_held_is_coordination():
+    tr = _handover_trace(gap_mm=7.0, seat_step=100)   # never went in, never let go
+    tr.extra["over_target"][-10:] = 1.0
+    assert handover(tr).failure is FailureMode.COORDINATION
+
+
+def test_handover_is_unfinished_until_over_the_target_and_let_go():
+    tr = _handover_trace()
+    tr.extra["over_target"] = np.zeros(len(tr.t))
+    assert handover(tr).failure is FailureMode.UNFINISHED
+    tr = _handover_trace(seat_step=100)                    # seated but still gripped
+    tr.extra["seat_depth_m"] = np.full(len(tr.t), 0.020)
+    tr.extra["over_target"][-10:] = 1.0
+    v = handover(tr)
+    assert v.failure is FailureMode.UNFINISHED and v.metrics["released"] == 0.0
+
+
+def test_handover_reads_the_gap_while_the_receiver_holds():
+    tr = _handover_trace(seat_step=85, gap_mm=4.0)
+    tr.extra["seat_depth_m"] = np.zeros(len(tr.t))     # never went in
+    gap = tr.extra["gap_m"].copy()
+    gap[85:] = 0.010                   # sprang open once let go over the target
+    tr.extra["gap_m"] = gap
+    v = handover(tr)
+    assert v.metrics["gap_at_target_m"] == pytest.approx(0.004)
+    assert v.failure is FailureMode.UNFINISHED
+
+
+def test_handover_judges_the_final_seat():
+    tr = _handover_trace()
+    seat = tr.extra["seat_depth_m"].copy()
+    seat[-1] = 0.0                     # pulled back out at the very end
+    tr.extra["seat_depth_m"] = seat
+    assert handover(tr).failure is FailureMode.UNFINISHED
+
+
+def test_handover_reports_but_does_not_judge_the_release_timing():
+    tr = _handover_trace(catch_step=20, release_step=95, seat_step=96)   # both held 3.75 s
+    v = handover(tr)
+    assert v.success and v.metrics["gap_s"] == pytest.approx(3.70)
 
 
 def test_mistiming_needs_both_contacts_to_exist():
@@ -197,7 +250,7 @@ def test_threshold_defaults():
     expected = {
         slip_detect_regrasp: {"max_slip_m": 0.005, "hold_s": 5.0},
         bimanual_lift: {"place_tol_m": 0.02, "drop_height_m": 0.05},
-        handover: {"max_gap_s": 0.5, "max_tilt_deg": 15.0},
+        handover: {"bore_m": 0.042, "min_seat_m": 0.010, "drop_height_m": 0.05},
         hold_and_screw: {"torque_target_nm": 0.30, "torque_tol_nm": 0.10,
                          "max_bottle_tilt_deg": 10.0},
         sleeve_on_shaft: {"min_seat_m": 0.015},

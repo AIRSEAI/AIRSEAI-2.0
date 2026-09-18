@@ -474,7 +474,7 @@ make_task_assets() {
     export OMNI_KIT_ACCEPT_EULA=YES ACCEPT_EULA=Y
     cd "$REPO_DIR" || return 1
     local t
-    for t in blind_peg_insertion texture_sort handover_cup_transfer sleeve_on_shaft; do
+    for t in blind_peg_insertion texture_sort handover sleeve_on_shaft; do
         rm -rf "assets/usds/$t"
         python "benchmark/run/make_${t}_assets.py" --headless || return 1
     done

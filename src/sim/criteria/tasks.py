@@ -19,12 +19,12 @@ from sim.criteria.detectors import (
 from sim.criteria.trace import EpisodeTrace, FailureMode, Verdict
 
 # Geometric thresholds come from the task's dimensions module.
-from sim.dims.handover_cup_transfer import MIN_SEAT
+from sim.dims.handover import DEFAULT_TARGET_BORE, MIN_SEAT, gap_window
 from sim.dims.sleeve_on_shaft import MIN_SEAT as SLEEVE_MIN_SEAT
 from sim.dims.stack_cube import CUBE_SIZE
 
 __all__ = ["bimanual_lift", "blind_peg_insertion",
-           "handover", "handover_cup_transfer", "hold_and_screw",
+           "handover", "hold_and_screw",
            "sleeve_on_shaft", "slip_detect_regrasp", "stack_cube",
            "texture_sort", "unfixed_socket_insertion"]
 
@@ -181,72 +181,86 @@ def bimanual_lift(trace: EpisodeTrace, target_xy, *, place_tol_m: float = 0.02,
     return Verdict(True, metrics=metrics)
 
 
-def handover(trace: EpisodeTrace, *, max_gap_s: float = 0.5,
-             max_tilt_deg: float = 15.0, drop_height_m: float = 0.10) -> Verdict:
-    """The left arm hands the bar to the right arm.
+def _side_area(trace: EpisodeTrace, pads: tuple[str, ...]) -> np.ndarray:
+    """(T,) the smaller of a gripper's two pad areas: both pads must bear
+    load for the gripper to hold the sleeve."""
+    present = [np.asarray(trace.pad_area[p], dtype=float) for p in pads if p in trace.pad_area]
+    return np.min(present, axis=0) if present else np.zeros(len(trace.t))
 
-    Mistiming outranks tilt: a swinging bar is usually the consequence of a
-    late release.
 
-    Tilt is judged up to the giver's last contact, taken from the contact
-    signals rather than phase labels; after that the bar hangs from one arm.
-    `peak_tilt_after_deg` is still reported in the metrics.
+def handover(trace: EpisodeTrace, *, bore_m: float = DEFAULT_TARGET_BORE,
+             min_seat_m: float = MIN_SEAT, drop_height_m: float = 0.05,
+             area_mm2: float = 5.0,
+             giver_pads: tuple[str, ...] = LEFT_PADS,
+             receiver_pads: tuple[str, ...] = RIGHT_PADS) -> Verdict:
+    """The left arm draws a spring-loaded split sleeve out of the source cup
+    and hands it to the right arm, which seats it over the target's key.
+
+    `extra["seat_depth_m"]` is the sleeve's lower rim below the target's rim,
+    zero unless it stands centred in the cup (`probes.seated_in_cup`);
+    `extra["gap_m"]` is the shells' separation; `extra["over_target"]` is 1
+    while the sleeve is above the target cup. The seat is judged on the
+    FINAL sample, and the sleeve must have been let go.
+
+    The held gap must lie inside `gap_window(bore_m)` for the sleeve to
+    enter the bore and pass over the key. Precedence: fell `COORDINATION`
+    -> the giver never held it `GRASP_FAILURE` -> never brought over the
+    target `UNFINISHED` -> held too closed `OVERFORCE` -> held too open
+    `COORDINATION` -> still held `UNFINISHED` -> seated, success ->
+    otherwise `UNFINISHED`.
+
+    The window is judged geometrically, before the seat: the gripper's gel
+    gives, so the key's lead-in can wedge a sleeve held below the window open
+    enough to seat. The window reads the median gap over the samples where
+    the sleeve is over the target and the receiver holds it: the gap it was
+    brought in at, not the moment of letting go, when the spring is already
+    opening it.
+
+    The release's timing relative to the receiving grasp is reported as
+    `gap_s` but not judged: a sleeve let go early springs open, which the
+    window catches; one held by both for longer loses nothing.
     """
-    # Left arm gives (holds first), right arm receives: the receiver must gain
-    # load before the giver drops it.
-    giver, receiver = "left_left_finger_tactile", "right_left_finger_tactile"
-    mistimed, m_time = detect_mistiming(trace, receiver, giver, max_gap_s)
-    tilt = np.asarray(trace.extra.get("tilt_deg", [0.0]), dtype=float)
-    lose = trace.in_contact(giver) if giver in trace.pad_area else np.zeros(0, bool)
-    if lose.any():
-        last = len(lose) - 1 - int(np.argmax(lose[::-1]))
-        during, after = tilt[:last + 1], tilt[last + 1:]
-    else:
-        during, after = tilt, tilt[:0]
-    z = np.asarray(trace.object_pos["manipuland"], dtype=float)[:, 2]
+    n = len(trace.t)
+    sides = EpisodeTrace(t=trace.t, pad_area={"giver": _side_area(trace, giver_pads),
+                                              "receiver": _side_area(trace, receiver_pads)})
+    never_held, m_grasp = detect_grasp_failure(sides, ("giver",), area_mm2=area_mm2)
+    _, m_time = detect_mistiming(sides, "receiver", "giver", float("inf"), area_mm2)
+    z = np.asarray(trace.object_pos["sleeve"], dtype=float)[:, 2]
     fell = bool(z.min() < z[0] - drop_height_m)
-    metrics = {**m_time,
-               "peak_tilt_deg": float(during.max()) if during.size else 0.0,
-               "peak_tilt_after_deg": float(after.max()) if after.size else 0.0,
-               "max_tilt_deg": max_tilt_deg}
-    tilt = during if during.size else tilt
+    gap = np.asarray(trace.extra.get("gap_m", np.zeros(n)), dtype=float)
+    over = np.asarray(trace.extra.get("over_target", np.zeros(n)), dtype=float) > 0.5
+    seat = np.asarray(trace.extra.get("seat_depth_m", np.zeros(n)), dtype=float)
+    released = all(float(np.asarray(a, dtype=float)[-1]) <= area_mm2
+                   for a in trace.pad_area.values())
+    lo, hi = gap_window(bore_m)
+    held = sides.in_contact("receiver", area_mm2)
+    last_over = int(np.flatnonzero(over)[-1]) if over.any() else -1
+    held_over = over & held
+    if held_over.any():
+        gap_at_target = float(np.median(gap[held_over]))
+    else:
+        gap_at_target = float(gap[last_over]) if last_over >= 0 else float("nan")
+    metrics = {**m_time, **m_grasp,
+               "sleeve_drop_m": float(z[0] - z.min()), "drop_height_m": drop_height_m,
+               "gap_at_target_m": gap_at_target, "gap_lo_m": lo, "gap_hi_m": hi,
+               "gap_final_m": float(gap[-1]),
+               "seat_depth_m": float(seat[-1]), "peak_seat_depth_m": float(seat.max()),
+               "min_seat_m": min_seat_m, "released": float(released)}
     if fell:
         return Verdict(False, FailureMode.COORDINATION, metrics)
-    if mistimed:
-        return Verdict(False, FailureMode.MISTIMING, metrics)
-    if float(tilt.max()) > max_tilt_deg:
-        return Verdict(False, FailureMode.COORDINATION, metrics)
-    return Verdict(True, metrics=metrics)
-
-
-def handover_cup_transfer(trace: EpisodeTrace, *, min_seat_m: float = MIN_SEAT,
-                          drop_z_m: float = 0.15,
-                          pads: tuple[str, ...] = RIGHT_PADS) -> Verdict:
-    """A bar, taken from one hand by the other, ends up in the second cup.
-
-    `extra["seat_depth_m"]` is the bar's foot below the destination rim,
-    inside the bore, near upright (`sim.criteria.probes.seated_in_cup`).
-    Judged on the FINAL value.
-
-    COORDINATION   the bar fell more than `drop_z_m` below its starting
-                   height. Ranked first.
-    GRASP_FAILURE  the receiving hand never held it (`detect_grasp_failure`
-                   on the right pads).
-    """
-    seat = np.asarray(trace.extra.get("seat_depth_m", [0.0]), dtype=float)
-    z = np.asarray(trace.object_pos["bar"], dtype=float)[:, 2]
-    fell = bool(z.min() < z[0] - drop_z_m)
-    dropped, m_grasp = detect_grasp_failure(trace, pads)
-    metrics = {"seat_depth_m": float(seat[-1]), "peak_seat_depth_m": float(seat.max()),
-               "min_seat_m": min_seat_m, "bar_min_z_m": float(z.min()),
-               **m_grasp}
-    if fell:
-        return Verdict(False, FailureMode.COORDINATION, metrics)
-    if dropped:
+    if never_held:
         return Verdict(False, FailureMode.GRASP_FAILURE, metrics)
-    if float(seat[-1]) < min_seat_m:
+    if last_over < 0:
         return Verdict(False, FailureMode.UNFINISHED, metrics)
-    return Verdict(True, metrics=metrics)
+    if gap_at_target < lo:
+        return Verdict(False, FailureMode.OVERFORCE, metrics)
+    if gap_at_target > hi:
+        return Verdict(False, FailureMode.COORDINATION, metrics)
+    if not released:
+        return Verdict(False, FailureMode.UNFINISHED, metrics)
+    if float(seat[-1]) >= min_seat_m:
+        return Verdict(True, metrics=metrics)
+    return Verdict(False, FailureMode.UNFINISHED, metrics)
 
 
 def hold_and_screw(trace: EpisodeTrace, *, torque_target_nm: float = 0.30,
