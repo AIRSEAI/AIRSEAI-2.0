@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import numpy as _np
 
-from sim.criteria.tasks import stack_cube as _verdict
+from sim.criteria.stack_cube import verdict as _verdict
 from sim.criteria.trace import EpisodeTrace as _Trace
 from sim.dims.stack_cube import (
     CUBE_SIZE,

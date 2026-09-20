@@ -1,17 +1,19 @@
-"""Task quantities that both the expert and the policy rollout have to compute.
+"""Pose geometry shared by every task, computed the same way on both sides.
 
-These derive the `EpisodeTrace` inputs of `sim.criteria.tasks` from object
-positions and orientations, so the expert and the policy rollout compute them
-identically. Plain numpy in metres, degrees and radians; no torch or scene
-handles.
+The expert runner and the policy evaluator both derive the `EpisodeTrace`
+inputs of a task's criterion from object positions and orientations, so those
+derivations live here and have one implementation. Plain numpy in metres,
+degrees and radians; no torch, no scene handles.
+
+The gate a single task puts on `seat_depth` lives in `sim.criteria.<task>`.
 """
 
 from __future__ import annotations
 
 import numpy as np
 
-__all__ = ["axis_from_quat", "insertion_depth", "seated_in_cup", "seated_on_shaft",
-           "tilt_deg", "tilt_from_horizontal_deg", "tip_position"]
+__all__ = ["axis_from_quat", "seat_depth", "tilt_deg", "tilt_from_horizontal_deg",
+           "tip_position"]
 
 
 def axis_from_quat(quat, local=(0.0, 0.0, 1.0)) -> np.ndarray:
@@ -25,7 +27,7 @@ def axis_from_quat(quat, local=(0.0, 0.0, 1.0)) -> np.ndarray:
 def tilt_deg(quat) -> float:
     """Angle between the body's local +z and world +z, in degrees.
 
-    For a held peg or plug this is the binding indicator: it separates an
+    For a held peg or sleeve this is the binding indicator: it separates an
     object still upright in the grasp from one that has rotated out of it.
     """
     up = axis_from_quat(quat)
@@ -55,57 +57,24 @@ def tip_position(pos, quat, length: float) -> np.ndarray:
     return pos + axis_from_quat(quat, (0.0, 0.0, -length / 2.0))
 
 
-def insertion_depth(pos, quat, *, length: float, hole_xy, mouth_z: float,
-                    hole_radius: float, xy_margin: float = 0.002,
-                    max_tilt_deg: float = 20.0) -> float:
-    """How far the tip is *into the hole*, zero unless it actually is.
+def seat_depth(pos, quat, *, length: float, target_xy, target_z: float,
+               xy_tol: float, max_tilt_deg: float) -> float:
+    """How far a cylinder's lower tip is below `target_z`, zero unless it is
+    over the target and near upright.
 
-    Gated on three things: the tip must be below the mouth, within the hole's
-    radius of its centre in xy, and the object must be near upright. An object
-    dropped on the table beside the hole satisfies only the first.
+    Three gates, all required: the tip below the reference height, its centre
+    within `xy_tol` of the target's axis in xy, and the body within
+    `max_tilt_deg` of upright. An object dropped on the table beside the
+    target satisfies only the first.
+
+    The gate reads the tip, not the body's middle: an object seated and
+    leaning a few degrees against a bore moves its middle further than its
+    tip.
     """
     tip = tip_position(pos, quat, length)
     if tilt_deg(quat) > max_tilt_deg:
         return 0.0
-    hole_xy = np.asarray(hole_xy, dtype=float).reshape(2)
-    if float(np.linalg.norm(tip[:2] - hole_xy)) > hole_radius + xy_margin:
+    target_xy = np.asarray(target_xy, dtype=float).reshape(2)
+    if float(np.linalg.norm(tip[:2] - target_xy)) > xy_tol:
         return 0.0
-    return max(0.0, mouth_z - float(tip[2]))
-
-
-def seated_in_cup(pos, quat, *, length: float, cup_xy, rim_z: float, xy_tol: float,
-                  max_tilt_deg: float = 10.0) -> float:
-    """How far a sleeve's lower rim is below a cup's rim, zero unless the
-    sleeve stands centred in the cup.
-
-    Gated like `insertion_depth`: the lower rim must be below the cup's rim,
-    its centre within `xy_tol` of the cup's centre, and the sleeve near
-    upright. The gate reads the lower rim, not the sleeve's middle: a seated
-    sleeve leaning a few degrees against the bore moves its middle further
-    than its rim. A sleeve resting on something in the cup off its centre, or
-    lying across the cup, reads zero.
-    """
-    rim = tip_position(pos, quat, length)
-    if tilt_deg(quat) > max_tilt_deg:
-        return 0.0
-    cup_xy = np.asarray(cup_xy, dtype=float).reshape(2)
-    if float(np.linalg.norm(rim[:2] - cup_xy)) > xy_tol:
-        return 0.0
-    return max(0.0, rim_z - float(rim[2]))
-
-
-def seated_on_shaft(pos, quat, *, height: float, shaft_xy, shaft_top_z: float,
-                    bore_r: float, max_tilt_deg: float = 20.0) -> float:
-    """How far a sleeve's lower rim is below a shaft's top, zero unless it is on the shaft.
-
-    The reverse of `insertion_depth`: the hole travels onto the peg. The rim
-    must be below the shaft top, its centre within the bore radius of the
-    shaft axis, and the sleeve near upright.
-    """
-    rim = tip_position(pos, quat, height)
-    if tilt_deg(quat) > max_tilt_deg:
-        return 0.0
-    shaft_xy = np.asarray(shaft_xy, dtype=float).reshape(2)
-    if float(np.linalg.norm(rim[:2] - shaft_xy)) > bore_r:
-        return 0.0
-    return max(0.0, shaft_top_z - float(rim[2]))
+    return max(0.0, target_z - float(tip[2]))

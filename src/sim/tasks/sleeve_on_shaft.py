@@ -10,8 +10,9 @@ from __future__ import annotations
 
 import numpy as _np
 
-from sim.criteria.probes import axis_from_quat, seated_on_shaft, tilt_deg, tip_position
-from sim.criteria.tasks import sleeve_on_shaft as _verdict
+from sim.criteria.probes import axis_from_quat, tilt_deg, tip_position
+from sim.criteria.sleeve_on_shaft import seated_on_shaft
+from sim.criteria.sleeve_on_shaft import verdict as _verdict
 from sim.criteria.trace import EpisodeTrace as _Trace
 from sim.dims.sleeve_on_shaft import (
     JOINT_TRAVEL,

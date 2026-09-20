@@ -14,10 +14,10 @@ import math as _math
 import numpy as _np
 import torch as _torch
 
-from sim.criteria.probes import insertion_depth as _depth
+from sim.criteria.blind_peg_insertion import insertion_depth as _depth
+from sim.criteria.blind_peg_insertion import verdict as _verdict
 from sim.criteria.probes import tilt_deg as _tilt
 from sim.criteria.probes import tip_position as _tip
-from sim.criteria.tasks import blind_peg_insertion as _verdict
 from sim.criteria.trace import EpisodeTrace as _Trace
 from sim.dims.blind_peg_insertion import (
     BOARD_THICKNESS,
