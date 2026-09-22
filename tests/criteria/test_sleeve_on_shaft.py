@@ -9,6 +9,7 @@ import pytest
 
 from sim.criteria.sleeve_on_shaft import verdict
 from sim.criteria.trace import FailureMode
+from sim.dims.sleeve_on_shaft import SPLIT_GAP
 
 
 @pytest.fixture
@@ -100,7 +101,6 @@ def test_seat_threshold_moves_the_verdict(sleeve_trace, right_pads):
 
 
 def test_every_failing_verdict_names_a_mode(sleeve_trace, right_pads):
-    """The failure-distribution figure has no 'other' bucket by construction."""
     cases = [verdict(sleeve_trace(5.0), pads=right_pads),
              verdict(sleeve_trace(20.0, area=0.0), pads=right_pads)]
     for v in cases:
@@ -131,8 +131,6 @@ def test_threshold_defaults():
 def seated(sleeve_trace):
     """-> make(**final): a sleeve seated 20 mm whose final sample carries the
     given split, rim offset and tilt; the rest of the episode is clean."""
-    from sim.dims.sleeve_on_shaft import SPLIT_GAP
-
     def make(sep_m=SPLIT_GAP, offset_m=0.0005, tilt_deg=0.5, seat_mm=20.0, margin_mm=2.0):
         tr = sleeve_trace(seat_mm, margin_mm=margin_mm)
         n = len(tr.t)

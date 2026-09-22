@@ -68,7 +68,7 @@ def test_every_registered_task_has_a_criterion(task_id):
 
 
 @pytest.mark.parametrize("task", TASK_MODULES)
-def test_no_force_valued_thresholds_remain(task):
+def test_thresholds_are_geometric(task):
     """Criteria judge geometry, not force: TacSL magnitudes are uncalibrated."""
     fn = importlib.import_module(f"sim.criteria.{task}").verdict
     for name in inspect.signature(fn).parameters:

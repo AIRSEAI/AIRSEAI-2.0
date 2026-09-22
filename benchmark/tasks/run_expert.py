@@ -370,8 +370,7 @@ def main() -> int:
                                "tcp_err_mm": (float("nan") if in_joint_space
                                               else round(float(h.tcp_err(target)) * 1e3, 2)),
                                "jl": _joint_margin(h)}
-                        # Every other scalar the task publishes this step, so
-                        # the dump follows the task rather than one task's keys.
+                        # Every other scalar the task publishes this step.
                         for k, v in sig.items():
                             if k not in row and isinstance(v, (int, float, bool)):
                                 row[k] = round(float(v), 5)

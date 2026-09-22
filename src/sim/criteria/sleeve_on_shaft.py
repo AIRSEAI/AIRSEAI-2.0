@@ -36,16 +36,12 @@ def verdict(trace: EpisodeTrace, *, min_seat_m: float = MIN_SEAT,
             pads: tuple[str, ...]) -> Verdict:
     """The sleeve ends seated on the shaft, whole, centred and upright.
 
-    Judged on the final sample. Seated: the rim at least `min_seat_m` below
-    the shaft top and no deeper than the base allows. Whole: the shells
-    within `max_split_dev_m` of their rest separation. Centred: the rim
-    within the radial clearance plus `max_offset_extra_m` of the shaft axis.
-    Upright: tilt at most `max_final_tilt_deg`. A check whose signal was not
-    recorded is skipped with a note.
-
-    Precedence: never held `GRASP_FAILURE` -> seated and a valid final state,
-    success -> bore shut while on the shaft or while held `OVERFORCE` ->
-    `UNFINISHED`. The notes name the final-state checks that failed.
+    Judged on the final sample: rim at least `min_seat_m` below the shaft
+    top and not below its base, shells at their rest separation, rim within
+    the radial clearance of the shaft axis, tilt within `max_final_tilt_deg`.
+    Precedence: never held `GRASP_FAILURE` -> seated, success -> bore shut
+    while on the shaft or while held `OVERFORCE` -> `UNFINISHED`.
+    The notes name the final-state checks that failed or had no signal.
     """
     dropped, m_grasp = detect_grasp_failure(trace, pads, area_mm2=area_mm2)
     notes: list[str] = []

@@ -18,7 +18,7 @@ from sim.dims.handover import DEFAULT_TARGET_BORE, MIN_SEAT, gap_window
 __all__ = ["seated_in_cup", "verdict"]
 
 # Angle of the sleeve from upright above which it is not standing in the cup,
-# degrees. Tighter than an insertion's: a sleeve in a cup has room to lean.
+# degrees.
 MAX_TILT_DEG = 10.0
 
 
@@ -43,16 +43,11 @@ def verdict(trace: EpisodeTrace, *, bore_m: float = DEFAULT_TARGET_BORE,
             receiver_pads: tuple[str, ...]) -> Verdict:
     """The sleeve ends seated over the target's key and let go.
 
-    `gap_m` is the shells' separation and `over_target` is 1 while the sleeve
-    is above the target cup; the seat is judged on the final sample.
-
-    Precedence: giver never held `GRASP_FAILURE` -> seated and let go,
-    success -> fell `COORDINATION` -> gap below `gap_window(bore_m)`
-    `OVERFORCE` -> above it `COORDINATION` -> `UNFINISHED`.
-
-    The gap is the median while the receiver holds the sleeve over the
-    target. It names a failure and never overrules a seat. The release timing
-    is reported as `gap_s`, not judged.
+    Judged on the final sample. Precedence: giver never held `GRASP_FAILURE`
+    -> seated and let go, success -> fell `COORDINATION` -> gap below
+    `gap_window(bore_m)` `OVERFORCE` -> above it `COORDINATION` ->
+    `UNFINISHED`. The gap is the median while the receiver holds the sleeve
+    over the target; the release timing is reported as `gap_s`, not judged.
     """
     n = len(trace.t)
     sides = EpisodeTrace(t=trace.t, pad_area={"giver": _side_area(trace, giver_pads),

@@ -8,5 +8,5 @@ Layering::
     criteria.<task>       that task's probes and its `verdict`
 
 Pure numpy, no Isaac. A task module imports only the shared modules and its
-own `sim.dims.<task>`; this package re-exports nothing.
+own `sim.dims.<task>`.
 """
