@@ -3,7 +3,6 @@
 Reads::
 
     object_pos["cube_a"], object_pos["cube_b"]
-    pad_area                                    the carrying gripper's pads
 """
 
 from __future__ import annotations

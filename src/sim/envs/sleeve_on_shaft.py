@@ -202,6 +202,7 @@ def _spawn_shell(prim: str, mesh: str, material: SleeveMaterial, pos) -> RigidOb
             mass_props=sim_utils.MassPropertiesCfg(mass=material.half_mass),
             # Contact offset well under SPLIT_GAP and the shaft clearance, so
             # neither the other shell nor a centred shaft generates contacts.
+            # A wide offset here also props a tipping sleeve up on the table.
             collision_props=sim_utils.CollisionPropertiesCfg(
                 contact_offset=0.0004, rest_offset=0.0),
             visual_material=sim_utils.PreviewSurfaceCfg(
@@ -219,7 +220,7 @@ def _spawn_shaft(clearance: float) -> RigidObjectCfg:
             usd_path=str(_usd(shaft_mesh_name(clearance))),
             rigid_props=sim_utils.RigidBodyPropertiesCfg(kinematic_enabled=True),
             collision_props=sim_utils.CollisionPropertiesCfg(
-                contact_offset=0.0004, rest_offset=0.0),
+                contact_offset=0.004, rest_offset=0.0),
         ),
         init_state=RigidObjectCfg.InitialStateCfg(
             pos=(SHAFT_XY[0], SHAFT_XY[1], TABLE_TOP_Z)),

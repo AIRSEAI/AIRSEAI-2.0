@@ -1,4 +1,4 @@
-"""sleeve_on_shaft: seat depth, bore margin and their precedence."""
+"""sleeve_on_shaft: the final seat decides; the bore margin names a failure."""
 
 from __future__ import annotations
 
@@ -48,14 +48,24 @@ def test_seated_after_a_squeeze_off_the_shaft_is_a_success(sleeve_trace, right_p
     assert verdict(sleeve_trace(seat, margin_mm=margin), pads=right_pads).success
 
 
-def test_forced_on_through_a_shut_bore_is_overforce_even_if_seated(sleeve_trace, right_pads):
+def test_a_shut_bore_does_not_overrule_a_seat(sleeve_trace, right_pads):
     seat = np.full(100, 20.0)
     seat[:40] = 0.0
+    margin = np.full(100, 2.0)
+    margin[45:60] = -0.5               # shut while on the shaft, seated anyway
+    v = verdict(sleeve_trace(seat, margin_mm=margin), pads=right_pads)
+    assert v.success
+    assert v.metrics["min_bore_margin_on_shaft_m"] == pytest.approx(-0.0005)
+
+
+def test_a_shut_bore_names_the_failure_when_not_seated(sleeve_trace, right_pads):
+    seat = np.full(100, 20.0)
+    seat[:40] = 0.0
+    seat[-5:] = 0.0                    # went on, came back off
     margin = np.full(100, 2.0)
     margin[45:60] = -0.5
     v = verdict(sleeve_trace(seat, margin_mm=margin), pads=right_pads)
     assert v.failure is FailureMode.OVERFORCE
-    assert v.metrics["min_bore_margin_on_shaft_m"] == pytest.approx(-0.0005)
 
 
 def test_shells_jostling_after_a_drop_are_not_overforce(sleeve_trace, right_pads):
@@ -113,3 +123,61 @@ def test_threshold_defaults():
     """Pins the seat depth the task card asks for."""
     defaults = {k: v.default for k, v in inspect.signature(verdict).parameters.items()}
     assert defaults["min_seat_m"] == 0.015
+
+
+# -- final state -----------------------------------------------------------
+
+@pytest.fixture
+def seated(sleeve_trace):
+    """-> make(**final): a sleeve seated 20 mm whose final sample carries the
+    given split, rim offset and tilt; the rest of the episode is clean."""
+    from sim.dims.sleeve_on_shaft import SPLIT_GAP
+
+    def make(sep_m=SPLIT_GAP, offset_m=0.0005, tilt_deg=0.5, seat_mm=20.0, margin_mm=2.0):
+        tr = sleeve_trace(seat_mm, margin_mm=margin_mm)
+        n = len(tr.t)
+        tr.extra["sep_m"] = np.full(n, SPLIT_GAP)
+        tr.extra["rim_offset_m"] = np.full(n, 0.0005)
+        tr.extra["sleeve_tilt_deg"] = np.full(n, 0.5)
+        tr.extra["sep_m"][-1] = sep_m
+        tr.extra["rim_offset_m"][-1] = offset_m
+        tr.extra["sleeve_tilt_deg"][-1] = tilt_deg
+        return tr
+    return make
+
+
+def test_a_whole_centred_upright_seat_succeeds(seated, right_pads):
+    v = verdict(seated(), pads=right_pads)
+    assert v.success, v.notes
+
+
+@pytest.mark.parametrize("final,fault", [
+    ({"sep_m": 0.0005 + 0.002}, "split"),        # shells wedged apart by the shaft
+    ({"offset_m": 0.003}, "off_centre"),         # beyond clearance + 1 mm
+    ({"seat_mm": 25.0}, "sunk"),                 # deeper than the 22 mm shaft allows
+    ({"tilt_deg": 8.0}, "tilted"),
+])
+def test_an_invalid_final_state_is_not_a_seat(seated, right_pads, final, fault):
+    v = verdict(seated(**final), pads=right_pads)
+    assert v.failure is FailureMode.UNFINISHED
+    assert any(fault in n for n in v.notes), v.notes
+
+
+def test_an_invalid_seat_after_a_shut_bore_is_overforce(seated, right_pads):
+    tr = seated(sep_m=0.0005 + 0.002)
+    tr.extra["bore_margin_m"][60:70] = -0.0005   # shut while on the shaft
+    assert verdict(tr, pads=right_pads).failure is FailureMode.OVERFORCE
+
+
+def test_missing_final_state_signals_are_skipped_with_a_note(sleeve_trace, right_pads):
+    v = verdict(sleeve_trace(20.0), pads=right_pads)
+    assert v.success
+    assert sum("check skipped" in n for n in v.notes) == 3
+
+
+def test_final_state_threshold_defaults():
+    defaults = {k: p.default for k, p in inspect.signature(verdict).parameters.items()}
+    assert defaults["max_split_dev_m"] == 0.001
+    assert defaults["max_offset_extra_m"] == 0.001
+    assert defaults["max_overseat_m"] == 0.001
+    assert defaults["max_final_tilt_deg"] == 5.0

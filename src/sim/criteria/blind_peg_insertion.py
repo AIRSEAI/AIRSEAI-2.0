@@ -3,7 +3,6 @@
 Reads::
 
     extra["insertion_depth_m"], extra["peg_tilt_deg"]
-    pad_area                                    the carrying gripper's pads
 """
 
 from __future__ import annotations
@@ -24,25 +23,19 @@ MAX_TILT_DEG = 20.0
 def insertion_depth(pos, quat, *, length: float, hole_xy, mouth_z: float,
                     hole_radius: float, xy_margin: float = 0.002,
                     max_tilt_deg: float = MAX_TILT_DEG) -> float:
-    """How far the tip is *into the hole*, zero unless it actually is.
-
-    A peg dropped on the table beside the hole is below the mouth but neither
-    over it nor upright, so it reads zero.
-    """
+    """How far the peg's tip is into the hole, zero unless it is over the
+    hole and near upright."""
     return seat_depth(pos, quat, length=length, target_xy=hole_xy, target_z=mouth_z,
                       xy_tol=hole_radius + xy_margin, max_tilt_deg=max_tilt_deg)
 
 
 def verdict(trace: EpisodeTrace, *, min_depth_m: float = MIN_DEPTH,
             max_tilt_deg: float = MAX_TILT_DEG, pads: tuple[str, ...]) -> Verdict:
-    """Insert into an occluded hole under injected pose error.
+    """The peg ends at least `min_depth_m` into the hole.
 
-    Depth comes from `extra["insertion_depth_m"]`, zero whenever the peg is
-    not in the hole (`insertion_depth`). Judged on the final depth, not the
-    deepest moment.
-
-    The jam test is on tilt, not lateral force: tilt separates a peg still
-    upright in the grasp from one that has rotated out of it.
+    Judged on the final depth, not the deepest moment. The jam test is tilt,
+    not lateral force: a peg tilted past `max_tilt_deg` has rotated out of
+    the grasp and is `SLIP`.
     """
     depth = np.asarray(trace.extra.get("insertion_depth_m", [0.0]), dtype=float)
     tilt = np.asarray(trace.extra.get("peg_tilt_deg", [0.0]), dtype=float)

@@ -1,9 +1,4 @@
-"""texture_sort criterion: the puck ends in the bin its surface calls for.
-
-Reads::
-
-    pad_area                                    the carrying gripper's pads
-"""
+"""texture_sort criterion: the puck ends in the bin its surface calls for."""
 
 from __future__ import annotations
 

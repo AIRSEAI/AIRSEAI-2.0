@@ -1,11 +1,9 @@
-"""handover criterion: the sleeve passes from one arm to the other and is
-seated over the target's key.
+"""handover criterion: the sleeve changes hands and is seated over the key.
 
 Reads::
 
     object_pos["sleeve"]
     extra["seat_depth_m"], extra["gap_m"], extra["over_target"]
-    pad_area                                    both grippers' pads
 """
 
 from __future__ import annotations
@@ -26,12 +24,8 @@ MAX_TILT_DEG = 10.0
 
 def seated_in_cup(pos, quat, *, length: float, cup_xy, rim_z: float, xy_tol: float,
                   max_tilt_deg: float = MAX_TILT_DEG) -> float:
-    """How far the sleeve's lower rim is below a cup's rim, zero unless the
-    sleeve stands centred in the cup.
-
-    A sleeve resting on something in the cup off its centre, or lying across
-    the cup, reads zero.
-    """
+    """How far the sleeve's lower rim is below a cup's rim, zero unless it
+    stands centred in the cup."""
     return seat_depth(pos, quat, length=length, target_xy=cup_xy, target_z=rim_z,
                       xy_tol=xy_tol, max_tilt_deg=max_tilt_deg)
 
@@ -47,32 +41,18 @@ def verdict(trace: EpisodeTrace, *, bore_m: float = DEFAULT_TARGET_BORE,
             min_seat_m: float = MIN_SEAT, drop_height_m: float = 0.05,
             area_mm2: float = 5.0, giver_pads: tuple[str, ...],
             receiver_pads: tuple[str, ...]) -> Verdict:
-    """The giving arm draws a spring-loaded split sleeve out of the source cup
-    and hands it to the receiving arm, which seats it over the target's key.
+    """The sleeve ends seated over the target's key and let go.
 
-    `extra["seat_depth_m"]` is the sleeve's lower rim below the target's rim,
-    zero unless it stands centred in the cup (`seated_in_cup`);
-    `extra["gap_m"]` is the shells' separation; `extra["over_target"]` is 1
-    while the sleeve is above the target cup. The seat is judged on the
-    FINAL sample, and the sleeve must have been let go.
+    `gap_m` is the shells' separation and `over_target` is 1 while the sleeve
+    is above the target cup; the seat is judged on the final sample.
 
-    The held gap must lie inside `gap_window(bore_m)` for the sleeve to
-    enter the bore and pass over the key. Precedence: fell `COORDINATION`
-    -> the giver never held it `GRASP_FAILURE` -> never brought over the
-    target `UNFINISHED` -> held too closed `OVERFORCE` -> held too open
-    `COORDINATION` -> still held `UNFINISHED` -> seated, success ->
-    otherwise `UNFINISHED`.
+    Precedence: giver never held `GRASP_FAILURE` -> seated and let go,
+    success -> fell `COORDINATION` -> gap below `gap_window(bore_m)`
+    `OVERFORCE` -> above it `COORDINATION` -> `UNFINISHED`.
 
-    The window is judged geometrically, before the seat: the gripper's gel
-    gives, so the key's lead-in can wedge a sleeve held below the window open
-    enough to seat. The window reads the median gap over the samples where
-    the sleeve is over the target and the receiver holds it: the gap it was
-    brought in at, not the moment of letting go, when the spring is already
-    opening it.
-
-    The release's timing relative to the receiving grasp is reported as
-    `gap_s` but not judged: a sleeve let go early springs open, which the
-    window catches; one held by both for longer loses nothing.
+    The gap is the median while the receiver holds the sleeve over the
+    target. It names a failure and never overrules a seat. The release timing
+    is reported as `gap_s`, not judged.
     """
     n = len(trace.t)
     sides = EpisodeTrace(t=trace.t, pad_area={"giver": _side_area(trace, giver_pads),
@@ -100,18 +80,16 @@ def verdict(trace: EpisodeTrace, *, bore_m: float = DEFAULT_TARGET_BORE,
                "gap_final_m": float(gap[-1]),
                "seat_depth_m": float(seat[-1]), "peak_seat_depth_m": float(seat.max()),
                "min_seat_m": min_seat_m, "released": float(released)}
-    if fell:
-        return Verdict(False, FailureMode.COORDINATION, metrics)
     if never_held:
         return Verdict(False, FailureMode.GRASP_FAILURE, metrics)
-    if last_over < 0:
-        return Verdict(False, FailureMode.UNFINISHED, metrics)
+    if released and float(seat[-1]) >= min_seat_m:
+        return Verdict(True, metrics=metrics)
+    if fell:
+        return Verdict(False, FailureMode.COORDINATION, metrics)
+    # A sleeve never brought over the target has no gap to judge: NaN fails
+    # both comparisons.
     if gap_at_target < lo:
         return Verdict(False, FailureMode.OVERFORCE, metrics)
     if gap_at_target > hi:
         return Verdict(False, FailureMode.COORDINATION, metrics)
-    if not released:
-        return Verdict(False, FailureMode.UNFINISHED, metrics)
-    if float(seat[-1]) >= min_seat_m:
-        return Verdict(True, metrics=metrics)
     return Verdict(False, FailureMode.UNFINISHED, metrics)

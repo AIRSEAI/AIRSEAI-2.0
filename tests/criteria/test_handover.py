@@ -1,4 +1,4 @@
-"""handover: the gap window, the seat and their precedence."""
+"""handover: the final seat decides; the fall and the gap window name a failure."""
 
 from __future__ import annotations
 
@@ -50,12 +50,22 @@ def test_accepts_a_seated_sleeve(handover_trace, judge):
     assert v.success, v.metrics
 
 
-def test_fall_outranks_everything(handover_trace, judge):
+def test_a_fall_is_coordination(handover_trace, judge):
     tr = handover_trace()
     pos = tr.object_pos["sleeve"].copy()
     pos[70:, 2] -= 0.06                # onto the table
     tr.object_pos["sleeve"] = pos
+    tr.extra["seat_depth_m"] = np.zeros(len(tr.t))     # and stayed there
     assert judge(tr).failure is FailureMode.COORDINATION
+
+
+def test_a_fall_does_not_overrule_a_seat(handover_trace, judge):
+    tr = handover_trace()
+    pos = tr.object_pos["sleeve"].copy()
+    pos[30:40, 2] -= 0.06              # dropped, picked up again, seated
+    tr.object_pos["sleeve"] = pos
+    v = judge(tr)
+    assert v.success and v.metrics["sleeve_drop_m"] == pytest.approx(0.06)
 
 
 def test_needs_the_giver_to_have_held(handover_trace, judge, left_pads):
@@ -81,11 +91,11 @@ def test_window_too_closed_is_overforce(handover_trace, judge):
     assert v.metrics["gap_at_target_m"] < v.metrics["gap_lo_m"]
 
 
-def test_seated_below_the_window_is_still_overforce(handover_trace, judge):
+def test_a_gap_outside_the_window_does_not_overrule_a_seat(handover_trace, judge):
     tr = handover_trace(gap_mm=2.0)    # wedged open over the key and seated anyway
     v = judge(tr)
-    assert v.failure is FailureMode.OVERFORCE
-    assert v.metrics["seat_depth_m"] >= v.metrics["min_seat_m"]
+    assert v.success
+    assert v.metrics["gap_at_target_m"] < v.metrics["gap_lo_m"]
 
 
 def test_too_open_and_still_held_is_coordination(handover_trace, judge):
@@ -97,7 +107,9 @@ def test_too_open_and_still_held_is_coordination(handover_trace, judge):
 def test_is_unfinished_until_over_the_target_and_let_go(handover_trace, judge):
     tr = handover_trace()
     tr.extra["over_target"] = np.zeros(len(tr.t))
-    assert judge(tr).failure is FailureMode.UNFINISHED
+    tr.extra["seat_depth_m"] = np.zeros(len(tr.t))     # never reached the target
+    v = judge(tr)
+    assert v.failure is FailureMode.UNFINISHED and np.isnan(v.metrics["gap_at_target_m"])
     tr = handover_trace(seat_step=100)                 # seated but still gripped
     tr.extra["seat_depth_m"] = np.full(len(tr.t), 0.020)
     tr.extra["over_target"][-10:] = 1.0

@@ -1,11 +1,6 @@
-"""Pose geometry shared by every task, computed the same way on both sides.
+"""Pose geometry the expert runner and the policy evaluator both compute.
 
-The expert runner and the policy evaluator both derive the `EpisodeTrace`
-inputs of a task's criterion from object positions and orientations, so those
-derivations live here and have one implementation. Plain numpy in metres,
-degrees and radians; no torch, no scene handles.
-
-The gate a single task puts on `seat_depth` lives in `sim.criteria.<task>`.
+Plain numpy in metres and degrees; no torch, no scene handles.
 """
 
 from __future__ import annotations
@@ -59,17 +54,12 @@ def tip_position(pos, quat, length: float) -> np.ndarray:
 
 def seat_depth(pos, quat, *, length: float, target_xy, target_z: float,
                xy_tol: float, max_tilt_deg: float) -> float:
-    """How far a cylinder's lower tip is below `target_z`, zero unless it is
-    over the target and near upright.
+    """How far a cylinder's lower tip is below `target_z`, zero unless the tip
+    is within `xy_tol` of the target's axis and the body within
+    `max_tilt_deg` of upright.
 
-    Three gates, all required: the tip below the reference height, its centre
-    within `xy_tol` of the target's axis in xy, and the body within
-    `max_tilt_deg` of upright. An object dropped on the table beside the
-    target satisfies only the first.
-
-    The gate reads the tip, not the body's middle: an object seated and
-    leaning a few degrees against a bore moves its middle further than its
-    tip.
+    Reads the tip, not the body's middle: a seated object leaning against a
+    bore moves its middle further than its tip.
     """
     tip = tip_position(pos, quat, length)
     if tilt_deg(quat) > max_tilt_deg:

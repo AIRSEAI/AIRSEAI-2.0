@@ -3,7 +3,7 @@
 Reads::
 
     extra["seat_depth_m"], extra["bore_margin_m"]
-    pad_area                                    the carrying gripper's pads
+    extra["sep_m"], extra["rim_offset_m"], extra["sleeve_tilt_deg"]
 """
 
 from __future__ import annotations
@@ -13,7 +13,7 @@ import numpy as np
 from sim.criteria.detectors import detect_grasp_failure
 from sim.criteria.probes import seat_depth
 from sim.criteria.trace import EpisodeTrace, FailureMode, Verdict
-from sim.dims.sleeve_on_shaft import MIN_SEAT
+from sim.dims.sleeve_on_shaft import DEFAULT_CLEARANCE, MIN_SEAT, SHAFT_HEIGHT, SPLIT_GAP
 
 __all__ = ["seated_on_shaft", "verdict"]
 
@@ -23,38 +23,29 @@ MAX_TILT_DEG = 20.0
 
 def seated_on_shaft(pos, quat, *, height: float, shaft_xy, shaft_top_z: float,
                     bore_r: float, max_tilt_deg: float = MAX_TILT_DEG) -> float:
-    """How far the sleeve's lower rim is below the shaft's top, zero unless it
-    is on the shaft.
-
-    The reverse of an insertion: the bore travels onto the shaft. The rim must
-    be below the shaft top, its centre within the bore radius of the shaft
-    axis, and the sleeve near upright.
-    """
+    """How far the sleeve's lower rim is below the shaft's top, zero unless
+    it is around the shaft and near upright."""
     return seat_depth(pos, quat, length=height, target_xy=shaft_xy,
                       target_z=shaft_top_z, xy_tol=bore_r, max_tilt_deg=max_tilt_deg)
 
 
 def verdict(trace: EpisodeTrace, *, min_seat_m: float = MIN_SEAT,
-            area_mm2: float = 5.0, pads: tuple[str, ...]) -> Verdict:
-    """A split sleeve, carried in the gripper, ends up seated on the shaft.
+            clearance_m: float = DEFAULT_CLEARANCE, max_split_dev_m: float = 0.001,
+            max_offset_extra_m: float = 0.001, max_overseat_m: float = 0.001,
+            max_final_tilt_deg: float = 5.0, area_mm2: float = 5.0,
+            pads: tuple[str, ...]) -> Verdict:
+    """The sleeve ends seated on the shaft, whole, centred and upright.
 
-    `extra["seat_depth_m"]` is the sleeve's lower rim below the shaft top,
-    zero unless the sleeve is around the shaft and near upright
-    (`seated_on_shaft`). Judged on the FINAL value: a sleeve that went on and
-    was pulled back off has not been seated.
+    Judged on the final sample. Seated: the rim at least `min_seat_m` below
+    the shaft top and no deeper than the base allows. Whole: the shells
+    within `max_split_dev_m` of their rest separation. Centred: the rim
+    within the radial clearance plus `max_offset_extra_m` of the shaft axis.
+    Upright: tilt at most `max_final_tilt_deg`. A check whose signal was not
+    recorded is skipped with a note.
 
-    `extra["bore_margin_m"]` is how much wider the bore is than the shaft
-    along the squeeze axis: split gap plus twice the clearance, minus how far
-    the grip has closed the shells. Negative means the grip shut the bore
-    below the shaft diameter.
-
-    In simulation the shaft's chamfer can wedge a compliant grip back open, so
-    any sample with the sleeve on the shaft (seat depth above zero) and a
-    negative bore margin is `OVERFORCE`, whatever the final seat.
-
-    Precedence: never held `GRASP_FAILURE` -> forced on through a shut bore
-    `OVERFORCE` -> seated, success -> not seated with the bore shut while the
-    pads held the sleeve `OVERFORCE` -> otherwise `UNFINISHED`.
+    Precedence: never held `GRASP_FAILURE` -> seated and a valid final state,
+    success -> bore shut while on the shaft or while held `OVERFORCE` ->
+    `UNFINISHED`. The notes name the final-state checks that failed.
     """
     dropped, m_grasp = detect_grasp_failure(trace, pads, area_mm2=area_mm2)
     notes: list[str] = []
@@ -82,12 +73,42 @@ def verdict(trace: EpisodeTrace, *, min_seat_m: float = MIN_SEAT,
         if held.any():
             metrics["min_bore_margin_held_m"] = float(np.min(margin_arr[held]))
             shut_while_held = metrics["min_bore_margin_held_m"] < 0.0
+    invalid = _final_state_faults(trace, seat_final, metrics, notes, clearance_m=clearance_m,
+                                  max_split_dev_m=max_split_dev_m,
+                                  max_offset_extra_m=max_offset_extra_m,
+                                  max_overseat_m=max_overseat_m,
+                                  max_final_tilt_deg=max_final_tilt_deg)
     if dropped:
         return Verdict(False, FailureMode.GRASP_FAILURE, metrics, tuple(notes))
-    if forced_on:
-        return Verdict(False, FailureMode.OVERFORCE, metrics, tuple(notes))
-    if seat_final >= min_seat_m:
+    if seat_final >= min_seat_m and not invalid:
         return Verdict(True, metrics=metrics, notes=tuple(notes))
-    if shut_while_held:
+    if forced_on or shut_while_held:
         return Verdict(False, FailureMode.OVERFORCE, metrics, tuple(notes))
     return Verdict(False, FailureMode.UNFINISHED, metrics, tuple(notes))
+
+
+def _final_state_faults(trace: EpisodeTrace, seat_final: float, metrics: dict,
+                        notes: list[str], *, clearance_m: float, max_split_dev_m: float,
+                        max_offset_extra_m: float, max_overseat_m: float,
+                        max_final_tilt_deg: float) -> list[str]:
+    """Names of the final-state checks that fail; records each measure."""
+    faults: list[str] = []
+    metrics["max_seat_m"] = SHAFT_HEIGHT + max_overseat_m
+    if seat_final > SHAFT_HEIGHT + max_overseat_m:
+        faults.append("sunk")
+    for key, name, measure, limit in (
+            ("sep_m", "split", lambda v: abs(v - SPLIT_GAP), max_split_dev_m),
+            ("rim_offset_m", "off_centre", lambda v: v, clearance_m + max_offset_extra_m),
+            ("sleeve_tilt_deg", "tilted", lambda v: v, max_final_tilt_deg)):
+        series = trace.extra.get(key)
+        if series is None:
+            notes.append(f"no {key} recorded; {name} check skipped")
+            continue
+        value = measure(float(np.asarray(series, dtype=float)[-1]))
+        metrics[f"final_{name}"] = value
+        metrics[f"max_final_{name}"] = limit
+        if value > limit:
+            faults.append(name)
+    if faults:
+        notes.append("final state: " + ", ".join(faults))
+    return faults

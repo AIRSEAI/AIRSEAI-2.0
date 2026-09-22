@@ -274,6 +274,7 @@ class SleeveOnShaftTask(Task):
             "seat": seated_on_shaft(pos, qa, height=SLEEVE_HEIGHT, shaft_xy=ctx["shaft"],
                                     shaft_top_z=SHAFT_TOP_Z, bore_r=SLEEVE_INNER_R),
             "sleeve_tilt": tilt_deg(qa),
+            "rim_offset": float(_np.linalg.norm(rim[:2] - _np.asarray(ctx["shaft"]))),
         }
 
     # ---- phases ------------------------------------------------------------
@@ -451,11 +452,13 @@ class SleeveOnShaftTask(Task):
             extra={"seat_depth_m": _np.asarray(hist["seat"]),
                    "bore_margin_m": _np.asarray(hist["bore_margin"]),
                    "sleeve_tilt_deg": _np.asarray(hist["sleeve_tilt"]),
+                   "sep_m": _np.asarray(hist["sep"]),
+                   "rim_offset_m": _np.asarray(hist["rim_offset"]),
                    "pen_m": _np.asarray(hist["pen_mean"])},
         )
 
     def verdict(self, trace, ctx, knobs):
-        return _verdict(trace, pads=PADS)
+        return _verdict(trace, clearance_m=self._clearance, pads=PADS)
 
     def episode_extra(self, ctx, hist) -> dict:
         probe = ctx["probe"]
