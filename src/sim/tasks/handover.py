@@ -15,8 +15,9 @@ from __future__ import annotations
 
 import numpy as _np
 
-from sim.criteria.probes import axis_from_quat, seated_in_cup, tilt_deg
-from sim.criteria.tasks import handover as _verdict
+from sim.criteria.handover import seated_in_cup
+from sim.criteria.handover import verdict as _verdict
+from sim.criteria.probes import axis_from_quat, tilt_deg
 from sim.criteria.trace import EpisodeTrace as _Trace
 from sim.dims.handover import (
     DEFAULT_TARGET_BORE,
@@ -717,7 +718,8 @@ class HandoverTask(Task):
         )
 
     def verdict(self, trace, ctx, knobs):
-        return _verdict(trace, bore_m=self._bore)
+        return _verdict(trace, bore_m=self._bore, giver_pads=SIDE_PADS[GIVER],
+                        receiver_pads=SIDE_PADS[RECEIVER])
 
     def episode_extra(self, ctx, hist) -> dict:
         gap = _np.asarray(hist["gap"])

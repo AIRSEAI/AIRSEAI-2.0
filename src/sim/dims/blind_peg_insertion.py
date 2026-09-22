@@ -14,6 +14,7 @@ __all__ = [
     "CLEARANCE_SWEEP",
     "DEFAULT_CLEARANCE",
     "HOLE_DEPTH",
+    "MIN_DEPTH",
     "PEG_DIAMETER",
     "PEG_LENGTH",
     "hole_diameter",
@@ -24,9 +25,12 @@ PEG_DIAMETER = 0.010
 PEG_LENGTH = 0.080
 
 # Board thickness, metres. The table closes the hole's bottom, so this is also
-# the hole depth; keep it above the criterion's insertion-depth bar.
+# the hole depth; keep it above MIN_DEPTH.
 BOARD_THICKNESS = 0.040
 HOLE_DEPTH = BOARD_THICKNESS
+
+# How far into the hole the peg must end for the insertion to count, metres.
+MIN_DEPTH = 0.025
 
 # Plate footprint, metres, hole at the centre. Large enough to cover the
 # expert's search lattice plus the hole jitter.

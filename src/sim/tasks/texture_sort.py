@@ -11,7 +11,7 @@ from __future__ import annotations
 import numpy as _np
 import torch as _torch
 
-from sim.criteria.tasks import texture_sort as _verdict
+from sim.criteria.texture_sort import verdict as _verdict
 from sim.criteria.trace import EpisodeTrace as _Trace
 from sim.dims.texture_sort import (
     OBJECT_SPECS,

@@ -218,8 +218,11 @@ def _spawn_shaft(clearance: float) -> RigidObjectCfg:
         spawn=sim_utils.UsdFileCfg(
             usd_path=str(_usd(shaft_mesh_name(clearance))),
             rigid_props=sim_utils.RigidBodyPropertiesCfg(kinematic_enabled=True),
+            # A pair generates contacts inside the sum of its two offsets, so
+            # this one is wide: the rim meets the base before it can sink in,
+            # while the shells keep their narrow offset against each other.
             collision_props=sim_utils.CollisionPropertiesCfg(
-                contact_offset=0.0004, rest_offset=0.0),
+                contact_offset=0.004, rest_offset=0.0),
         ),
         init_state=RigidObjectCfg.InitialStateCfg(
             pos=(SHAFT_XY[0], SHAFT_XY[1], TABLE_TOP_Z)),

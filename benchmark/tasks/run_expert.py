@@ -370,6 +370,10 @@ def main() -> int:
                                "tcp_err_mm": (float("nan") if in_joint_space
                                               else round(float(h.tcp_err(target)) * 1e3, 2)),
                                "jl": _joint_margin(h)}
+                        # Every other scalar the task publishes this step.
+                        for k, v in sig.items():
+                            if k not in row and isinstance(v, (int, float, bool)):
+                                row[k] = round(float(v), 5)
                         for pn in TACTILE_SENSORS:
                             dmm, a = pad_depth_area(pn)
                             row[_tile_label[pn]] = [round(dmm, 3), round(a, 1),

@@ -2,7 +2,7 @@
 
 Each detector answers one question about an episode and returns the evidence
 (a metrics dict) alongside the answer. Detectors are independent; a task
-criterion in `sim.criteria.tasks` decides which apply and in what precedence.
+criterion in `sim.criteria.<task>` decides which apply and in what precedence.
 
 All detectors judge on geometry (contact area, object pose, timing), since
 TacSL's force magnitudes are uncalibrated.
