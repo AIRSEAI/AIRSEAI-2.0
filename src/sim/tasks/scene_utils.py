@@ -320,9 +320,9 @@ def join_spin(body0: str, body1: str, *, local_pos0, local_pos1=(0.0, 0.0, 0.0),
     joint.CreateLocalPos1Attr(Gf.Vec3f(*(float(v) for v in local_pos1)))
     joint.CreateLocalRot0Attr(Gf.Quatf(1.0))
     joint.CreateLocalRot1Attr(Gf.Quatf(1.0))
-    # A jointed pair does not collide by default, and the filter outlives the
-    # joint: a body released by `set_joint_enabled(..., False)` would fall
-    # through the one it was joined to.
+    # A jointed pair does not collide by default, and that filter outlives
+    # the joint: a body freed with `set_joint_enabled` would fall through the
+    # one it was joined to.
     joint.CreateCollisionEnabledAttr(True)
     # Every axis named, as in `join_split_shells`: `low > high` locks it.
     for token in ("transX", "transY", "transZ", "rotX", "rotY", "rotZ"):

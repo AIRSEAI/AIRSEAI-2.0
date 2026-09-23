@@ -23,6 +23,7 @@ import os
 import time
 
 from isaaclab.app import AppLauncher
+
 from sim.tasks.registry import TASKS as TASK_IDS
 
 parser = argparse.ArgumentParser(description="Policy evaluation in Isaac.")
@@ -49,6 +50,7 @@ simulation_app = app_launcher.app
 # ---------------------------------------------------------------------------
 import numpy as np
 import torch
+
 from sim.harness import (
     CTRL_FPS,
     DT,

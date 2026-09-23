@@ -68,12 +68,12 @@ GRIP_MIN_WIDTH = {"left": 0.016, "right": 0.014}
 # --- grasp geometry --------------------------------------------------------
 # Gel height on the bottle, metres above its base: the body's middle.
 HOLD_GRASP_H = 0.045
-# Blade heading per hand, degrees in the world xy plane, measured at the
-# grasps (reach sweep, air 2026-09-23). The holder reaches in toward the
-# centreline, where its own joints keep 11-16 degrees of margin. The turner
-# grips at 30 degrees in and turns further in, the way the thread opens
-# (anticlockwise from above): below 30 the second joint of the arm sits on
-# its limit at the grasp, and past 60 the sixth does at the end of a stroke.
+# Blade heading per hand, degrees in the world xy plane. Both reach in
+# toward the centreline, where the arm keeps its joint margin; the turner
+# turns further in from there, the way the thread opens (anticlockwise from
+# above). Heading and stroke together must stay inside the arm's reach:
+# below 30 degrees its second joint is on a limit at the grasp, past 60 its
+# sixth is at the end of a stroke.
 HOLD_YAW_DEG = -45.0
 TWIST_FROM_DEG = 30.0
 # The pre-grasp point is this far back from the grasp point along the blade,
@@ -94,9 +94,9 @@ RELEASE_OPEN_S = 0.30         # s the jaws keep opening after the pads lift
 
 # --- turning ---------------------------------------------------------------
 # One stroke turns the whole hand this far about the vertical through the
-# cap's axis, at this rate. The stroke is what the arm's reach allows between
-# TWIST_FROM_DEG and the heading where its sixth joint runs out; the thread's
-# damping sets the torque the gels carry, so slower turns ask for less.
+# cap's axis, at this rate. The stroke is the heading range the arm's reach
+# allows; the thread's damping sets the torque the gels carry, so a slower
+# turn asks for less of them.
 STROKE_DEG = 30.0
 TWIST_RATE_DEG = 25.0         # deg/s
 UNWIND_RATE_DEG = 60.0        # deg/s, jaws open
@@ -113,26 +113,23 @@ LIFT_TEST_S = 1.0             # s
 # The freed cap rises until its skirt is this far above the neck's top.
 LIFT_CLEAR = 0.020            # m
 # Heading the cap is carried to the tray at, degrees: the heading the hand
-# gripped at, which has the most margin of the stroke's range. The wrist
-# turns back to it at CARRY_TURN_RATE rather than in one command: a heading
-# handed over in one step slews the wrist hard enough to throw the cap out
-# of the gels.
+# gripped at. The wrist turns back to it at CARRY_TURN_RATE; a heading
+# commanded in one step slews the wrist faster than the gels can hold the
+# cap.
 CARRY_YAW_DEG = TWIST_FROM_DEG
 CARRY_TURN_RATE_DEG = 25.0    # deg/s
 # The cap's skirt at least this far above the tray's rim on the way over,
-# and this far above it when the hand lets go: the cap drops the last
-# centimetre or two into the tray. Setting it down on the floor instead puts
-# the fingers, which hold the cap by its middle, inside the tray, and they
-# carry it back out however they withdraw.
+# and this far above it when the hand lets go, so the cap drops the last
+# centimetre in. A hand holding the cap by its middle reaches below the rim
+# to set it down on the floor, and takes it back out with the fingers.
 TRAY_CLEAR = 0.015            # m
 RELEASE_ABOVE_RIM = 0.010     # m
 # Jaw command while letting go, metres per jaw: the gripper's limit, so the
 # open fingers clear a cap standing loose in the tray as the hand withdraws.
 RELEASE_WIDTH = 0.027
-# How a hand withdraws after letting go. The turner rises straight out of
-# the tray: holding the cap by its middle puts the fingers' housings below
-# the tray's rim, and any sideways move on the way out takes the cap with
-# them. The holder backs off along its blade, away from the bottle.
+# How a hand withdraws after letting go: the turner straight up out of the
+# tray, the holder back along its blade, away from the bottle. The turner's
+# fingers straddle the cap, so any sideways move on the way out catches it.
 PART_UP = 0.060
 PART_BACK = 0.060
 
@@ -595,8 +592,8 @@ class CapUnscrewTask(Task):
                 ctx["grasp_off"] = cap_centre(cp, cq)[:2] - h.tcp_pos()[:2]
             return done
         if name == "lower":
-            # No time fallback: letting go higher than this drops the cap
-            # from far enough up to bounce out of the tray.
+            # No time fallback: the cap is let go at this height, and a
+            # release further up bounces it out of the tray.
             return h.tcp_err(goal) < 0.004
         if name in ("open", "open_l"):
             return (max(sig["areas"][p] for p in SIDE_PADS[arm]) < 1.0

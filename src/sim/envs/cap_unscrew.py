@@ -84,8 +84,8 @@ def ensure_assets() -> None:
 # ----- objects ---------------------------------------------------------------
 # Masses, kg. The bottle is heavy enough that a cap turned against an
 # unheld bottle carries it round rather than twisting free. The cap is
-# heavier than the plastic it stands for: a 20 g cap is flicked away by the
-# impulse that resolves any contact the gels make with it.
+# heavier than the plastic it stands for, so that the impulse resolving a
+# contact moves it by little.
 BOTTLE_MASS = 0.150
 CAP_MASS = 0.050
 
@@ -172,16 +172,15 @@ def _spawn_part(prim: str, mesh: str, mass: float, z: float) -> RigidObjectCfg:
         spawn=sim_utils.UsdFileCfg(
             usd_path=str(_usd(mesh)),
             rigid_props=sim_utils.RigidBodyPropertiesCfg(
-                # A slow depenetration: at the default metre per second, a
-                # contact the gels make while closing throws the cap.
+                # Depenetration well under the default metre per second: a
+                # part this light leaves a deep contact at that speed.
                 disable_gravity=False, max_depenetration_velocity=0.2,
                 solver_position_iteration_count=16,
                 solver_velocity_iteration_count=1),
             mass_props=sim_utils.MassPropertiesCfg(mass=mass),
             # Contact generated a millimetre and a half out, so the solver
-            # meets the gels and the tray early and answers them gently;
-            # below the bore's clearance on the neck, which the thread holds
-            # clear anyway.
+            # answers the gels and the tray before either is deep in; under
+            # the bore's clearance on the neck, which the thread holds clear.
             collision_props=sim_utils.CollisionPropertiesCfg(
                 contact_offset=0.0015, rest_offset=0.0),
         ),

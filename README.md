@@ -17,8 +17,8 @@ quantifying where they part is why the benchmark exists.
 
 | | | |
 | :---: | :---: | :---: |
-| <img src="docs/media/stack_cube.webp" width="250" alt="stack_cube"> | <img src="docs/media/blind_peg_insertion.webp" width="250" alt="blind_peg_insertion"> | <img src="docs/media/blind_peg_dim.webp" width="250" alt="blind_peg_dim"> |
-| `stack_cube` — stack one cube on another | `blind_peg_insertion` — insert a peg into a hole that is not where the robot is told | `blind_peg_dim` — the same, at 0.15× light |
+| <img src="docs/media/stack_cube.webp" width="250" alt="stack_cube"> | <img src="docs/media/blind_peg_insertion.webp" width="250" alt="blind_peg_insertion"> | <img src="docs/media/cap_unscrew.webp" width="250" alt="cap_unscrew"> |
+| `stack_cube` — stack one cube on another | `blind_peg_insertion` — insert a peg into a hole that is not where the robot is told | `cap_unscrew` — hold a bottle that is free to spin and turn its cap off into a tray |
 | <img src="docs/media/sleeve_on_shaft.webp" width="250" alt="sleeve_on_shaft"> | <img src="docs/media/texture_sort.webp" width="250" alt="texture_sort"> | <img src="docs/media/handover.webp" width="250" alt="handover"> |
 | `sleeve_on_shaft` — slide a squeezable sleeve onto a shaft | `texture_sort` — sort two balls that differ only in surface, in the dark | `handover` — hand a spring-loaded sleeve between the arms, from one cup to the other |
 
@@ -90,7 +90,7 @@ at the top of this file show one demonstration of each task scene:
 | `minimal` | the robot and its four tactile fingers, no furniture. The reference scene for anything that looks like a sensing bug |
 | `stack_cube` | pick up a cube and stack it on a second one. The template every task layer copies |
 | `blind_peg_insertion` | pick up a peg, find a close-fitting hole by touch under an injected pose error, insert it |
-| `blind_peg_dim` | `blind_peg_insertion` with the lights at 0.15× — same board, peg, expert and criterion; only the illumination changes |
+| `cap_unscrew` | hold a bottle free to spin about its own axis with one hand, turn the cap off it with the other in repeated strokes, and put the cap in the tray |
 | `sleeve_on_shaft` | slide a split sleeve onto a shaft, gripping hard enough to carry it but not so hard its bore closes |
 | `texture_sort` | tell two similar-looking balls apart by surface and sort them, in light too dim to see the texture |
 | `handover` | pinch a spring-loaded split sleeve out of the orange cup with the left arm, hand it to the right arm, and seat it over the key in the teal cup, holding it open just enough to fit |
@@ -155,7 +155,7 @@ RENDER=1 PREVIEWS=1 bash scripts/run_collect.sh <task> <episodes>
 
 | | |
 | --- | --- |
-| `<task>` | `stack_cube` \| `blind_peg_insertion` \| `blind_peg_dim` \| `texture_sort` \| `sleeve_on_shaft` \| `handover` |
+| `<task>` | `stack_cube` \| `blind_peg_insertion` \| `cap_unscrew` \| `texture_sort` \| `sleeve_on_shaft` \| `handover` |
 | `<episodes>` | demonstrations to record |
 | `[dataset_out]` | default `~/<task>_dataset` |
 | `RENDER=1` | write `<dataset_out>_run/<task>.mp4` |
@@ -220,7 +220,7 @@ VIDEO=1 bash scripts/run_eval.sh <task> <checkpoint_dir> [episodes]
 
 | | |
 | --- | --- |
-| `<task>` | `stack_cube` \| `blind_peg_insertion` \| `blind_peg_dim` \| `texture_sort` |
+| `<task>` | `stack_cube` \| `blind_peg_insertion` \| `cap_unscrew` \| `texture_sort` |
 | `<checkpoint_dir>` | lerobot `pretrained_model` dir (has `config.json`) |
 | `[episodes]` | default 25 |
 | `[seed]` | default 11 |

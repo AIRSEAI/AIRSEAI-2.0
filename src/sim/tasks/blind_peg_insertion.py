@@ -213,8 +213,9 @@ class BlindPegInsertionTask(Task):
 
     def task_id(self, knobs: dict) -> str:
         # The id follows the knob, not the file: at any scale but 1.0 this is
-        # `blind_peg_dim` and must not be pooled with lit runs.
-        return "blind_peg_insertion" if float(knobs["light_scale"]) == 1.0 else "blind_peg_dim"
+        # a run in the dark, which must not be pooled with lit ones.
+        return ("blind_peg_insertion" if float(knobs["light_scale"]) == 1.0
+                else "blind_peg_insertion_dim")
 
     # -- episode --------------------------------------------------------------
     def reset(self, h, rng, ep, knobs) -> dict:

@@ -104,10 +104,6 @@ def _peg_cfg(light_scale: float = 1.0):
     return cfg
 
 
-def _peg_dim_cfg():
-    # Same scene, dimmed to the anchor light level.
-    return _peg_cfg(light_scale=0.15)
-
 
 def _stack_cfg():
     from sim.envs.stack_cube import StackCubeSceneCfg
@@ -146,10 +142,6 @@ ENVS = {
     # Pulled back to show the arms relative to the objects.
     "blind_peg_insertion": EnvSpec(_peg_cfg, sdf_prims=("peg",), tri_prims=("board",),
                    look_at=(0.20, -0.08, 0.18), eye=(1.05, -0.80, 0.62)),
-    "blind_peg_dim": EnvSpec(_peg_dim_cfg, sdf_prims=("peg",),
-                             tri_prims=("board",),
-                             look_at=(0.20, -0.08, 0.18),
-                             eye=(1.05, -0.80, 0.62)),
     # Framed to show both cups and the sleeve standing in the source one.
     "handover": EnvSpec(_handover_cfg, sdf_prims=("sleeve_a", "sleeve_b"),
                         tri_prims=("cup_source", "cup_target"),
@@ -230,9 +222,9 @@ def main() -> int:
 
     sim.reset()
     robot = scene["robot"]
-    # Place the arms at their start pose, as the task runner's reset does;
-    # otherwise they start folded and swing up through the workspace under
-    # their drives, knocking over whatever stands in the way.
+    # Place the arms at their start pose, as the task runner's reset does:
+    # otherwise they begin folded and swing up through the scene under their
+    # drives.
     robot.write_joint_state_to_sim(robot.data.default_joint_pos,
                                    robot.data.default_joint_vel)
     print(f"[launch_env] {args_cli.env}: {len(robot.joint_names)} joints, "
