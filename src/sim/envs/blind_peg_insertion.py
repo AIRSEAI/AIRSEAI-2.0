@@ -108,7 +108,7 @@ PAD_TARGET = "{ENV_REGEX_NS}/peg"
 # ----- lighting --------------------------------------------------------------
 # Light level. `set_light_scale` multiplies both emitters together, so no
 # specular highlight survives on the board rim; the sweep is the
-# `blind_peg_dim` axis.
+# light-level axis.
 DOME_INTENSITY = 3000.0
 
 KEY_LIGHT_INTENSITY = 3000.0
@@ -233,7 +233,7 @@ class BlindPegInsertionSceneCfg(BimanualTactileSceneCfg):
         return hole_diameter(clearance)
 
     def set_light_scale(self, scale: float = DEFAULT_LIGHT_SCALE) -> float:
-        """Multiply both emitters by `scale`, which is the `blind_peg_dim`
+        """Multiply both emitters by `scale`, which is the dark-run
         knob. Any positive value is accepted, not only the sweep points.
         Returns the scale applied, for the caller to record.
         """

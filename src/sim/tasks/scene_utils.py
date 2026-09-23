@@ -13,8 +13,8 @@ from typing import Any
 import numpy as np
 
 __all__ = ["align_frame_quat", "enable_cross_arm_collision", "jaw_tilt_deg",
-           "join_split_shells", "look_at", "oblique_grasp_quat", "retarget_pads",
-           "top_down_grasp_quat"]
+           "join_spin", "join_split_shells", "look_at", "oblique_grasp_quat",
+           "retarget_pads", "set_joint_enabled", "top_down_grasp_quat"]
 
 
 def look_at(eye, target, up=(0.0, 0.0, 1.0)) -> tuple[float, float, float, float]:
@@ -288,6 +288,71 @@ def join_split_shells(half_a: str, half_b: str, *, stiffness: float,
         if Sdf.Path(other) not in (rel.GetTargets() or []):
             rel.AddTarget(Sdf.Path(other))
     return path
+
+
+def join_spin(body0: str, body1: str, *, local_pos0, local_pos1=(0.0, 0.0, 0.0),
+              damping: float, limits_deg: tuple[float, float] | None = None,
+              name: str = "spin_joint") -> str:
+    """Author (or re-author) a D6 joint that leaves `body1` only a turn about
+    `body0`'s local z, and return its path.
+
+    The joint frames sit at `local_pos0` in `body0` and `local_pos1` in
+    `body1`, both unrotated, so the two bodies keep the relative pose they
+    are spawned in. The free turn is resisted by a damper of `damping`
+    (N m s/rad) and nothing else; `limits_deg` bounds it, None leaves it
+    free. `body0` empty joins `body1` to the world. Author it before
+    `sim.reset()`: a joint that first appears at a reset kicks its bodies.
+
+    A generic joint with no LimitAPI is free in all six degrees of freedom,
+    so every axis is named; `low > high` is USD's spelling of "locked".
+    """
+    import omni.usd
+    from pxr import Gf, Sdf, UsdPhysics
+
+    stage = omni.usd.get_context().get_stage()
+    env = body1.rsplit("/", 1)[0]
+    path = f"{env}/{name}"
+    if stage.GetPrimAtPath(path).IsValid():
+        stage.RemovePrim(path)
+    joint = UsdPhysics.Joint.Define(stage, path)          # generic == D6
+    prim = joint.GetPrim()
+    if body0:
+        joint.CreateBody0Rel().SetTargets([Sdf.Path(body0)])
+    joint.CreateBody1Rel().SetTargets([Sdf.Path(body1)])
+    joint.CreateLocalPos0Attr(Gf.Vec3f(*(float(v) for v in local_pos0)))
+    joint.CreateLocalPos1Attr(Gf.Vec3f(*(float(v) for v in local_pos1)))
+    joint.CreateLocalRot0Attr(Gf.Quatf(1.0))
+    joint.CreateLocalRot1Attr(Gf.Quatf(1.0))
+    # A jointed pair does not collide by default, and that filter outlives
+    # the joint: a body freed with `set_joint_enabled` would fall through the
+    # one it was joined to.
+    joint.CreateCollisionEnabledAttr(True)
+    # Locked axes first, then the one that turns.
+    for token in ("transX", "transY", "transZ", "rotX", "rotY", "rotZ"):
+        if token == "rotZ" and limits_deg is None:
+            continue
+        limit = UsdPhysics.LimitAPI.Apply(prim, token)
+        lo, hi = limits_deg if token == "rotZ" else (1.0, -1.0)
+        limit.CreateLowAttr(float(lo))
+        limit.CreateHighAttr(float(hi))
+    # A pure damper: a velocity drive to rest, force mode so `damping` is in
+    # N m s/rad whatever the bodies weigh.
+    drive = UsdPhysics.DriveAPI.Apply(prim, "rotZ")
+    drive.CreateTypeAttr("force")
+    drive.CreateStiffnessAttr(0.0)
+    drive.CreateDampingAttr(float(damping))
+    drive.CreateTargetVelocityAttr(0.0)
+    drive.CreateMaxForceAttr(float("inf"))
+    return path
+
+
+def set_joint_enabled(path: str, enabled: bool) -> None:
+    """Switch an authored joint on or off while the simulation runs."""
+    import omni.usd
+    from pxr import UsdPhysics
+
+    stage = omni.usd.get_context().get_stage()
+    UsdPhysics.Joint(stage.GetPrimAtPath(path)).GetJointEnabledAttr().Set(bool(enabled))
 
 
 def enable_cross_arm_collision(robot_path: str, sides=("left", "right")) -> int:

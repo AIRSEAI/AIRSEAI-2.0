@@ -5,7 +5,7 @@
 #
 # Inputs
 #   $1  task        one of the TASKS registry in benchmark/run/collect_dataset.py:
-#                   stack_cube | blind_peg_insertion | blind_peg_dim |
+#                   stack_cube | blind_peg_insertion | cap_unscrew |
 #                   texture_sort | sleeve_on_shaft | handover
 #   $2  episodes    how many demonstrations to record   (default 50)
 #   $3  dataset_out where to write the dataset          (default ~/<task>_dataset)

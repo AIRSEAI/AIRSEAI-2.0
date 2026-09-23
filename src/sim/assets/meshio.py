@@ -6,9 +6,32 @@ call `write_usd` only after `AppLauncher` has started the app.
 
 from __future__ import annotations
 
+import math
+from collections import Counter
 from pathlib import Path
 
-__all__ = ["orient_outward", "signed_volume", "write_obj", "write_usd"]
+__all__ = ["check_closed", "orient_outward", "signed_volume", "steps", "write_obj",
+           "write_usd"]
+
+
+def check_closed(tris) -> None:
+    """Raise unless every edge is shared by exactly two consistently wound triangles."""
+    directed: Counter = Counter()
+    for a, b, c in tris:
+        directed[(a, b)] += 1
+        directed[(b, c)] += 1
+        directed[(c, a)] += 1
+    if any(v != 1 for v in directed.values()):
+        raise AssertionError("winding is inconsistent: a directed edge repeats")
+    und = Counter(tuple(sorted(e)) for e in directed)
+    if any(v != 2 for v in und.values()):
+        raise AssertionError("mesh is not closed")
+
+
+def steps(a: float, b: float, step: float) -> list[float]:
+    """Values from `a` to `b` inclusive, at most `step` apart."""
+    n = max(1, math.ceil(abs(b - a) / step))
+    return [a + (b - a) * k / n for k in range(n + 1)]
 
 
 def signed_volume(pts, tris) -> float:

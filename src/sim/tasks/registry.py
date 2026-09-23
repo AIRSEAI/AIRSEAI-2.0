@@ -1,8 +1,8 @@
 """The task registry: id -> (task module, pinned knobs).
 
 Read by the expert runner, the evaluator and the dataset collector. A task
-id that pins a knob (as `blind_peg_dim` pins `light_scale`) runs its parent's
-module with that knob fixed; the pin overrides the CLI.
+id may pin a knob, running its module with that knob fixed; the pin
+overrides the CLI.
 """
 
 from __future__ import annotations
@@ -14,10 +14,10 @@ __all__ = ["TASKS", "load_task"]
 TASKS: dict[str, tuple[str, dict]] = {
     "stack_cube":            ("sim.tasks.stack_cube", {}),
     "blind_peg_insertion":   ("sim.tasks.blind_peg_insertion", {}),
-    "blind_peg_dim":         ("sim.tasks.blind_peg_insertion", {"light_scale": 0.15}),
     "texture_sort":          ("sim.tasks.texture_sort", {}),
     "sleeve_on_shaft":       ("sim.tasks.sleeve_on_shaft", {}),
     "handover":              ("sim.tasks.handover", {}),
+    "cap_unscrew":           ("sim.tasks.cap_unscrew", {}),
 }
 
 

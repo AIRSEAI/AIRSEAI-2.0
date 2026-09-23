@@ -19,12 +19,11 @@ import argparse
 import math
 import os
 import sys
-from collections import Counter
 from pathlib import Path
 
 from isaaclab.app import AppLauncher
 
-from sim.assets.meshio import orient_outward, write_obj, write_usd
+from sim.assets.meshio import check_closed, orient_outward, steps, write_obj, write_usd
 from sim.assets.provision import task_asset_dir
 from sim.dims.handover import (
     CUP_CHAMFER,
@@ -69,20 +68,6 @@ CUP_FRICTION = (0.6, 0.5)
 CONTACT_STEP = 0.001
 
 
-def check_closed(tris) -> None:
-    """Raise unless every edge is shared by exactly two consistently wound triangles."""
-    directed: Counter = Counter()
-    for a, b, c in tris:
-        directed[(a, b)] += 1
-        directed[(b, c)] += 1
-        directed[(c, a)] += 1
-    if any(v != 1 for v in directed.values()):
-        raise AssertionError("winding is inconsistent: a directed edge repeats")
-    und = Counter(tuple(sorted(e)) for e in directed)
-    if any(v != 2 for v in und.values()):
-        raise AssertionError("mesh is not closed")
-
-
 def build_half_shell(sectors: int, sign: float):
     """(points, triangles) for half a tube along z, centred on the origin.
 
@@ -117,12 +102,6 @@ def build_half_shell(sectors: int, sign: float):
     return pts, tris
 
 
-def _steps(a: float, b: float, step: float) -> list[float]:
-    """Values from `a` to `b` inclusive, at most `step` apart."""
-    n = max(1, math.ceil(abs(b - a) / step))
-    return [a + (b - a) * k / n for k in range(n + 1)]
-
-
 def cup_profile(bore_r: float, height: float) -> list:
     """The cup's cross-section in (r, z), from the outer bottom edge round to
     just short of the axis on the floor.
@@ -134,8 +113,8 @@ def cup_profile(bore_r: float, height: float) -> list:
     """
     prof = [(CUP_OUTER_R, 0.0), (CUP_OUTER_R, height),
             (bore_r + CUP_CHAMFER, height)]
-    prof += [(bore_r, z) for z in _steps(height - CUP_CHAMFER, CUP_FLOOR, CONTACT_STEP)]
-    prof += [(r, CUP_FLOOR) for r in _steps(bore_r, 0.0, CONTACT_STEP)[1:-1]]
+    prof += [(bore_r, z) for z in steps(height - CUP_CHAMFER, CUP_FLOOR, CONTACT_STEP)]
+    prof += [(r, CUP_FLOOR) for r in steps(bore_r, 0.0, CONTACT_STEP)[1:-1]]
     return prof
 
 
@@ -151,7 +130,7 @@ def build_key():
         ring += [(x0 + (x1 - x0) * k / n, y0 + (y1 - y0) * k / n) for k in range(n)]
     m = len(ring)
     z0, z1 = CUP_FLOOR - 0.001, CUP_FLOOR + KEY_HEIGHT
-    levels = _steps(z0, z1, CONTACT_STEP)
+    levels = steps(z0, z1, CONTACT_STEP)
     # The top cap shrinks toward the centre in rings, so a sleeve landing on
     # it meets vertices there too.
     tops = [1.0 - k / 4 for k in range(1, 4)]

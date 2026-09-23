@@ -9,7 +9,7 @@
 #   bash scripts/run_eval.sh stack_cube hold 3          # loop test, no checkpoint
 #
 # Inputs
-#   $1  task        stack_cube | blind_peg_insertion | blind_peg_dim | texture_sort
+#   $1  task        stack_cube | blind_peg_insertion | cap_unscrew | texture_sort
 #   $2  checkpoint  lerobot pretrained_model dir, or "hold" for the hold-pose
 #                   loop test (action = current state; success expected 0)
 #   $3  episodes    default 25

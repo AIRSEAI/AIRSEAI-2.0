@@ -11,6 +11,9 @@ trains on it. Variants: `vision` (cameras, state, action), `tacff`
 (+ each pad's force field as a 3-channel image: R = depth, G/B = shear x/y),
 `tacrgb` (+ the raw tactile RGB renders); `both` = vision + tacff.
 
+Each stream is decoded a frame at a time and written straight out, so memory
+stays flat however long the recording is.
+
 Usually run through `scripts/run_convert.sh`; directly:
     python benchmark/policy/convert_dataset.py --src <raw_dataset_dir> \
         --dst-root <datasets_dir> --variant tacff
@@ -19,9 +22,12 @@ Usually run through `scripts/run_convert.sh`; directly:
 from __future__ import annotations
 
 import argparse
+import itertools
 import shutil
+import subprocess
 from pathlib import Path
 
+import av
 import numpy as np
 import pyarrow.parquet as pq
 
@@ -42,62 +48,71 @@ def _short(pad: str) -> str:
     return f"{parts[0]}_{parts[2]}"
 
 
-def decode_mp4(path: Path) -> np.ndarray:
-    import av
-    frames = []
+def video_shape(path: Path) -> tuple[int, int]:
+    """(height, width) of a stream, read from its header."""
+    with av.open(str(path)) as c:
+        st = c.streams.video[0]
+        return st.codec_context.height, st.codec_context.width
+
+
+def mp4_frames(path: Path):
+    """Yield each frame of an mp4 as an (H, W, 3) uint8 array."""
     with av.open(str(path)) as c:
         for f in c.decode(c.streams.video[0]):
-            frames.append(f.to_ndarray(format="rgb24"))
-    return np.stack(frames)
+            yield f.to_ndarray(format="rgb24")
 
 
-def fast_decode_mkv(path: Path, original_channels: int) -> np.ndarray:
-    """ffv1/mkv -> uint16 frames via the ffmpeg CLI (faster than per-frame PyAV).
+def _plane_order(frame: np.ndarray, ref: np.ndarray) -> list[int]:
+    """The permutation carrying the ffmpeg CLI's planes onto PyAV's."""
+    for perm in itertools.permutations(range(3)):
+        if np.array_equal(frame[..., list(perm)], ref):
+            return list(perm)
+    raise RuntimeError("cannot align ffmpeg/PyAV plane order")
 
-    The plane order of the gbrp16le output is calibrated against a PyAV decode
-    of the first frame, so the values match a PyAV decode.
+
+def mkv_u16_frames(path: Path, original_channels: int):
+    """Yield each frame of an ffv1/mkv data stream as uint16.
+
+    Single-channel frames come out (H, W), the rest (H, W, C). The plane
+    order of the ffmpeg CLI's gbrp16le output is calibrated against a PyAV
+    decode of the first frame, so the values match a PyAV decode.
     """
-    import subprocess
-
-    import av
-
     with av.open(str(path)) as c:
         st = c.streams.video[0]
         h, w = st.codec_context.height, st.codec_context.width
         single = st.codec_context.pix_fmt == "gray16le"
-
     fmt = "gray16le" if single else "gbrp16le"
-    raw = subprocess.run(
+    planes = 1 if single else 3
+    nbytes = h * w * planes * 2
+
+    ref, perm = None, None
+    if not single:
+        with av.open(str(path)) as c:
+            ref = next(c.decode(c.streams.video[0])).to_ndarray(format="gbrp16le")
+        ref = np.asarray(ref).astype(np.uint16)
+        if ref.ndim == 3 and ref.shape[0] == 3:           # (3,H,W) planar
+            ref = ref.transpose(1, 2, 0)
+
+    proc = subprocess.Popen(
         ["ffmpeg", "-v", "error", "-i", str(path),
          "-f", "rawvideo", "-pix_fmt", fmt, "-"],
-        stdout=subprocess.PIPE, check=True).stdout
-
-    if single:
-        # (N,H,W), same shape contract as codec.decode_data_frames.
-        return np.frombuffer(raw, np.uint16).reshape(-1, h, w)
-    planes = np.frombuffer(raw, np.uint16).reshape(-1, 3, h, w)
-    out = planes.transpose(0, 2, 3, 1)                    # (N,H,W,3), order fixed below
-
-    # calibrate plane order against PyAV on the first frame
-    with av.open(str(path)) as c:
-        ref = None
-        for f in c.decode(c.streams.video[0]):
-            ref = f.to_ndarray(format="gbrp16le")
-            break
-    ref = np.asarray(ref).astype(np.uint16)
-    if ref.ndim == 3 and ref.shape[0] == 3:               # (3,H,W) planar
-        ref = ref.transpose(1, 2, 0)
-    first = out[0]
-    if not np.array_equal(first, ref):
-        import itertools
-        for perm in itertools.permutations(range(3)):
-            if np.array_equal(first[..., list(perm)], ref):
-                out = out[..., list(perm)]
+        stdout=subprocess.PIPE)
+    try:
+        while True:
+            buf = proc.stdout.read(nbytes)
+            if len(buf) < nbytes:
                 break
-        else:
-            raise RuntimeError(f"{path}: cannot align ffmpeg/PyAV plane order")
-    return out[..., :original_channels]
-
+            raw = np.frombuffer(buf, np.uint16)
+            if single:
+                yield raw.reshape(h, w)
+                continue
+            frame = raw.reshape(planes, h, w).transpose(1, 2, 0)
+            if perm is None:
+                perm = _plane_order(frame, ref)
+            yield frame[..., perm][..., :original_channels]
+    finally:
+        proc.stdout.close()
+        proc.wait()
 
 
 def copy_review_videos(src_root: Path, dst: Path, keep_eps: list[int],
@@ -126,10 +141,10 @@ def main() -> int:
     ap.add_argument("--src", required=True, help="raw recording root")
     ap.add_argument("--dst-root", required=True)
     ap.add_argument("--name", default="",
-                    help="output name stem (default: the recording's directory name)")
+                    help="output name stem, default the recording's dir name")
     ap.add_argument("--variant", choices=("vision", "tacff", "tacrgb", "both"),
                     default="both",
-                    help="'tacrgb' = vision + raw tactile RGB; 'both' = vision + tacff")
+                    help="tacrgb = vision + tactile RGB; both = vision + tacff")
     ap.add_argument("--vcodec", default="h264",
                     help="video codec: h264, libsvtav1 or h264_nvenc")
     ap.add_argument("--overwrite", action="store_true")
@@ -144,68 +159,34 @@ def main() -> int:
                    "observation.images.right_wrist",
                    "observation.images.left_wrist")
 
-    src = Path(args.src)
-    src_root = src
-    name = args.name or src.name.rstrip("/")
-    table = pq.read_table(src / "data" / "chunk-000" / "file-000.parquet")
+    src_root = Path(args.src)
+    name = args.name or src_root.name.rstrip("/")
+    table = pq.read_table(src_root / "data" / "chunk-000" / "file-000.parquet")
     state = np.stack(table["observation.state"].to_pylist()).astype(np.float32)
     action = np.stack(table["action"].to_pylist()).astype(np.float32)
     ep_idx = np.asarray(table["episode_index"])
     success = np.asarray(table["is_success"])
     # The instruction each frame was recorded under, as the collector wrote it.
     task_idx = np.asarray(table["task_index"])
-    tasks = pq.read_table(src / "meta" / "tasks.parquet")
+    tasks = pq.read_table(src_root / "meta" / "tasks.parquet")
     task_text = dict(zip(tasks["task_index"].to_pylist(), tasks["task"].to_pylist(),
                          strict=True))
 
     def stream(key: str) -> Path:
-        return src / "videos" / key / "chunk-000"
+        return src_root / "videos" / key / "chunk-000"
+
+    def mp4(key: str) -> Path:
+        return stream(key) / "file-000.mp4"
 
     variants = (("vision", "tacff") if args.variant == "both"
                 else (args.variant,))
 
-    print("decoding video streams ...", flush=True)
-    vids = {k: decode_mp4(stream(k) / "file-000.mp4") for k in VISION_KEYS}
-    if "tacrgb" in variants:
-        for pad in PADS:
-            k = f"observation.images.{pad}_tactile"
-            vids[k] = decode_mp4(stream(k) / "file-000.mp4")
-            print(f"  {pad} tactile RGB decoded {vids[k].shape}", flush=True)
-
-    tacff = {}
-    if "tacff" in variants:
-        print("decoding force-field streams ...", flush=True)
-    for pad in (PADS if "tacff" in variants else ()):
-        d_u16 = fast_decode_mkv(
-            stream(f"observation.depth.{pad}_tactile") / "file-000.mkv",
-            original_channels=1)
-        print(f"  {pad} depth decoded {d_u16.shape}", flush=True)
-        s_u16 = fast_decode_mkv(
-            stream(f"observation.ff_shear.{pad}_tactile") / "file-000.mkv",
-            original_channels=2)
-        print(f"  {pad} ff_shear decoded {s_u16.shape}", flush=True)
-        # raw==0 is quantised NaN (shear is NaN off-contact). Map it to the
-        # offset (= shear 0), the same mapping the evaluator applies.
-        nan_px = int((s_u16 == 0).sum())
-        if nan_px:
-            print(f"  {pad} ff_shear: {nan_px} quantised-NaN px -> offset",
-                  flush=True)
-            s_u16 = np.where(s_u16 == 0, 32768, s_u16)
-        depth = dequantize(d_u16, PROFILES["sim_v1_depth"])
-        shear = dequantize(s_u16, PROFILES["sim_v1_shear"])
-        if depth.ndim == 4:          # (N,H,W,1) -> (N,H,W)
-            depth = depth[..., 0]
-        tacff[pad] = (depth, shear)
-
     n = len(state)
-    for k, v in vids.items():
-        assert len(v) == n, f"{k}: {len(v)} frames vs {n} parquet rows"
-    for pad, (d, s) in tacff.items():
-        assert len(d) == n and len(s) == n, f"{pad}: stream length mismatch"
-
     keep_eps = sorted({int(e) for e, ok in zip(ep_idx, success, strict=True) if ok})
     dropped = sorted({int(e) for e in ep_idx} - set(keep_eps))
-    print(f"episodes: keep {len(keep_eps)}, drop (failed) {dropped}", flush=True)
+    keep = set(keep_eps)
+    print(f"frames {n}; episodes: keep {len(keep_eps)}, drop (failed) {dropped}",
+          flush=True)
 
     from lerobot.datasets.lerobot_dataset import LeRobotDataset
 
@@ -216,62 +197,83 @@ def main() -> int:
                 raise SystemExit(f"{dst} exists; pass --overwrite")
             shutil.rmtree(dst)
 
+        # The pads this variant carries, and under which key stem.
+        pad_key = variant if variant in ("tacff", "tacrgb") else None
+        pads = PADS if pad_key else ()
+
         feats = {
             "observation.state": {"dtype": "float32", "shape": (16,),
                                   "names": [f"j{i}" for i in range(16)]},
             "action": {"dtype": "float32", "shape": (16,),
                        "names": [f"j{i}" for i in range(16)]},
         }
-        img_keys = list(VISION_KEYS)
-        if variant == "tacff":
-            img_keys += [f"observation.images.tacff_{_short(p)}"
-                         for p in PADS]   # tacff_right_middle, tacff_left_index, ...
-        elif variant == "tacrgb":
-            # raw Taxim renders, re-keyed tacrgb_middle / tacrgb_index
-            img_keys += [f"observation.images.tacrgb_{_short(p)}"
-                         for p in PADS]
-        def src_frames(key: str):
-            """Frame source for an output image key."""
-            if key in vids:
-                return vids[key]
-            if key.startswith("observation.images.tacrgb_"):
-                short = key[len("observation.images.tacrgb_"):]
-                pad = next(p for p in PADS if _short(p) == short)
-                return vids[f"observation.images.{pad}_tactile"]
-            return None                      # tacff: synthesised per-frame
-
-        for k in img_keys:
-            src = src_frames(k)
-            h, w = (src.shape[1:3] if src is not None
-                    else tacff[PADS[0]][0].shape[1:3])
+        for k in VISION_KEYS:
+            h, w = video_shape(mp4(k))
             feats[k] = {"dtype": "video", "shape": (h, w, 3),
                         "names": ["height", "width", "channels"]}
+        for pad in pads:
+            h, w = video_shape(
+                mp4(f"observation.images.{pad}_tactile") if variant == "tacrgb"
+                else stream(f"observation.depth.{pad}_tactile") / "file-000.mkv")
+            feats[f"observation.images.{pad_key}_{_short(pad)}"] = {
+                "dtype": "video", "shape": (h, w, 3),
+                "names": ["height", "width", "channels"]}
 
         ds = LeRobotDataset.create(
             repo_id=f"local/{name}_{variant}", fps=FPS, features=feats,
             root=dst, robot_type="openarm_bimanual_tactile",
             vcodec=args.vcodec)
 
-        for ep in keep_eps:
-            sel = np.where(ep_idx == ep)[0]
-            for i in sel:
+        # One decoder per stream, read in step with the parquet rows: a frame
+        # of a dropped episode is still pulled, so the streams stay aligned.
+        reads = {k: mp4_frames(mp4(k)) for k in VISION_KEYS}
+        if variant == "tacrgb":
+            for pad in pads:
+                reads[f"{pad_key}_{_short(pad)}"] = mp4_frames(
+                    mp4(f"observation.images.{pad}_tactile"))
+        elif variant == "tacff":
+            for pad in pads:
+                reads[f"depth_{_short(pad)}"] = mkv_u16_frames(
+                    stream(f"observation.depth.{pad}_tactile") / "file-000.mkv", 1)
+                reads[f"shear_{_short(pad)}"] = mkv_u16_frames(
+                    stream(f"observation.ff_shear.{pad}_tactile") / "file-000.mkv", 2)
+
+        nan_px = 0
+        for i in range(n):
+            try:
+                frames = {k: next(it) for k, it in reads.items()}
+            except StopIteration:
+                raise SystemExit(f"stream ended at frame {i} of {n}") from None
+            ep = int(ep_idx[i])
+            last_of_ep = i + 1 == n or int(ep_idx[i + 1]) != ep
+            if ep in keep:
                 frame = {"observation.state": state[i], "action": action[i],
                          "task": task_text[int(task_idx[i])]}
                 for k in VISION_KEYS:
-                    frame[k] = vids[k][i]
-                if variant == "tacff":
-                    for pad in PADS:
-                        d, s = tacff[pad]
-                        key = f"observation.images.tacff_{_short(pad)}"
-                        frame[key] = tacff_image(d[i], s[i])
-                elif variant == "tacrgb":
-                    for pad in PADS:
-                        key = f"observation.images.tacrgb_{_short(pad)}"
-                        frame[key] = vids[
-                            f"observation.images.{pad}_tactile"][i]
+                    frame[k] = frames[k]
+                for pad in pads:
+                    key = f"observation.images.{pad_key}_{_short(pad)}"
+                    if variant == "tacrgb":
+                        frame[key] = frames[f"{pad_key}_{_short(pad)}"]
+                        continue
+                    # raw == 0 is quantised NaN (shear is NaN off-contact).
+                    # Map it to the offset (= shear 0), as the evaluator does.
+                    s_u16 = frames[f"shear_{_short(pad)}"]
+                    nan_px += int((s_u16 == 0).sum())
+                    frame[key] = tacff_image(
+                        dequantize(frames[f"depth_{_short(pad)}"],
+                                   PROFILES["sim_v1_depth"]),
+                        dequantize(np.where(s_u16 == 0, 32768, s_u16),
+                                   PROFILES["sim_v1_shear"]))
                 ds.add_frame(frame)
-            ds.save_episode()
-            print(f"[{variant}] episode {ep} saved ({len(sel)} frames)",
+                if last_of_ep:
+                    ds.save_episode()
+                    print(f"[{variant}] episode {ep} saved", flush=True)
+        for k, it in reads.items():
+            if next(it, None) is not None:
+                raise SystemExit(f"{k}: more frames than the {n} parquet rows")
+        if nan_px:
+            print(f"[{variant}] ff_shear: {nan_px} quantised-NaN px -> offset",
                   flush=True)
         copy_review_videos(src_root, dst, keep_eps, variant)
         print(f"[{variant}] done -> {dst}", flush=True)

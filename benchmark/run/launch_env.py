@@ -104,11 +104,6 @@ def _peg_cfg(light_scale: float = 1.0):
     return cfg
 
 
-def _peg_dim_cfg():
-    # Same scene, dimmed to the anchor light level.
-    return _peg_cfg(light_scale=0.15)
-
-
 def _stack_cfg():
     from sim.envs.stack_cube import StackCubeSceneCfg
     return StackCubeSceneCfg(num_envs=1, env_spacing=3.0)
@@ -117,6 +112,11 @@ def _stack_cfg():
 def _handover_cfg():
     from sim.envs.handover import HandoverSceneCfg
     return HandoverSceneCfg(num_envs=1, env_spacing=3.0)
+
+
+def _cap_unscrew_cfg():
+    from sim.envs.cap_unscrew import CapUnscrewSceneCfg
+    return CapUnscrewSceneCfg(num_envs=1, env_spacing=3.0)
 
 
 def _sleeve_cfg():
@@ -140,15 +140,17 @@ ENVS = {
     # Pulled back to show the arms relative to the objects.
     "blind_peg_insertion": EnvSpec(_peg_cfg, sdf_prims=("peg",), tri_prims=("board",),
                    look_at=(0.20, -0.08, 0.18), eye=(1.05, -0.80, 0.62)),
-    "blind_peg_dim": EnvSpec(_peg_dim_cfg, sdf_prims=("peg",),
-                             tri_prims=("board",),
-                             look_at=(0.20, -0.08, 0.18),
-                             eye=(1.05, -0.80, 0.62)),
     # Framed to show both cups and the sleeve standing in the source one.
     "handover": EnvSpec(_handover_cfg, sdf_prims=("sleeve_a", "sleeve_b"),
                         tri_prims=("cup_source", "cup_target"),
                         look_at=(0.22, 0.0, TABLE_TOP_Z + 0.05), eye=(0.95, -0.50, 0.60),
                         sdf_resolution=128),
+    # Framed to take in both arms at HOME, the bottle on the centreline and
+    # the tray on the right.
+    "cap_unscrew": EnvSpec(_cap_unscrew_cfg, sdf_prims=("bottle", "cap"),
+                           tri_prims=("tray",),
+                           look_at=(0.20, -0.06, TABLE_TOP_Z + 0.08),
+                           eye=(1.00, -0.70, 0.62), sdf_resolution=128),
     "sleeve_on_shaft": EnvSpec(
         _sleeve_cfg,
         sdf_prims=("soft_a", "soft_b", "stiff_a", "stiff_b"),
@@ -218,6 +220,11 @@ def main() -> int:
 
     sim.reset()
     robot = scene["robot"]
+    # Place the arms at their start pose, as the task runner's reset does:
+    # otherwise they begin folded and swing up through the scene under their
+    # drives.
+    robot.write_joint_state_to_sim(robot.data.default_joint_pos,
+                                   robot.data.default_joint_vel)
     print(f"[launch_env] {args_cli.env}: {len(robot.joint_names)} joints, "
           f"{len(scene.sensors)} sensors", flush=True)
 
