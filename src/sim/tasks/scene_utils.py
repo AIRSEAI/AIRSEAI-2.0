@@ -302,6 +302,9 @@ def join_spin(body0: str, body1: str, *, local_pos0, local_pos1=(0.0, 0.0, 0.0),
     (N m s/rad) and nothing else; `limits_deg` bounds it, None leaves it
     free. `body0` empty joins `body1` to the world. Author it before
     `sim.reset()`: a joint that first appears at a reset kicks its bodies.
+
+    A generic joint with no LimitAPI is free in all six degrees of freedom,
+    so every axis is named; `low > high` is USD's spelling of "locked".
     """
     import omni.usd
     from pxr import Gf, Sdf, UsdPhysics
@@ -324,7 +327,7 @@ def join_spin(body0: str, body1: str, *, local_pos0, local_pos1=(0.0, 0.0, 0.0),
     # the joint: a body freed with `set_joint_enabled` would fall through the
     # one it was joined to.
     joint.CreateCollisionEnabledAttr(True)
-    # Every axis named, as in `join_split_shells`: `low > high` locks it.
+    # Locked axes first, then the one that turns.
     for token in ("transX", "transY", "transZ", "rotX", "rotY", "rotZ"):
         if token == "rotZ" and limits_deg is None:
             continue

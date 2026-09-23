@@ -1,4 +1,4 @@
-"""cap_unscrew: where the cap ends decides; the bottle's spin names a failure."""
+"""cap_unscrew: reaching the tray decides; the bottle's spin names a failure."""
 
 from __future__ import annotations
 
@@ -61,8 +61,18 @@ def test_a_cap_on_its_side_in_the_tray_still_counts(cap_trace, judge):
     assert v.success, v.metrics
 
 
-def test_a_cap_still_held_is_not_done(cap_trace, judge):
-    assert not judge(cap_trace(release_step=100)).success
+def test_a_cap_in_the_tray_counts_while_still_held(cap_trace, judge):
+    assert judge(cap_trace(release_step=100)).success
+
+
+def test_a_cap_knocked_back_out_of_the_tray_still_counts(cap_trace, judge):
+    tr = cap_trace()
+    pos = tr.object_pos["cap"].copy()
+    pos[-5:] = (TRAY[0], TRAY[1] + TRAY_INNER_R + 0.02, TRAY[2])   # swept out at the end
+    tr.object_pos["cap"] = pos
+    v = judge(tr)
+    assert v.success, v.metrics
+    assert v.metrics["in_tray_ever"] == 1.0 and v.metrics["in_tray_final"] == 0.0
 
 
 def test_a_cap_left_on_the_bottle_is_unfinished(cap_trace, judge):
@@ -75,9 +85,11 @@ def test_a_bottle_that_spun_with_its_cap_is_coordination(cap_trace, judge):
     assert judge(tr).failure is FailureMode.COORDINATION
 
 
-def test_a_cap_dropped_beside_the_tray_is_slip(cap_trace, judge):
+def test_a_cap_that_never_reaches_the_tray_is_slip(cap_trace, judge):
     beside = (TRAY[0], TRAY[1] + TRAY_INNER_R + 0.02, TRAY[2])
-    assert judge(cap_trace(end_xyz=beside)).failure is FailureMode.SLIP
+    v = judge(cap_trace(end_xyz=beside))
+    assert v.failure is FailureMode.SLIP
+    assert v.metrics["in_tray_ever"] == 0.0
 
 
 def test_a_turning_hand_that_never_held_is_grasp_failure(cap_trace, judge, right_pads):

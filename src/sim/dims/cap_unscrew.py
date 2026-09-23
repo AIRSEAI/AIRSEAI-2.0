@@ -26,11 +26,9 @@ __all__ = [
     "TRAY_OUTER_R",
 ]
 
-# The bottle, metres: a solid of revolution, body then neck, standing on its
-# base. The body is narrow enough for the fully open jaws (46 mm gel gap) to
-# close on it with room to spare; the neck is what the cap screws onto. The
-# neck is long enough that fingers pitched down onto the cap clear the body,
-# which is wider than the cap.
+# The bottle, metres: a body and a narrower neck, revolved about z. The body
+# fits the fully open jaws; the neck is long enough to keep fingers on the
+# cap clear of the body.
 BOTTLE_R = 0.019
 BOTTLE_BODY_H = 0.085
 NECK_R = 0.013
@@ -38,21 +36,17 @@ NECK_H = 0.028
 BOTTLE_H = BOTTLE_BODY_H + NECK_H
 BOTTLE_COLOR = (0.30, 0.52, 0.72)
 
-# The cap, metres: an inverted cup over the neck. Its bore clears the neck by
-# more than one SDF voxel of the bottle (about 0.8 mm at resolution 128), so
-# the sampled neck does not read as touching the bore; the thread joint keeps
-# the cap on its axis. The roof rests on the neck's top, which leaves the
-# skirt well clear of the body's shoulder. Tall enough for a full pad contact.
+# The cap, metres: an inverted cup whose roof rests on the neck's top. The
+# bore clears the neck by more than one SDF voxel of the bottle, below which
+# the sampled neck reads as touching it.
 CAP_R = 0.017
 CAP_H = 0.020
 CAP_BORE_R = NECK_R + 0.0015
 CAP_BORE_DEPTH = 0.014
 CAP_COLOR = (0.82, 0.28, 0.20)
 
-# The tray the cap goes into, metres: a shallow round dish, floor and rim.
-# Wide enough that a cap set down by a hand a little off centre lands
-# inside, and shallow enough that the fingers holding the cap by its middle
-# stay clear of the rim on the way out.
+# The tray the cap goes into, metres: a round dish, wide enough for a cap let
+# go a little off centre and shallow enough to keep the fingers above its rim.
 TRAY_OUTER_R = 0.055
 TRAY_INNER_R = 0.050
 TRAY_HEIGHT = 0.008

@@ -41,7 +41,6 @@ __all__ = [
     "CAP_LIFT",
     "CAP_MASS",
     "CAP_SPAWN_Z",
-    "DEFAULT_THREAD_ANGLE",
     "PAD_TARGET",
     "PARKED_POS",
     "SPINDLE_Z",
@@ -82,37 +81,27 @@ def ensure_assets() -> None:
 
 
 # ----- objects ---------------------------------------------------------------
-# Masses, kg. The bottle is heavy enough that a cap turned against an
-# unheld bottle carries it round rather than twisting free. The cap is
-# heavier than the plastic it stands for, so that the impulse resolving a
-# contact moves it by little.
+# Masses, kg: the bottle heavy enough to be carried round by a cap turned
+# against it, the cap heavy enough not to be moved by a contact impulse.
 BOTTLE_MASS = 0.150
 CAP_MASS = 0.050
 
-# The bottle stands on the table joined to a hidden anchor, the spindle, by a
-# joint that leaves it only its spin about its own axis. The joint holds it
-# BOTTLE_LIFT above the table, so no contact friction resists the spin: a
-# bottle nobody holds turns with its cap.
+# Height the spin joint holds the bottle at above the table, metres: clear of
+# it, so no contact friction resists the spin.
 BOTTLE_LIFT = 0.0005
 
-# Damping of the bottle's spin: enough that the bottle does not drift under
-# solver noise, and still well under the thread's, so a bottle nobody holds
-# turns with its cap instead of unscrewing it.
+# Damping of the bottle's spin, N m s/rad: above solver noise, well under the
+# thread's, so an unheld bottle turns with its cap.
 BOTTLE_SPIN_DAMPING = 0.02
 
-# The thread, modelled as a joint between cap and bottle that frees only the
-# cap's turn about the bottle's axis, damped so that turning the cap drags an
-# unheld bottle along, and that lets go once the cap has been turned open by
-# the thread angle. The angle is the task's knob, degrees; it is not visible,
-# so a policy has to feel the cap come free.
+# The thread: a joint freeing only the cap's turn about the bottle's axis,
+# damped (N m s/rad) and released once the turn reaches the thread angle.
+# The angle, degrees, is the task's knob and is not visible.
 THREAD_DAMPING = 0.1                 # N m s/rad
 THREAD_ANGLE_SWEEP = (90.0, 120.0, 150.0)
-DEFAULT_THREAD_ANGLE = 120.0
 
-# While the thread holds it, the cap rides CAP_LIFT above resting on the
-# neck, so the two touch nowhere and the thread's damping is the only
-# resistance. Freed, it drops onto the neck. Clear of the contact offset, so
-# the pair generates contacts but no force while the thread holds them.
+# Height the thread holds the cap above resting on the neck, metres: over the
+# contact offset, so the pair carries no force until the cap is freed.
 CAP_LIFT = 0.001
 
 # Where the placeholder sphere waits: below the ground plane.
@@ -143,8 +132,8 @@ def sample_layout(rng, bottle_jitter: float = BOTTLE_JITTER,
     return out
 
 
-# The bottle's base and the cap's skirt at spawn, and the spindle's centre:
-# inside the table, out of sight, under the bottle's axis.
+# Spawn heights: the bottle's base, the cap's skirt, and the spindle, which
+# sits inside the table under the bottle's axis, out of sight.
 BOTTLE_SPAWN_Z = TABLE_TOP_Z + BOTTLE_LIFT
 CAP_SPAWN_Z = BOTTLE_SPAWN_Z + BOTTLE_H - CAP_BORE_DEPTH + CAP_LIFT
 SPINDLE_Z = TABLE_TOP_Z - 0.010
@@ -172,15 +161,14 @@ def _spawn_part(prim: str, mesh: str, mass: float, z: float) -> RigidObjectCfg:
         spawn=sim_utils.UsdFileCfg(
             usd_path=str(_usd(mesh)),
             rigid_props=sim_utils.RigidBodyPropertiesCfg(
-                # Depenetration well under the default metre per second: a
-                # part this light leaves a deep contact at that speed.
+                # Depenetration well under the default metre per second,
+                # which throws a part this light.
                 disable_gravity=False, max_depenetration_velocity=0.2,
                 solver_position_iteration_count=16,
                 solver_velocity_iteration_count=1),
             mass_props=sim_utils.MassPropertiesCfg(mass=mass),
-            # Contact generated a millimetre and a half out, so the solver
-            # answers the gels and the tray before either is deep in; under
-            # the bore's clearance on the neck, which the thread holds clear.
+            # Contact generated before the gels or the tray are deep in,
+            # and under the bore's clearance on the neck.
             collision_props=sim_utils.CollisionPropertiesCfg(
                 contact_offset=0.0015, rest_offset=0.0),
         ),

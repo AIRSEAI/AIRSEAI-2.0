@@ -27,6 +27,7 @@ import shutil
 import subprocess
 from pathlib import Path
 
+import av
 import numpy as np
 import pyarrow.parquet as pq
 
@@ -49,8 +50,6 @@ def _short(pad: str) -> str:
 
 def video_shape(path: Path) -> tuple[int, int]:
     """(height, width) of a stream, read from its header."""
-    import av
-
     with av.open(str(path)) as c:
         st = c.streams.video[0]
         return st.codec_context.height, st.codec_context.width
@@ -58,8 +57,6 @@ def video_shape(path: Path) -> tuple[int, int]:
 
 def mp4_frames(path: Path):
     """Yield each frame of an mp4 as an (H, W, 3) uint8 array."""
-    import av
-
     with av.open(str(path)) as c:
         for f in c.decode(c.streams.video[0]):
             yield f.to_ndarray(format="rgb24")
@@ -76,13 +73,10 @@ def _plane_order(frame: np.ndarray, ref: np.ndarray) -> list[int]:
 def mkv_u16_frames(path: Path, original_channels: int):
     """Yield each frame of an ffv1/mkv data stream as uint16.
 
-    Single-channel frames come out (H, W), the rest (H, W, C). Frames arrive
-    from the ffmpeg CLI, which is faster than decoding them one by one with
-    PyAV; the plane order of its gbrp16le output is calibrated against a PyAV
+    Single-channel frames come out (H, W), the rest (H, W, C). The plane
+    order of the ffmpeg CLI's gbrp16le output is calibrated against a PyAV
     decode of the first frame, so the values match a PyAV decode.
     """
-    import av
-
     with av.open(str(path)) as c:
         st = c.streams.video[0]
         h, w = st.codec_context.height, st.codec_context.width
@@ -204,7 +198,7 @@ def main() -> int:
             shutil.rmtree(dst)
 
         # The pads this variant carries, and under which key stem.
-        pad_key = {"tacff": "tacff", "tacrgb": "tacrgb"}.get(variant)
+        pad_key = variant if variant in ("tacff", "tacrgb") else None
         pads = PADS if pad_key else ()
 
         feats = {

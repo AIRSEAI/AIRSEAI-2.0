@@ -18,12 +18,11 @@ import argparse
 import math
 import os
 import sys
-from collections import Counter
 from pathlib import Path
 
 from isaaclab.app import AppLauncher
 
-from sim.assets.meshio import orient_outward, write_obj, write_usd
+from sim.assets.meshio import check_closed, orient_outward, write_obj, write_usd
 from sim.assets.provision import task_asset_dir
 from sim.dims.sleeve_on_shaft import (
     BASE_HEIGHT,
@@ -60,20 +59,6 @@ SHELL_FRICTION = (1.1, 0.9)
 # The shaft is lower-friction so a sleeve in clearance slides rather than
 # catching on a light touch of the wall.
 SHAFT_FRICTION = (0.4, 0.3)
-
-
-def check_closed(tris) -> None:
-    """Raise unless every edge is shared by exactly two consistently wound triangles."""
-    directed: Counter = Counter()
-    for a, b, c in tris:
-        directed[(a, b)] += 1
-        directed[(b, c)] += 1
-        directed[(c, a)] += 1
-    if any(v != 1 for v in directed.values()):
-        raise AssertionError("winding is inconsistent: a directed edge repeats")
-    und = Counter(tuple(sorted(e)) for e in directed)
-    if any(v != 2 for v in und.values()):
-        raise AssertionError("mesh is not closed")
 
 
 def build_half_shell(sectors: int, sign: float):

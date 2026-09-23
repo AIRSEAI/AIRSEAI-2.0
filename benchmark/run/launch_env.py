@@ -104,7 +104,6 @@ def _peg_cfg(light_scale: float = 1.0):
     return cfg
 
 
-
 def _stack_cfg():
     from sim.envs.stack_cube import StackCubeSceneCfg
     return StackCubeSceneCfg(num_envs=1, env_spacing=3.0)
@@ -118,7 +117,6 @@ def _handover_cfg():
 def _cap_unscrew_cfg():
     from sim.envs.cap_unscrew import CapUnscrewSceneCfg
     return CapUnscrewSceneCfg(num_envs=1, env_spacing=3.0)
-
 
 
 def _sleeve_cfg():

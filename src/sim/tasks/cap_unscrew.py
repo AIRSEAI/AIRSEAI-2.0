@@ -18,6 +18,7 @@ from __future__ import annotations
 import math
 
 import numpy as _np
+import torch as _torch
 
 from sim.criteria.cap_unscrew import cap_centre, in_tray
 from sim.criteria.cap_unscrew import verdict as _verdict
@@ -30,7 +31,6 @@ from sim.envs.cap_unscrew import (
     BOTTLE_SPAWN_Z,
     BOTTLE_SPIN_DAMPING,
     CAP_SPAWN_Z,
-    DEFAULT_THREAD_ANGLE,
     SPINDLE_Z,
     THREAD_ANGLE_SWEEP,
     THREAD_DAMPING,
@@ -55,7 +55,8 @@ ENV = "/World/envs/env_0"
 SDF_RESOLUTION = 128
 SIDE_PADS = {"right": TACTILE_SENSORS[:2], "left": TACTILE_SENSORS[2:]}
 TURNER, HOLDER = "right", "left"
-THREAD_JOINT = f"{ENV}/thread_joint"
+THREAD_JOINT_NAME = "thread_joint"
+THREAD_JOINT = f"{ENV}/{THREAD_JOINT_NAME}"
 
 # Controller parameters.
 # Jaw command while approaching and releasing, metres per jaw: a 46 mm gel
@@ -68,12 +69,10 @@ GRIP_MIN_WIDTH = {"left": 0.016, "right": 0.014}
 # --- grasp geometry --------------------------------------------------------
 # Gel height on the bottle, metres above its base: the body's middle.
 HOLD_GRASP_H = 0.045
-# Blade heading per hand, degrees in the world xy plane. Both reach in
-# toward the centreline, where the arm keeps its joint margin; the turner
-# turns further in from there, the way the thread opens (anticlockwise from
-# above). Heading and stroke together must stay inside the arm's reach:
-# below 30 degrees its second joint is on a limit at the grasp, past 60 its
-# sixth is at the end of a stroke.
+# Blade heading per hand, degrees in the world xy plane: in toward the
+# centreline, where the arm keeps its joint margin. The turner turns further
+# in from there, the way the thread opens, and heading plus stroke must stay
+# inside the band where neither end of the stroke sits on a joint limit.
 HOLD_YAW_DEG = -45.0
 TWIST_FROM_DEG = 30.0
 # The pre-grasp point is this far back from the grasp point along the blade,
@@ -94,17 +93,15 @@ RELEASE_OPEN_S = 0.30         # s the jaws keep opening after the pads lift
 
 # --- turning ---------------------------------------------------------------
 # One stroke turns the whole hand this far about the vertical through the
-# cap's axis, at this rate. The stroke is the heading range the arm's reach
-# allows; the thread's damping sets the torque the gels carry, so a slower
-# turn asks for less of them.
+# cap's axis, degrees, at TWIST_RATE_DEG: the heading band the arm's reach
+# allows, turned slowly enough for the gels to carry the thread's torque.
 STROKE_DEG = 30.0
 TWIST_RATE_DEG = 25.0         # deg/s
 UNWIND_RATE_DEG = 60.0        # deg/s, jaws open
 MAX_STROKES = 8
-# After each stroke the hand rises LIFT_TEST and holds; the cap is off the
-# thread when it rises at least LIFT_SEEN with it. The commanded rise is
-# several times LIFT_SEEN because the IK lags it and the gels give, and a
-# cap still on its thread rises a little with them.
+# After each stroke the hand rises LIFT_TEST for LIFT_TEST_S; the cap is off
+# the thread when it rises LIFT_SEEN with it. The commanded rise is several
+# times LIFT_SEEN, which the IK lag and the gels' give eat into.
 LIFT_TEST = 0.008             # m
 LIFT_SEEN = 0.0015            # m
 LIFT_TEST_S = 1.0             # s
@@ -112,24 +109,22 @@ LIFT_TEST_S = 1.0             # s
 # --- carrying --------------------------------------------------------------
 # The freed cap rises until its skirt is this far above the neck's top.
 LIFT_CLEAR = 0.020            # m
-# Heading the cap is carried to the tray at, degrees: the heading the hand
-# gripped at. The wrist turns back to it at CARRY_TURN_RATE; a heading
-# commanded in one step slews the wrist faster than the gels can hold the
-# cap.
+# Heading the cap is carried to the tray at, degrees: the one it was gripped
+# at. The wrist turns back to it at CARRY_TURN_RATE_DEG, a rate the gels can
+# hold the cap through.
 CARRY_YAW_DEG = TWIST_FROM_DEG
 CARRY_TURN_RATE_DEG = 25.0    # deg/s
-# The cap's skirt at least this far above the tray's rim on the way over,
-# and this far above it when the hand lets go, so the cap drops the last
-# centimetre in. A hand holding the cap by its middle reaches below the rim
-# to set it down on the floor, and takes it back out with the fingers.
+# The cap's skirt above the tray's rim on the way over, and when the hand
+# lets go: a hand holding the cap by its middle cannot reach the floor
+# without putting its fingers inside the tray.
 TRAY_CLEAR = 0.015            # m
 RELEASE_ABOVE_RIM = 0.010     # m
 # Jaw command while letting go, metres per jaw: the gripper's limit, so the
-# open fingers clear a cap standing loose in the tray as the hand withdraws.
+# fingers clear the cap as the hand withdraws.
 RELEASE_WIDTH = 0.027
-# How a hand withdraws after letting go: the turner straight up out of the
-# tray, the holder back along its blade, away from the bottle. The turner's
-# fingers straddle the cap, so any sideways move on the way out catches it.
+# How far a hand withdraws after letting go, metres: the turner straight up
+# out of the tray, whose fingers straddle the cap, the holder back along its
+# blade, away from the bottle.
 PART_UP = 0.060
 PART_BACK = 0.060
 
@@ -192,7 +187,8 @@ def _unwrap(prev: float, raw: float) -> float:
 def _blade(pitch_deg: float, yaw_deg: float) -> _np.ndarray:
     """Unit blade direction at a grasp, from its pitch and heading."""
     th, psi = math.radians(pitch_deg), math.radians(yaw_deg)
-    return _np.array([math.cos(th) * math.cos(psi), math.cos(th) * math.sin(psi), -math.sin(th)])
+    return _np.array([math.cos(th) * math.cos(psi),
+                      math.cos(th) * math.sin(psi), -math.sin(th)])
 
 
 def _wrist_err_deg(h, quat) -> float:
@@ -205,9 +201,10 @@ def _wrist_err_deg(h, quat) -> float:
 
 def _shear(h, pad: str) -> float:
     """Summed tangential force magnitude on one pad, x1e3 (the `ff_shear` scale)."""
-    import torch
     sh = getattr(h.sensors[pad].data, "tactile_shear_force", None)
-    return 0.0 if sh is None else float(torch.linalg.norm(sh[0], dim=-1).sum()) * 1e3
+    if sh is None:
+        return 0.0
+    return float(_torch.linalg.norm(sh[0], dim=-1).sum()) * 1e3
 
 
 class CapUnscrewTask(Task):
@@ -269,7 +266,7 @@ class CapUnscrewTask(Task):
                   damping=BOTTLE_SPIN_DAMPING, name="spin_joint")
         join_spin(f"{ENV}/bottle", f"{ENV}/cap",
                   local_pos0=(0.0, 0.0, CAP_SPAWN_Z - BOTTLE_SPAWN_Z),
-                  damping=THREAD_DAMPING, name="thread_joint")
+                  damping=THREAD_DAMPING, name=THREAD_JOINT_NAME)
         print(f"STEP cross-arm link pairs colliding: {n_pairs}", flush=True)
         print(f"STEP sdf on bottle+cap: {n_sdf}; tray meshes: {n_tri}", flush=True)
 
@@ -279,7 +276,8 @@ class CapUnscrewTask(Task):
         h.select_arm(HOLDER)
         layout = sample_layout(rng, float(knobs["bottle_jitter"]), float(knobs["tray_jitter"]))
         want = float(knobs["thread_angle_deg"])
-        thread = want if want > 0.0 else float(THREAD_ANGLE_SWEEP[int(rng.integers(len(THREAD_ANGLE_SWEEP)))])
+        thread = (want if want > 0.0
+                  else float(THREAD_ANGLE_SWEEP[rng.integers(len(THREAD_ANGLE_SWEEP))]))
         bx, by = layout["bottle"]
         h.place(h.scene["spindle"], (bx, by), SPINDLE_Z)
         h.place(h.scene["bottle"], (bx, by), BOTTLE_SPAWN_Z)
@@ -291,8 +289,9 @@ class CapUnscrewTask(Task):
         # recorded frame is the robot's HOME.
         h.hold_default(SETTLE_STEPS)
         cp, _cq = _pq(h, "cap")
-        if abs(cp[2] - CAP_SPAWN_Z) > SPAWN_MAX_DRIFT:
-            raise RetryReset(f"cap settled {abs(cp[2] - CAP_SPAWN_Z) * 1e3:.1f} mm off the neck")
+        drift = abs(cp[2] - CAP_SPAWN_Z)
+        if drift > SPAWN_MAX_DRIFT:
+            raise RetryReset(f"cap settled {drift * 1e3:.1f} mm off the neck")
         _bp, bq = _pq(h, "bottle")
         return {
             "side": TURNER,
@@ -304,7 +303,10 @@ class CapUnscrewTask(Task):
             # bottle's spin, and whether the thread has let go. The
             # controller reads none of these.
             "thread_deg": 0.0, "bottle_deg": 0.0, "bottle_q0": bq, "freed": False,
-            "freed_t": None, "t": 0.0,
+            # The expert's own clock, in steps: `signals` runs once a physics
+            # step for the expert and once a control step for a policy, so it
+            # cannot keep time for both.
+            "steps": 0,
             "grip": {"left": 0.0, "right": 0.0},
             "contact": {"left": None, "right": None},   # measured jaw at first contact
             "held_at": {"left": None, "right": None},
@@ -335,8 +337,7 @@ class CapUnscrewTask(Task):
         ctx["bottle_deg"] = _unwrap(ctx["bottle_deg"], _yaw_of(ctx["bottle_q0"], bq))
         if not ctx["freed"] and ctx["thread_deg"] >= ctx["thread_angle"]:
             set_joint_enabled(THREAD_JOINT, False)
-            ctx["freed"], ctx["freed_t"] = True, ctx["t"]
-        ctx["t"] += DT
+            ctx["freed"] = True
         tray = (*ctx["layout"]["tray"], TABLE_TOP_Z)
         shear = {p: _shear(h, p) for p in TACTILE_SENSORS}
         return {
@@ -409,6 +410,7 @@ class CapUnscrewTask(Task):
     def phase_target(self, h, ctx, name, t_phase, sig, knobs):
         arm = self._ARM[name]
         names = [n for n, _ in self.phases]
+        ctx["steps"] += 1
         if t_phase == 0.0:
             h.latch()                      # the arm that just moved holds where it is
             ctx["cmd_pos"] = None
@@ -573,7 +575,7 @@ class CapUnscrewTask(Task):
                 return False
             ctx["cap_up"] = sig["cap_z"] - ctx["cap_z_turned"] >= LIFT_SEEN
             ctx["stroke_log"].append({
-                "stroke": ctx["strokes"], "t": round(ctx["t"], 2),
+                "stroke": ctx["strokes"], "t": round(ctx["steps"] * DT, 2),
                 "cap_rise_mm": round((sig["cap_z"] - ctx["cap_z_turned"]) * 1e3, 2),
                 "thread_deg": round(sig["thread_deg"], 1),
                 "bottle_deg": round(sig["bottle_deg"], 1)})
@@ -628,13 +630,12 @@ class CapUnscrewTask(Task):
         return True
 
     def should_terminate(self, ctx, hist) -> bool:
+        """The cap has been in the tray for a second: the task is done."""
         from sim.harness import CTRL_FPS
-        in_tray_hist, areas = hist.get("in_tray", []), hist.get("areas", [])
+        in_tray_hist = hist.get("in_tray", [])
         n = CTRL_FPS
-        if len(in_tray_hist) < n:
-            return False
-        return (all(v > 0.5 for v in in_tray_hist[-n:])
-                and all(max(a.values()) < AREA_CONTACT for a in areas[-n:]))
+        return (len(in_tray_hist) >= n
+                and all(v > 0.5 for v in in_tray_hist[-n:]))
 
     # ---- scoring -----------------------------------------------------------
     def build_trace(self, h, ctx, hist) -> _Trace:
@@ -655,13 +656,15 @@ class CapUnscrewTask(Task):
                         turner_pads=SIDE_PADS[TURNER], holder_pads=SIDE_PADS[HOLDER])
 
     def episode_extra(self, ctx, hist) -> dict:
+        freed = [t for t, f in zip(hist.get("t", []), hist.get("freed", []), strict=True)
+                 if f > 0.5]
         return {
             "bottle_xy": [round(v, 4) for v in ctx["layout"]["bottle"]],
             "tray_xy": [round(v, 4) for v in ctx["layout"]["tray"]],
             "thread_angle_deg": ctx["thread_angle"],
             "strokes": ctx["strokes"],
             "freed": ctx["freed"],
-            "freed_t": None if ctx["freed_t"] is None else round(ctx["freed_t"], 2),
+            "freed_t": round(freed[0], 2) if freed else None,
             "regrasps": ctx["regrasps"],
             "contact_mm": {s: (None if c is None else round(c * 1e3, 2))
                            for s, c in ctx["contact"].items()},
@@ -671,7 +674,6 @@ class CapUnscrewTask(Task):
     def report_extra(self, knobs) -> dict:
         return {"thread_angle_deg": float(knobs["thread_angle_deg"]),
                 "thread_angle_sweep_deg": list(THREAD_ANGLE_SWEEP),
-                "default_thread_angle_deg": DEFAULT_THREAD_ANGLE,
                 "grasp_pitch_deg": float(knobs["grasp_pitch_deg"]),
                 "bottle_jitter_m": float(knobs["bottle_jitter"]),
                 "tray_jitter_m": float(knobs["tray_jitter"]),

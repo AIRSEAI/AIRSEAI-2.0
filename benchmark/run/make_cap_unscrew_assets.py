@@ -17,12 +17,11 @@ import argparse
 import math
 import os
 import sys
-from collections import Counter
 from pathlib import Path
 
 from isaaclab.app import AppLauncher
 
-from sim.assets.meshio import orient_outward, write_obj, write_usd
+from sim.assets.meshio import check_closed, orient_outward, steps, write_obj, write_usd
 from sim.assets.provision import task_asset_dir
 from sim.dims.cap_unscrew import (
     BOTTLE_BODY_H,
@@ -64,26 +63,6 @@ TRAY_FRICTION = (0.6, 0.5)
 # a mesh collider is tested against the cap's SDF at its vertices, so a
 # sparsely sampled floor lets the cap sink into it.
 CONTACT_STEP = 0.001
-
-
-def check_closed(tris) -> None:
-    """Raise unless every edge is shared by exactly two consistently wound triangles."""
-    directed: Counter = Counter()
-    for a, b, c in tris:
-        directed[(a, b)] += 1
-        directed[(b, c)] += 1
-        directed[(c, a)] += 1
-    if any(v != 1 for v in directed.values()):
-        raise AssertionError("winding is inconsistent: a directed edge repeats")
-    und = Counter(tuple(sorted(e)) for e in directed)
-    if any(v != 2 for v in und.values()):
-        raise AssertionError("mesh is not closed")
-
-
-def _steps(a: float, b: float, step: float) -> list[float]:
-    """Values from `a` to `b` inclusive, at most `step` apart."""
-    n = max(1, math.ceil(abs(b - a) / step))
-    return [a + (b - a) * k / n for k in range(n + 1)]
 
 
 def revolve(prof, sections: int):
@@ -137,17 +116,17 @@ def bottle_profile() -> list:
 
 
 def cap_profile() -> list:
-    """Top centre, down the skirt, up the bore, to the roof's underside."""
-    return [(0.0, CAP_H), (CAP_R, CAP_H), (CAP_R, 0.0), (CAP_BORE_R, 0.0),
-            (CAP_BORE_R, CAP_BORE_DEPTH), (0.0, CAP_BORE_DEPTH)]
+    """Roof's underside, down the bore, up the skirt, to the top centre."""
+    return [(0.0, CAP_BORE_DEPTH), (CAP_BORE_R, CAP_BORE_DEPTH), (CAP_BORE_R, 0.0),
+            (CAP_R, 0.0), (CAP_R, CAP_H), (0.0, CAP_H)]
 
 
 def tray_profile() -> list:
     """Base centre, round the rim, down the inner wall and across the floor,
     both sampled every CONTACT_STEP, to the floor's centre."""
     prof = [(0.0, 0.0), (TRAY_OUTER_R, 0.0), (TRAY_OUTER_R, TRAY_HEIGHT)]
-    prof += [(TRAY_INNER_R, z) for z in _steps(TRAY_HEIGHT, TRAY_FLOOR, CONTACT_STEP)]
-    prof += [(r, TRAY_FLOOR) for r in _steps(TRAY_INNER_R, 0.0, CONTACT_STEP)[1:]]
+    prof += [(TRAY_INNER_R, z) for z in steps(TRAY_HEIGHT, TRAY_FLOOR, CONTACT_STEP)]
+    prof += [(r, TRAY_FLOOR) for r in steps(TRAY_INNER_R, 0.0, CONTACT_STEP)[1:]]
     return prof
 
 
