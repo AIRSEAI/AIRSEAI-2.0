@@ -103,8 +103,8 @@ UNWIND_RATE_DEG = 60.0        # deg/s, jaws open
 MAX_STROKES = 8
 # After each stroke the hand rises LIFT_TEST and holds; the cap is off the
 # thread when it rises at least LIFT_SEEN with it. The commanded rise is
-# several times LIFT_SEEN because the IK lags it and the gels give: a cap
-# still on its thread rises 0.2-0.4 mm, a freed one several millimetres.
+# several times LIFT_SEEN because the IK lags it and the gels give, and a
+# cap still on its thread rises a little with them.
 LIFT_TEST = 0.008             # m
 LIFT_SEEN = 0.0015            # m
 LIFT_TEST_S = 1.0             # s
