@@ -18,11 +18,9 @@ from __future__ import annotations
 import math
 
 import numpy as _np
-import torch as _torch
 
 from sim.criteria.cap_unscrew import cap_centre, in_tray
 from sim.criteria.cap_unscrew import verdict as _verdict
-from sim.criteria.probes import tilt_deg
 from sim.criteria.trace import EpisodeTrace as _Trace
 from sim.dims.cap_unscrew import BOTTLE_H, CAP_BORE_DEPTH, CAP_H, TRAY_HEIGHT
 from sim.envs.bimanual_tactile import TABLE_TOP_Z, TACTILE_SENSORS, gel_gap
@@ -199,14 +197,6 @@ def _wrist_err_deg(h, quat) -> float:
     return float(_np.degrees(2.0 * _np.arccos(min(1.0, d))))
 
 
-def _shear(h, pad: str) -> float:
-    """Summed tangential force magnitude on one pad, x1e3 (the `ff_shear` scale)."""
-    sh = getattr(h.sensors[pad].data, "tactile_shear_force", None)
-    if sh is None:
-        return 0.0
-    return float(_torch.linalg.norm(sh[0], dim=-1).sum()) * 1e3
-
-
 class CapUnscrewTask(Task):
     name = "cap_unscrew"
     instruction = "unscrew the cap from the bottle and put the cap in the tray"
@@ -303,10 +293,6 @@ class CapUnscrewTask(Task):
             # bottle's spin, and whether the thread has let go. The
             # controller reads none of these.
             "thread_deg": 0.0, "bottle_deg": 0.0, "bottle_q0": bq, "freed": False,
-            # The expert's own clock, in steps: `signals` runs once a physics
-            # step for the expert and once a control step for a policy, so it
-            # cannot keep time for both.
-            "steps": 0,
             "grip": {"left": 0.0, "right": 0.0},
             "contact": {"left": None, "right": None},   # measured jaw at first contact
             "held_at": {"left": None, "right": None},
@@ -322,7 +308,6 @@ class CapUnscrewTask(Task):
             "regrasps": 0,
             "cmd_pos": None,
             "goal": None, "prev_goal": None,
-            "stroke_log": [],
         }
 
     # ---- probes ------------------------------------------------------------
@@ -339,19 +324,15 @@ class CapUnscrewTask(Task):
             set_joint_enabled(THREAD_JOINT, False)
             ctx["freed"] = True
         tray = (*ctx["layout"]["tray"], TABLE_TOP_Z)
-        shear = {p: _shear(h, p) for p in TACTILE_SENSORS}
         return {
             "areas": areas,
             "side_area": {s: min(areas[x] for x in SIDE_PADS[s]) for s in SIDE_PADS},
             "cap_pos": cp, "cap_quat": cq, "bottle_pos": bp,
             "cap_z": float(cp[2]),
-            "cap_tilt": tilt_deg(cq),
             "thread_deg": float(ctx["thread_deg"]),
             "bottle_deg": float(ctx["bottle_deg"]),
             "freed": 1.0 if ctx["freed"] else 0.0,
             "in_tray": 1.0 if in_tray(cap_centre(cp, cq), tray) else 0.0,
-            "shear_r": shear[SIDE_PADS["right"][0]] + shear[SIDE_PADS["right"][1]],
-            "shear_l": shear[SIDE_PADS["left"][0]] + shear[SIDE_PADS["left"][1]],
             "phase_i": ctx["phase_i"],
         }
 
@@ -410,7 +391,6 @@ class CapUnscrewTask(Task):
     def phase_target(self, h, ctx, name, t_phase, sig, knobs):
         arm = self._ARM[name]
         names = [n for n, _ in self.phases]
-        ctx["steps"] += 1
         if t_phase == 0.0:
             h.latch()                      # the arm that just moved holds where it is
             ctx["cmd_pos"] = None
@@ -574,11 +554,6 @@ class CapUnscrewTask(Task):
             if t_phase < LIFT_TEST_S:
                 return False
             ctx["cap_up"] = sig["cap_z"] - ctx["cap_z_turned"] >= LIFT_SEEN
-            ctx["stroke_log"].append({
-                "stroke": ctx["strokes"], "t": round(ctx["steps"] * DT, 2),
-                "cap_rise_mm": round((sig["cap_z"] - ctx["cap_z_turned"]) * 1e3, 2),
-                "thread_deg": round(sig["thread_deg"], 1),
-                "bottle_deg": round(sig["bottle_deg"], 1)})
             return True
         if name == "open_r":
             return (h.grip_measured() >= OPEN_WIDTH - 0.002 and t_phase > RELEASE_OPEN_S
@@ -656,19 +631,15 @@ class CapUnscrewTask(Task):
                         turner_pads=SIDE_PADS[TURNER], holder_pads=SIDE_PADS[HOLDER])
 
     def episode_extra(self, ctx, hist) -> dict:
-        freed = [t for t, f in zip(hist.get("t", []), hist.get("freed", []), strict=True)
-                 if f > 0.5]
         return {
             "bottle_xy": [round(v, 4) for v in ctx["layout"]["bottle"]],
             "tray_xy": [round(v, 4) for v in ctx["layout"]["tray"]],
             "thread_angle_deg": ctx["thread_angle"],
             "strokes": ctx["strokes"],
             "freed": ctx["freed"],
-            "freed_t": round(freed[0], 2) if freed else None,
             "regrasps": ctx["regrasps"],
             "contact_mm": {s: (None if c is None else round(c * 1e3, 2))
                            for s, c in ctx["contact"].items()},
-            "stroke_log": ctx["stroke_log"],
         }
 
     def report_extra(self, knobs) -> dict:
