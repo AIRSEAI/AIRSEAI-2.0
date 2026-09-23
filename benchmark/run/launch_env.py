@@ -119,6 +119,12 @@ def _handover_cfg():
     return HandoverSceneCfg(num_envs=1, env_spacing=3.0)
 
 
+def _cap_unscrew_cfg():
+    from sim.envs.cap_unscrew import CapUnscrewSceneCfg
+    return CapUnscrewSceneCfg(num_envs=1, env_spacing=3.0)
+
+
+
 def _sleeve_cfg():
     from sim.envs.sleeve_on_shaft import SleeveOnShaftSceneCfg
     return SleeveOnShaftSceneCfg(num_envs=1, env_spacing=3.0)
@@ -149,6 +155,12 @@ ENVS = {
                         tri_prims=("cup_source", "cup_target"),
                         look_at=(0.22, 0.0, TABLE_TOP_Z + 0.05), eye=(0.95, -0.50, 0.60),
                         sdf_resolution=128),
+    # Framed to take in both arms at HOME, the bottle on the centreline and
+    # the tray on the right.
+    "cap_unscrew": EnvSpec(_cap_unscrew_cfg, sdf_prims=("bottle", "cap"),
+                           tri_prims=("tray",),
+                           look_at=(0.20, -0.06, TABLE_TOP_Z + 0.08),
+                           eye=(1.00, -0.70, 0.62), sdf_resolution=128),
     "sleeve_on_shaft": EnvSpec(
         _sleeve_cfg,
         sdf_prims=("soft_a", "soft_b", "stiff_a", "stiff_b"),
@@ -218,6 +230,11 @@ def main() -> int:
 
     sim.reset()
     robot = scene["robot"]
+    # Place the arms at their start pose, as the task runner's reset does;
+    # otherwise they start folded and swing up through the workspace under
+    # their drives, knocking over whatever stands in the way.
+    robot.write_joint_state_to_sim(robot.data.default_joint_pos,
+                                   robot.data.default_joint_vel)
     print(f"[launch_env] {args_cli.env}: {len(robot.joint_names)} joints, "
           f"{len(scene.sensors)} sensors", flush=True)
 

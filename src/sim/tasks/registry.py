@@ -18,6 +18,7 @@ TASKS: dict[str, tuple[str, dict]] = {
     "texture_sort":          ("sim.tasks.texture_sort", {}),
     "sleeve_on_shaft":       ("sim.tasks.sleeve_on_shaft", {}),
     "handover":              ("sim.tasks.handover", {}),
+    "cap_unscrew":           ("sim.tasks.cap_unscrew", {}),
 }
 
 
