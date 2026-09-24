@@ -32,6 +32,7 @@ from sim.envs.bimanual_tactile import (
     point_pads_at,
     start_joint_pos,
 )
+from sim.envs.preview import PreviewSpec
 
 __all__ = [
     "ASSETS_DIR",
@@ -108,7 +109,7 @@ PAD_TARGET = "{ENV_REGEX_NS}/peg"
 # ----- lighting --------------------------------------------------------------
 # Light level. `set_light_scale` multiplies both emitters together, so no
 # specular highlight survives on the board rim; the sweep is the
-# `blind_peg_dim` axis.
+# dim-light axis.
 DOME_INTENSITY = 3000.0
 
 KEY_LIGHT_INTENSITY = 3000.0
@@ -233,7 +234,7 @@ class BlindPegInsertionSceneCfg(BimanualTactileSceneCfg):
         return hole_diameter(clearance)
 
     def set_light_scale(self, scale: float = DEFAULT_LIGHT_SCALE) -> float:
-        """Multiply both emitters by `scale`, which is the `blind_peg_dim`
+        """Multiply both emitters by `scale`, which is the dim-light
         knob. Any positive value is accepted, not only the sweep points.
         Returns the scale applied, for the caller to record.
         """
@@ -242,3 +243,18 @@ class BlindPegInsertionSceneCfg(BimanualTactileSceneCfg):
         self.dome_light.spawn.intensity = DOME_INTENSITY * scale
         self.key_light.spawn.intensity = KEY_LIGHT_INTENSITY * scale
         return scale
+
+
+# -- preview -----------------------------------------------------------------
+
+# Pulled back to show the arms relative to the objects.
+PREVIEW = PreviewSpec(sdf_prims=("peg",), tri_prims=("board",),
+                      work_target=(0.26, 0.0, TABLE_TOP_Z + 0.06))
+
+
+def make_preview_cfg() -> BlindPegInsertionSceneCfg:
+    """Build the scene for preview."""
+    cfg = BlindPegInsertionSceneCfg(num_envs=1, env_spacing=3.0)
+    cfg.set_clearance()          # anchor board, 1 mm clearance
+    cfg.set_light_scale(1.0)
+    return cfg

@@ -35,6 +35,7 @@ from sim.envs.bimanual_tactile import (
     point_pads_at,
     start_joint_pos,
 )
+from sim.envs.preview import PreviewSpec
 
 __all__ = [
     "ASSETS_DIR",
@@ -248,3 +249,17 @@ class HandoverSceneCfg(BimanualTactileSceneCfg):
             raise ValueError(f"target bore {bore} not generated; one of {TARGET_BORE_SWEEP}")
         self.cup_target.spawn.usd_path = str(_usd(target_mesh_name(bore)))
         return bore
+
+
+# -- preview -----------------------------------------------------------------
+
+# Framed to show both cups and the sleeve standing in the source one.
+PREVIEW = PreviewSpec(sdf_prims=("sleeve_a", "sleeve_b"),
+                      tri_prims=("cup_source", "cup_target"),
+                      work_target=(0.22, 0.0, TABLE_TOP_Z + 0.06),
+                      sdf_resolution=128)
+
+
+def make_preview_cfg() -> HandoverSceneCfg:
+    """Build the scene for preview."""
+    return HandoverSceneCfg(num_envs=1, env_spacing=3.0)

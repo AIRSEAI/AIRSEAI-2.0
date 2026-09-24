@@ -37,6 +37,7 @@ from sim.envs.bimanual_tactile import (
     point_pads_at,
     start_joint_pos,
 )
+from sim.envs.preview import PreviewSpec
 
 __all__ = [
     "ASSETS_DIR",
@@ -281,3 +282,16 @@ class SleeveOnShaftSceneCfg(BimanualTactileSceneCfg):
             raise ValueError(f"clearance {clearance} not generated; one of {CLEARANCE_SWEEP}")
         self.shaft.spawn.usd_path = str(_usd(shaft_mesh_name(clearance)))
         return clearance
+
+
+# -- preview -----------------------------------------------------------------
+
+PREVIEW = PreviewSpec(sdf_prims=("soft_a", "soft_b", "stiff_a", "stiff_b"),
+                      tri_prims=("shaft",),
+                      work_target=(0.26, -0.085, 0.24),
+                      sdf_resolution=128)
+
+
+def make_preview_cfg() -> SleeveOnShaftSceneCfg:
+    """Build the scene for preview."""
+    return SleeveOnShaftSceneCfg(num_envs=1, env_spacing=3.0)

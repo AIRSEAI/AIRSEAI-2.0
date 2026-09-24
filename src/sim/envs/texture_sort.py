@@ -29,6 +29,7 @@ from sim.envs.bimanual_tactile import (
     point_pads_at,
     start_joint_pos,
 )
+from sim.envs.preview import PreviewSpec
 
 __all__ = [
     "ASSETS_DIR",
@@ -252,3 +253,20 @@ class TextureSortSceneCfg(BimanualTactileSceneCfg):
         self.dome_light.spawn.intensity = DOME_INTENSITY * scale
         self.key_light.spawn.intensity = KEY_LIGHT_INTENSITY * scale
         return scale
+
+
+# -- preview -----------------------------------------------------------------
+
+PREVIEW = PreviewSpec(sdf_prims=("puck_smooth", "puck_rough"),
+                      tri_prims=("bin_0", "bin_1"),
+                      work_target=(0.15, -0.08, 0.30),
+                      sdf_resolution=96)
+
+
+def make_preview_cfg() -> TextureSortSceneCfg:
+    """Build the scene for preview."""
+    cfg = TextureSortSceneCfg(num_envs=1, env_spacing=3.0)
+    # Full light so the preview shows the geometry; the task itself runs
+    # at the `--light_scale` given to the runner.
+    cfg.set_light_scale(1.0)
+    return cfg

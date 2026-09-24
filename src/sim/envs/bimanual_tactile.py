@@ -19,6 +19,8 @@ from isaaclab.utils import configclass
 from isaaclab_assets.sensors import GELSIGHT_R15_CFG
 from isaaclab_contrib.sensors.tacsl_sensor import VisuoTactileSensorCfg
 
+from sim.envs.preview import PreviewSpec
+
 __all__ = [
     "ARM_LIFTED_JOINT_POS",
     "FINGER_JOINTS",
@@ -256,3 +258,17 @@ def park_default_manipuland(cfg, pos=(0.0, 0.0, -5.0)) -> None:
     """Move the placeholder sphere out of the way for a scene that brings its
     own objects. `point_pads_at` must follow."""
     cfg.manipuland.init_state.pos = pos
+
+
+# -- preview -----------------------------------------------------------------
+
+PREVIEW = PreviewSpec(sdf_prims=("manipuland",),
+                      work_target=(0.0, -0.15, 0.10))
+
+
+def make_preview_cfg() -> BimanualTactileSceneCfg:
+    """Build the scene for preview."""
+    cfg = BimanualTactileSceneCfg(num_envs=1, env_spacing=3.0)
+    cfg.robot.init_state.joint_pos = start_joint_pos(
+        REAL_HOME_JOINT_POS, {"right": 0.0, "left": 0.0})
+    return cfg

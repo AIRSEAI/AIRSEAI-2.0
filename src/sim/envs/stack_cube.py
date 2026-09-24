@@ -22,6 +22,7 @@ from sim.envs.bimanual_tactile import (
     point_pads_at,
     start_joint_pos,
 )
+from sim.envs.preview import PreviewSpec
 
 __all__ = [
     "CUBE_A_XY",
@@ -110,3 +111,16 @@ class StackCubeSceneCfg(BimanualTactileSceneCfg):
     def __post_init__(self):
         self.robot.init_state.joint_pos = start_joint_pos(START_JOINT_POS, START_JAW_WIDTH)
         point_pads_at(self, PAD_TARGET)
+
+
+# -- preview -----------------------------------------------------------------
+
+PREVIEW = PreviewSpec(
+    sdf_prims=("cube_a", "cube_b"),
+    work_target=(0.5 * (CUBE_A_XY[0] + CUBE_B_XY[0]),
+                 0.5 * (CUBE_A_XY[1] + CUBE_B_XY[1]), TABLE_TOP_Z + 0.05))
+
+
+def make_preview_cfg() -> StackCubeSceneCfg:
+    """Build the scene for preview."""
+    return StackCubeSceneCfg(num_envs=1, env_spacing=3.0)

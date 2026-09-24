@@ -1,30 +1,43 @@
 #!/usr/bin/env python3
 """Launch a tactile environment: interactive viewer, or an offscreen video.
 
-Each entry in `ENVS` pairs a scene config with the prims that need SDF or
-triangle-mesh collision and a camera framing. The robot asset builds itself
-on first use; `--robot_usd` overrides it.
+Preview a task or the minimal scene using a shared camera at 20 Hz.
 
     # the minimal unit (bimanual OpenArm + 4 tactile fingers + cameras)
     python benchmark/run/launch_env.py --env minimal --gui
     # a task environment (adds that task's furniture and objects)
-    python benchmark/run/launch_env.py --env stack_cube --gui
+    python benchmark/run/launch_env.py --env <task> --gui
     # offscreen, as an mp4 or a single settled PNG
-    python benchmark/run/launch_env.py --env stack_cube --video ~/demo_stack_cube.mp4 --steps 300
-    python benchmark/run/launch_env.py --env stack_cube --snapshot x.png
+    python benchmark/run/launch_env.py --env <task> --video ~/<task>_clip.mp4 --steps 300
+    python benchmark/run/launch_env.py --env <task> --snapshot x.png
 """
 
 from __future__ import annotations
 
 import argparse
+import importlib
+import json
+import math
 import os
 from pathlib import Path
 
 from isaaclab.app import AppLauncher
 
+from sim.runtime import install_error_handler
+from sim.tasks.registry import TASKS, load_scene
+
+install_error_handler()
+
+MINIMAL = "minimal"                     # the bare robot, not a task
+ENV_IDS = [MINIMAL] + sorted(TASKS)
+VIDEO_FPS = 20
+PHYSICS_HZ = 60
+CAMERA_PATH = "/World/scene_cam"
+CAMERA_RESOLUTION = (960, 720)
+
 parser = argparse.ArgumentParser(description="Launch a tactile environment.")
-parser.add_argument("--env", default="stack_cube",
-                    help="registry key, see ENVS")
+parser.add_argument("--env", required=True, choices=ENV_IDS,
+                    help="a registry task id, or `minimal` for the bare robot")
 parser.add_argument("--robot_usd", type=str, default="",
                     help="override the asset; default builds/uses the "
                          "one under assets/")
@@ -32,10 +45,11 @@ parser.add_argument("--gui", action="store_true",
                     help="open the Isaac viewer (default is offscreen)")
 parser.add_argument("--video", type=str, default="",
                     help="record the scene to this mp4 instead of watching it")
-parser.add_argument("--steps", type=int, default=0,
+parser.add_argument("--steps", type=int,
                     help="step count before exit; 0 = run until closed "
                          "(--video defaults to 300)")
-parser.add_argument("--fps", type=int, default=30, help="video frame rate")
+parser.add_argument("--fps", type=int, choices=(VIDEO_FPS,), default=VIDEO_FPS,
+                    help="video frame rate (fixed at 20 Hz)")
 parser.add_argument("--snapshot", type=str, default="",
                     help="write one settled PNG of the scene to this path and exit")
 parser.add_argument("--settle_steps", type=int, default=90,
@@ -49,122 +63,26 @@ args_cli = parser.parse_args()
 # sensors are camera-based and the scene refuses to build without them.
 args_cli.headless = not args_cli.gui
 args_cli.enable_cameras = True
-if args_cli.video and not args_cli.steps:
+if args_cli.video and args_cli.steps is None:
     args_cli.steps = 300
-if args_cli.snapshot:
+if args_cli.snapshot and args_cli.steps is None:
     args_cli.steps = args_cli.settle_steps
 
 app_launcher = AppLauncher(args_cli)
 simulation_app = app_launcher.app
 
 # ---------------------------------------------------------------------------
-import math
-
 import isaaclab.sim as sim_utils
 import numpy as np
 from isaaclab.scene import InteractiveScene
 from isaaclab.sensors import TiledCamera, TiledCameraCfg
 
 from sim.assets.provision import ensure_robot_asset
-from sim.envs.bimanual_tactile import TABLE_TOP_Z
 from sim.physx_settings import small_scene_physx_cfg
 from sim.tactile import (
     apply_sdf_collision,
     apply_triangle_mesh_collision,
 )
-
-
-class EnvSpec:
-    """One launchable environment: cfg factory + what to fix up after spawn."""
-
-    def __init__(self, make_cfg, sdf_prims=(), tri_prims=(),
-                 look_at=(0.30, -0.08, 0.15), eye=(0.85, -0.45, 0.45),
-                 sdf_resolution=256):
-        self.make_cfg = make_cfg          # () -> InteractiveSceneCfg
-        self.sdf_prims = sdf_prims        # prims needing SDF collision
-        self.tri_prims = tri_prims        # prims that must stay triangle meshes
-        self.look_at = look_at            # video camera aim
-        self.eye = eye
-        # PhysX cooks one SDF per sensed mesh at `sim.reset()`. 256 is the
-        # default and is fine for a handful of primitives; dense meshes cook
-        # slowly at that resolution, so envs with them lower it.
-        self.sdf_resolution = sdf_resolution
-
-
-def _minimal_cfg():
-    from sim.envs.bimanual_tactile import BimanualTactileSceneCfg
-    return BimanualTactileSceneCfg(num_envs=1, env_spacing=3.0)
-
-
-def _peg_cfg(light_scale: float = 1.0):
-    from sim.envs.blind_peg_insertion import BlindPegInsertionSceneCfg
-    cfg = BlindPegInsertionSceneCfg(num_envs=1, env_spacing=3.0)
-    cfg.set_clearance()          # anchor board, 1 mm clearance
-    cfg.set_light_scale(light_scale)
-    return cfg
-
-
-def _peg_dim_cfg():
-    # Same scene, dimmed to the anchor light level.
-    return _peg_cfg(light_scale=0.15)
-
-
-def _stack_cfg():
-    from sim.envs.stack_cube import StackCubeSceneCfg
-    return StackCubeSceneCfg(num_envs=1, env_spacing=3.0)
-
-
-def _handover_cfg():
-    from sim.envs.handover import HandoverSceneCfg
-    return HandoverSceneCfg(num_envs=1, env_spacing=3.0)
-
-
-def _sleeve_cfg():
-    from sim.envs.sleeve_on_shaft import SleeveOnShaftSceneCfg
-    return SleeveOnShaftSceneCfg(num_envs=1, env_spacing=3.0)
-
-
-def _sort_cfg():
-    from sim.envs.texture_sort import TextureSortSceneCfg
-    cfg = TextureSortSceneCfg(num_envs=1, env_spacing=3.0)
-    # Full light so the preview shows the geometry; the task itself runs at
-    # the `--light_scale` given to the runner.
-    cfg.set_light_scale(1.0)
-    return cfg
-
-
-ENVS = {
-    "minimal": EnvSpec(_minimal_cfg, sdf_prims=("manipuland",),
-                       look_at=(0.0, -0.15, 0.10), eye=(0.45, -0.45, 0.35)),
-    "stack_cube": EnvSpec(_stack_cfg, sdf_prims=("cube_a", "cube_b")),
-    # Pulled back to show the arms relative to the objects.
-    "blind_peg_insertion": EnvSpec(_peg_cfg, sdf_prims=("peg",), tri_prims=("board",),
-                   look_at=(0.20, -0.08, 0.18), eye=(1.05, -0.80, 0.62)),
-    "blind_peg_dim": EnvSpec(_peg_dim_cfg, sdf_prims=("peg",),
-                             tri_prims=("board",),
-                             look_at=(0.20, -0.08, 0.18),
-                             eye=(1.05, -0.80, 0.62)),
-    # Framed to show both cups and the sleeve standing in the source one.
-    "handover": EnvSpec(_handover_cfg, sdf_prims=("sleeve_a", "sleeve_b"),
-                        tri_prims=("cup_source", "cup_target"),
-                        look_at=(0.22, 0.0, TABLE_TOP_Z + 0.05), eye=(0.95, -0.50, 0.60),
-                        sdf_resolution=128),
-    "sleeve_on_shaft": EnvSpec(
-        _sleeve_cfg,
-        sdf_prims=("soft_a", "soft_b", "stiff_a", "stiff_b"),
-        tri_prims=("shaft",),
-        look_at=(0.24, -0.08, 0.24), eye=(0.95, -0.72, 0.52),
-        sdf_resolution=128),
-    # Higher eye (about 44 degrees elevation): at the 22 degrees the other envs
-    # use, the near rim of each 80 mm bin hides its 27 mm pit.
-    "texture_sort": EnvSpec(
-        _sort_cfg, sdf_prims=("puck_smooth", "puck_rough"),
-        tri_prims=("bin_0", "bin_1"),
-        # Pulled back to take in the whole robot: the task starts from HOME
-        # and the snapshot has to show that posture, not only the table.
-        look_at=(0.15, -0.08, 0.30), eye=(1.25, -1.00, 0.80),
-        sdf_resolution=96),
-}
 
 
 def _look_at_quat(eye, target, up=(0.0, 0.0, 1.0)):
@@ -184,12 +102,14 @@ def _look_at_quat(eye, target, up=(0.0, 0.0, 1.0)):
 
 
 def main() -> int:
-    spec = ENVS[args_cli.env]
+    scene_module = (importlib.import_module("sim.envs.bimanual_tactile")
+                    if args_cli.env == MINIMAL else load_scene(args_cli.env))
+    spec = scene_module.PREVIEW
     usd = ensure_robot_asset(args_cli.robot_usd)
 
     sim = sim_utils.SimulationContext(sim_utils.SimulationCfg(
-        dt=1 / 60, device=args_cli.device, physx=small_scene_physx_cfg()))
-    cfg = spec.make_cfg()
+        dt=1 / PHYSICS_HZ, device=args_cli.device, physx=small_scene_physx_cfg()))
+    cfg = scene_module.make_preview_cfg()
     if args_cli.joint_deg:
         for item in args_cli.joint_deg.split(","):
             name, deg = item.split("=")
@@ -207,17 +127,34 @@ def main() -> int:
               flush=True)
 
     cam = None
-    if args_cli.video or args_cli.snapshot:
+    if args_cli.gui or args_cli.video or args_cli.snapshot:
         cam = TiledCamera(TiledCameraCfg(
-            prim_path="/World/scene_cam",
+            prim_path=CAMERA_PATH,
             offset=TiledCameraCfg.OffsetCfg(
                 pos=spec.eye, rot=_look_at_quat(spec.eye, spec.look_at),
                 convention="opengl"),
-            width=960, height=720, data_types=["rgb"],
+            width=CAMERA_RESOLUTION[0], height=CAMERA_RESOLUTION[1],
+            data_types=["rgb"],
             spawn=sim_utils.PinholeCameraCfg()))
 
     sim.reset()
+    if args_cli.gui:
+        from omni.kit.viewport.utility import get_active_viewport
+        from pxr import Sdf
+
+        viewport = get_active_viewport()
+        if viewport is None:
+            raise RuntimeError("No active GUI viewport is available")
+        viewport.camera_path = Sdf.Path(CAMERA_PATH)
+        viewport.resolution = CAMERA_RESOLUTION
     robot = scene["robot"]
+    robot.write_joint_state_to_sim(robot.data.default_joint_pos,
+                                  robot.data.default_joint_vel)
+    robot.set_joint_position_target(robot.data.default_joint_pos)
+    scene.reset()
+    robot.write_data_to_sim()
+    print("[launch_env] camera " + json.dumps({
+        "eye": spec.eye, "target": spec.look_at}), flush=True)
     print(f"[launch_env] {args_cli.env}: {len(robot.joint_names)} joints, "
           f"{len(scene.sensors)} sensors", flush=True)
 
@@ -226,17 +163,17 @@ def main() -> int:
         from lerobot_tactile_ext.codec import Mp4Stream
         path = Path(os.path.expanduser(args_cli.video))
         path.parent.mkdir(parents=True, exist_ok=True)
-        writer = Mp4Stream(path, args_cli.fps)
+        writer = Mp4Stream(path, VIDEO_FPS)
 
-    every = max(1, round(60 / args_cli.fps))     # sim runs at 60 Hz
+    every = PHYSICS_HZ // VIDEO_FPS
     i = 0
     while simulation_app.is_running():
         robot.set_joint_position_target(robot.data.default_joint_pos)
         robot.write_data_to_sim()
         sim.step(render=True)
-        scene.update(1 / 60)
+        scene.update(1 / PHYSICS_HZ)
         if cam is not None:
-            cam.update(1 / 60)
+            cam.update(1 / PHYSICS_HZ)
             if writer is not None and i % every == 0:
                 writer.add(cam.data.output["rgb"][0, ..., :3]
                            .detach().cpu().numpy())
@@ -244,6 +181,17 @@ def main() -> int:
         if args_cli.steps and i >= args_cli.steps:
             break
 
+    arm_ids = [i for i, name in enumerate(robot.joint_names)
+               if name.startswith(("openarm_left_joint", "openarm_right_joint"))]
+    actual = robot.data.joint_pos[0, arm_ids].detach().cpu().numpy()
+    target = robot.data.default_joint_pos[0, arm_ids].detach().cpu().numpy()
+    print("[launch_env] posture " + json.dumps({
+        "joint_names": [robot.joint_names[i] for i in arm_ids],
+        "target_deg": np.rad2deg(target).tolist(),
+        "actual_deg": np.rad2deg(actual).tolist(),
+        "max_error_deg": float(np.max(np.abs(np.rad2deg(actual - target)))),
+        "joint_override": args_cli.joint_deg,
+    }), flush=True)
     if writer is not None:
         stats = writer.close()
         print(f"[launch_env] wrote {args_cli.video} ({stats['frames']} frames)",
@@ -262,4 +210,4 @@ if __name__ == "__main__":
     rc = main()
     import sys
     sys.stdout.flush()
-    os._exit(rc)       # skip Kit's own shutdown, which can hang
+    os._exit(rc)
