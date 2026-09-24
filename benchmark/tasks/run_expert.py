@@ -1,14 +1,9 @@
 #!/usr/bin/env python3
 """Run a task's scripted expert and, optionally, record a LeRobot v3 dataset.
 
-Task-agnostic: the phases, handover gate and verdict come from the task's
-`TASK` object (`src/sim/tasks/<task>.py`), and the Isaac plumbing from
-`sim.harness`; the evaluator drives the same `TASK` up to the handover point.
-
     python benchmark/tasks/run_expert.py --task blind_peg_insertion \\
         --headless --enable_cameras --episodes 50 --record_dataset ~/peg_v3
 
-Normally run through `benchmark/run/collect_dataset.py`; run it directly to debug.
 """
 
 from __future__ import annotations
@@ -17,10 +12,15 @@ import argparse
 import json
 import math
 import os
+import subprocess
+import time
 
 from isaaclab.app import AppLauncher
 
+from sim.runtime import install_error_handler
 from sim.tasks.registry import TASKS as TASK_IDS
+
+install_error_handler()
 
 parser = argparse.ArgumentParser(description="Scripted expert for a benchmark task.")
 parser.add_argument("--task", required=True, choices=sorted(TASK_IDS))
@@ -29,21 +29,26 @@ parser.add_argument("--robot_usd", type=str, default="")
 parser.add_argument("--grid", type=int, nargs=2, default=(288, 384))
 parser.add_argument("--episodes", type=int, default=10)
 parser.add_argument("--seed", type=int, default=7)
+parser.add_argument("--episode_start", type=int, default=0)
 parser.add_argument("--record_dataset", type=str, default="",
                     help="write a LeRobot v3.0 dataset here, plus a review mp4 per kept episode")
 parser.add_argument("--video", type=str, default="",
                     help="write a third-person mp4 of the run to this path")
 parser.add_argument("--video_tactile", action="store_true",
                     help="show the four tactile streams beside the scene camera in the video")
-parser.add_argument("--fps", type=int, default=30)
+parser.add_argument("--fps", type=int, choices=(20,), default=20)
 parser.add_argument("--dump_trace", action="store_true",
                     help="write each episode's per-step signals to <out>/trace_epN.json")
+parser.add_argument("--init_states", type=str, default="",
+                    help="load frozen initial states in episode order")
+parser.add_argument("--init_states_out", type=str, default="",
+                    help="save initial states with their expert results")
+parser.add_argument("--init_states_n", type=int, default=0,
+                    help="stop after this many solved initial states; 0 runs all attempts")
 parser.add_argument("--keep_unclean", action="store_true",
                     help="also record episodes that are not demo_clean, with is_success set")
 AppLauncher.add_app_launcher_args(parser)
-# The task's knobs come from its module, and the task modules import isaaclab,
-# which needs Kit running. So: parse what is known, launch, register the
-# knobs, then parse for real.
+# Launch Kit before importing task-specific arguments.
 _known, _rest = parser.parse_known_args()
 app_launcher = AppLauncher(_known)
 simulation_app = app_launcher.app
@@ -52,9 +57,11 @@ simulation_app = app_launcher.app
 import numpy as np
 import torch
 
-from sim.envs.bimanual_tactile import REAL_HOME_JOINT_POS, SENSOR_FEATURE_NAME, TACTILE_SENSORS
+from sim import init_state as init_state_io
+from sim.envs.bimanual_tactile import REAL_HOME_JOINT_POS, TACTILE_SENSORS
 from sim.harness import CTRL_FPS, DT, Harness
-from sim.tasks.registry import load_task
+from sim.recording import EpisodeRecorder
+from sim.tasks.registry import load_scene, load_task
 from sim.tasks.spec import RetryReset
 
 TASK, PINS = load_task(_known.task)
@@ -86,8 +93,6 @@ HOME_ARM_DEG = np.asarray([math.degrees(REAL_HOME_JOINT_POS[f"openarm_{a}_joint{
                            for a in ("right", "left") for i in range(1, 8)])
 ARM_SLOTS = np.r_[0:7, 8:15]
 GRIP_SLOTS = [7, 15]
-# The third-person review video is written at the dataset rate.
-REVIEW_DIRNAME = ("review", "third_person")
 
 
 def _arm_extremes(h, acc: dict) -> None:
@@ -106,6 +111,16 @@ def _arm_extremes(h, acc: dict) -> None:
         acc["margin_min_joint"] = f"{h.ch['side']}_joint{i + 1}"
 
 
+def _git_commit() -> str:
+    """The revision the states were generated at, or "" outside a checkout."""
+    try:
+        return subprocess.run(["git", "rev-parse", "--short", "HEAD"],
+                              cwd=os.path.dirname(os.path.abspath(__file__)),
+                              capture_output=True, text=True, timeout=5).stdout.strip()
+    except Exception:
+        return ""
+
+
 def main() -> int:
     out = os.path.expanduser(args_cli.out or f"~/{TASK.name}_out")
     os.makedirs(out, exist_ok=True)
@@ -113,47 +128,19 @@ def main() -> int:
     cfg = TASK.make_scene_cfg(KNOBS)
     # The scene camera also feeds the per-episode review video of a recording.
     want_scene_cam = bool(args_cli.video or args_cli.record_dataset)
+    preview = load_scene(args_cli.task).PREVIEW
     h = Harness(cfg, device=args_cli.device, grid=tuple(args_cli.grid),
                 robot_usd=args_cli.robot_usd,
-                scene_cam=TASK.scene_cam if want_scene_cam else None)
+                scene_cam=(preview.eye, preview.look_at) if want_scene_cam else None)
     TASK.apply_collision(h)
     h.start()
     task_id = TASK.task_id(KNOBS)
     print(f"STEP task {task_id} knobs {KNOBS}", flush=True)
 
-    # ---- dataset writer (schema is task-independent) ----
-    writer = None
+    # ---- the recording (schema and frames shared with the teleoperator) ----
+    recorder = None
     if args_cli.record_dataset:
-        from lerobot_tactile_ext.writer import LeRobotTactileWriter
-        from tactile_codec import PROFILES
-        rows, cols = h.rows, h.cols
-        feats = {f"observation.images.{k}": {"dtype": "video", "shape": (480, 640, 3)}
-                 for k in ("base", "left_wrist", "right_wrist")}
-        for pn in TACTILE_SENSORS:
-            sname = SENSOR_FEATURE_NAME[pn]
-            feats[f"observation.images.{sname}_tactile"] = {
-                "dtype": "video", "shape": (288, 384, 3)}
-            # Native TacSL force-field channels: depth is the normal component
-            # (F_n = k_n*d, k_n = 1.0); ff_shear is `tactile_shear_force` x1e3.
-            feats[f"observation.depth.{sname}_tactile"] = {
-                "dtype": "data", "shape": (rows, cols, 1),
-                "profile": PROFILES["sim_v1_depth"]}
-            feats[f"observation.ff_shear.{sname}_tactile"] = {
-                "dtype": "data", "shape": (rows, cols, 2),
-                "profile": PROFILES["sim_v1_shear"]}
-        names = [f"{a}_joint_{i}.pos" for a in ("right", "left") for i in range(1, 8)]
-        names = names[:7] + ["right_gripper.pos"] + names[7:] + ["left_gripper.pos"]
-        feats["observation.state"] = {"dtype": "float32", "shape": (16,), "names": names}
-        feats["action"] = {"dtype": "float32", "shape": (16,), "names": names}
-        for k in ("is_intervention", "control_mode", "is_success"):
-            feats[k] = {"dtype": "int64", "shape": (1,)}
-        if not TASK.instruction:
-            raise SystemExit(
-                f"task '{TASK.name}' has no `instruction`; the dataset needs "
-                f"a language label")
-        writer = LeRobotTactileWriter(os.path.expanduser(args_cli.record_dataset),
-                                      fps=CTRL_FPS, features=feats,
-                                      task=TASK.instruction)
+        recorder = EpisodeRecorder(h, TASK, args_cli.record_dataset, fps=CTRL_FPS)
         print(f"STEP recording LeRobot v3 dataset -> {args_cli.record_dataset}", flush=True)
 
     vid = None
@@ -219,72 +206,42 @@ def main() -> int:
         return (float(d.penetration_depth[0].max()) * 1e3,
                 float(contact_area(d.penetration_depth, *h.pitch)["area_mm2"][0]))
 
-    # ---- third-person review video: one mp4 per kept dataset episode ----
-    # Named by the DATASET episode index, which skips dropped episodes, so
-    # stage 3 can pair each video with the episode it converts.
-    review = {"dir": None, "writer": None, "path": None}
-    if writer is not None and h.scene_cam is not None:
-        from pathlib import Path
-
-        from sim.video import Mp4Writer
-        root = Path(os.path.expanduser(args_cli.record_dataset))
-        review["dir"] = root.joinpath(*REVIEW_DIRNAME)
-
-    def review_add(frame: np.ndarray) -> None:
-        if review["dir"] is None:
-            return
-        if review["writer"] is None:
-            review["path"] = review["dir"] / "_pending.mp4"
-            review["writer"] = Mp4Writer(review["path"], CTRL_FPS)
-        review["writer"].add(frame)
-
     def review_close(ep_index: int | None) -> None:
-        """Keep the pending video as `episode_<ep_index>.mp4`, or drop it."""
-        if review["writer"] is None:
-            return
-        review["writer"].close()
-        if ep_index is None:
-            review["path"].unlink(missing_ok=True)
-        else:
-            review["path"].rename(review["dir"] / f"episode_{ep_index:06d}.mp4")
-        review["writer"] = None
-
-    def record_frame() -> np.ndarray:
-        # Taken before the physics step, so no camera has been updated yet.
-        h.update_cams(include_scene_cam=True)
-        fr = {f"observation.images.{k}": h.cam_rgb(k) for k in ("base", "left_wrist", "right_wrist")}
-        fr["observation.state"] = h.to16(h.robot.data.joint_pos[0])
-        fr["action"] = h.action16_recorded()
-        for pn in TACTILE_SENSORS:
-            sname = SENSOR_FEATURE_NAME[pn]
-            pen, sh = h.tactile_raw(pn)
-            fr[f"observation.images.{sname}_tactile"] = h.tacrgb_u8(pn)
-            fr[f"observation.depth.{sname}_tactile"] = pen
-            fr[f"observation.ff_shear.{sname}_tactile"] = sh
-        writer.add_frame(fr)
-        if h.scene_cam is not None:
-            review_add(h.cam_rgb("scene"))
-        return fr["observation.state"]
+        if recorder is not None:
+            recorder.review_close(ep_index)
 
     episodes = []
     nominal_captured = False
     n_saved = 0                      # dataset episode index of the next kept episode
-    for ep in range(args_cli.episodes):
+    # Frozen initial states: read them instead of drawing, or snapshot the
+    # draws so they can be read back later. Never both.
+    frozen = (init_state_io.load(os.path.expanduser(args_cli.init_states))["states"]
+              if args_cli.init_states else None)
+    snapshots: list[dict] = []
+    n_episodes = len(frozen) if frozen is not None else args_cli.episodes
+    if frozen is not None:
+        print(f"STEP initial states: {len(frozen)} from {args_cli.init_states}",
+              flush=True)
+    if args_cli.episode_start < 0 or (frozen is not None and args_cli.episode_start):
+        raise ValueError("episode_start requires fresh states and a nonnegative value")
+    for ep in range(args_cli.episode_start, args_cli.episode_start + n_episodes):
         # ---- reset ----
         # One RNG stream per episode, seeded (seed, ep): episode N gets the same
         # draw whatever extra draws (`RetryReset`) earlier episodes consumed.
         ep_rng = np.random.default_rng([args_cli.seed, ep])
 
         # ---- reset AND prologue, retried as a unit ----
-        # Neither a bad draw nor a failed scripted grasp is charged to the
-        # episode. A retry draws again from the already-advanced `ep_rng`.
+        # Retry reset and prologue together, up to three times.
         ctx = None
+        snap = None
         pregrasp_failed = False
         for attempt in range(3):
             ctx = None
             review_close(None)       # an abandoned attempt keeps no video
             try:
-                ctx = TASK.reset(h, ep_rng, ep, KNOBS)
+                # Retries restore the same frozen state or draw a new random state.
+                ctx = (init_state_io.restore(h, TASK, frozen[ep], KNOBS)
+                       if frozen is not None else TASK.reset(h, ep_rng, ep, KNOBS))
             except RetryReset as e:
                 print(f"STEP ep{ep}: reset retry ({e})", flush=True)
                 continue
@@ -294,6 +251,10 @@ def main() -> int:
                 h.initial_render()
                 nominal_captured = True
                 print("STEP nominal tactile captured", flush=True)
+            if args_cli.init_states_out:
+                # Taken here: the scene has settled and the expert has not
+                # moved yet, so this is what an episode starts from.
+                snap = init_state_io.snapshot(h, TASK, ctx, ep)
 
             rec = {"episode": ep, "arm": ctx["side"], "timeouts": []}
             arm_acc: dict = {}
@@ -334,8 +295,8 @@ def main() -> int:
                             _arm_extremes(h, arm_acc)
                             if "start_state" not in rec:
                                 rec["start_state"] = h.to16(h.robot.data.joint_pos[0])
-                            if writer is not None:
-                                record_frame()
+                            if recorder is not None:
+                                recorder.add_frame()
                         rec_i += 1
                     h.step()
                     if vid is not None:
@@ -422,8 +383,7 @@ def main() -> int:
             print(f"STEP ep{ep}: prologue handover failed, retrying", flush=True)
 
         if ctx is None:
-            # Three draws and the task rejected all of them. Not the same thing
-            # as a failed grasp: the episode never started.
+            # Reset failed on all three attempts; the episode never started.
             review_close(None)
             episodes.append({"episode": ep, "arm": None,
                              "verdict": {"success": False, "failure": "reset",
@@ -435,6 +395,10 @@ def main() -> int:
             print(f"STEP ep{ep}: SKIPPED (prologue failed 3x)", flush=True)
             rec["verdict"] = {"success": False, "failure": "pregrasp", "metrics": {}, "notes": []}
             episodes.append(rec)
+            if snap is not None:
+                snap["meta"] = {"expert_ok": False, "failure": "pregrasp",
+                                "t_solve_s": None}
+                snapshots.append(snap)
             continue
 
         rec["arm_extremes"] = {k: (round(v, 1) if isinstance(v, float) else v)
@@ -455,17 +419,19 @@ def main() -> int:
         # `insert_stalled` get `demo_clean == success`.
         rec["demo_clean"] = bool(v.success and not rec.get("insert_stalled", False)
                                  and rec.get("prologue_attempts", 1) == 1)
-        if writer is not None:
+        if snap is not None:
+            snap["meta"] = {"expert_ok": bool(v.success), "failure": v.failure.value,
+                            "t_solve_s": round(t_ep, 2),
+                            "demo_clean": bool(rec["demo_clean"])}
+            snapshots.append(snap)
+        if recorder is not None:
             if rec["demo_clean"] or args_cli.keep_unclean:
-                stats = writer.save_episode(scalars={"is_intervention": 0, "control_mode": 0,
-                                                     "is_success": int(v.success)})
-                review_close(n_saved)
+                stats = recorder.save_episode(n_saved, v.success)
                 rec["dataset_episode_index"] = n_saved
                 n_saved += 1
                 print(f"STEP dataset episode {ep}: {stats}", flush=True)
             else:
-                n_drop = writer.discard_episode()
-                review_close(None)
+                n_drop = recorder.discard_episode()
                 print(f"STEP dataset episode {ep}: DROPPED ({n_drop} frames; "
                       f"success={v.success} stalled={rec.get('insert_stalled')} "
                       f"attempts={rec.get('prologue_attempts')})", flush=True)
@@ -476,12 +442,33 @@ def main() -> int:
               f"start_err={rec.get('start_pose_err_deg')}deg grip0={rec.get('start_grip_mm')}mm "
               f"j6max={ext.get('j6_peak_deg')} j7max={ext.get('j7_peak_deg')} "
               f"margin={ext.get('margin_min_deg')}@{ext.get('margin_min_joint')}", flush=True)
+        n_solved = sum(x["meta"]["expert_ok"] for x in snapshots)
+        if args_cli.init_states_n and n_solved >= args_cli.init_states_n:
+            print(f"STEP initial states: {n_solved} solved, stopping early", flush=True)
+            break
+
+    if args_cli.init_states_out:
+        # Only the states the expert solved are offered as an evaluation set;
+        # the rest are kept beside them, because a start no expert can solve
+        # says something about the task, not about a policy.
+        kept = [s for s in snapshots if s["meta"]["expert_ok"]]
+        rejected = [s for s in snapshots if not s["meta"]["expert_ok"]]
+        for i, st in enumerate(kept):
+            st["id"] = i
+        path = init_state_io.save(
+            os.path.expanduser(args_cli.init_states_out),
+            task=task_id, states=kept, rejected=rejected,
+            generator={"seed": args_cli.seed, "candidates": len(snapshots),
+                       "knobs": KNOBS, "commit": _git_commit(),
+                       "date": time.strftime("%F")})
+        print(f"STEP initial states: {len(kept)} kept, {len(rejected)} rejected "
+              f"-> {path}", flush=True)
 
     if vid is not None:
         stats = vid.close()
         print(f"STEP wrote {args_cli.video} ({stats['frames']} frames)", flush=True)
-    if writer is not None:
-        print(f"STEP dataset finalized: {writer.finalize()}", flush=True)
+    if recorder is not None:
+        print(f"STEP dataset finalized: {recorder.finalize()}", flush=True)
 
     n_ok = sum(bool(e["verdict"]["success"]) for e in episodes)
     n_clean = sum(bool(e.get("demo_clean")) for e in episodes)
