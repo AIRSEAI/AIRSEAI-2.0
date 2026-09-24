@@ -96,13 +96,14 @@ cd ~/AIRSEAI-2.0
 bash scripts/install_airseai.sh
 ```
 
-The installer asks for three settings. Press Enter to accept the displayed default.
+The installer asks for four settings. Press Enter to accept the displayed default.
 
 | Prompt | Meaning | Default |
 | --- | --- | --- |
 | `conda env name` | Environment to create or reuse | `airseai` |
 | `conda root` | Conda installation directory | Detected installation, falling back to `~/miniconda3` |
 | `repo dir` | AIRSEAI repository directory | Repository containing the installer |
+| `output root` | Directory for generated files | `outputs/` under the selected `repo dir` |
 
 #### Activate the installed environment
 
@@ -113,6 +114,9 @@ terminal used for the remaining stages:
 source ~/miniconda3/etc/profile.d/conda.sh
 conda activate airseai
 ```
+
+The selected output root is saved as `OUTPUT_ROOT` in this conda environment
+and loaded automatically on activation.
 
 ### Stage 1 — preview an environment
 
