@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Record keyboard or scripted demonstrations with separate success labels.
+"""Record keyboard, VR or scripted demonstrations with success labels.
 
     python benchmark/teleop/run_teleop.py --task stack_cube --episodes 5 \
         --dataset ~/stack_cube_teleop
@@ -20,6 +20,7 @@ from pathlib import Path
 
 from isaaclab.app import AppLauncher
 
+from sim.collection_io import add_write_arguments
 from sim.runtime import install_error_handler
 from sim.tasks.registry import TASKS as TASK_IDS
 
@@ -27,28 +28,49 @@ install_error_handler()
 
 parser = argparse.ArgumentParser(description="Teleoperated demonstrations.")
 parser.add_argument("--task", required=True, choices=sorted(TASK_IDS))
-parser.add_argument("--teleop_device", default="keyboard",
-                    choices=("keyboard", "scripted"),
-                    help="keyboard requires a viewer; scripted runs automatic controls")
+parser.add_argument(
+    "--teleop_device",
+    default="keyboard",
+    choices=("keyboard", "vr", "scripted"),
+    help="keyboard requires a viewer; scripted runs automatic controls",
+)
 parser.add_argument("--dataset", default="", help="write the recording here")
 parser.add_argument("--out", default="", help="report dir, default <dataset>_run")
 parser.add_argument("--episodes", type=int, default=5)
-parser.add_argument("--seed", type=int, default=0,
-                    help="draw seed for the starting states")
-parser.add_argument("--horizon_s", type=float, default=None,
-                    help="seconds before an episode times out (default: the task's)")
-parser.add_argument("--pos_speed", type=float, default=0.08,
-                    help="m/s the command point moves at full deflection")
-parser.add_argument("--rot_speed", type=float, default=0.6,
-                    help="rad/s the wrist turns at full deflection")
-parser.add_argument("--jaw_speed", type=float, default=0.02,
-                    help="m/s the jaws open and close at")
+parser.add_argument("--num_envs", type=int, choices=(1,), default=1)
+parser.add_argument("--init_states", default="", help="Consume supplied starts in order")
+parser.add_argument("--seed", type=int, default=0, help="draw seed for the starting states")
+parser.add_argument(
+    "--horizon_s", type=float, default=None, help="seconds before an episode times out (default: the task's)"
+)
+parser.add_argument(
+    "--pos_speed", type=float, default=0.08, help="m/s the command point moves at full deflection"
+)
+parser.add_argument("--rot_speed", type=float, default=0.6, help="rad/s the wrist turns at full deflection")
+parser.add_argument("--jaw_speed", type=float, default=0.02, help="m/s the jaws open and close at")
 parser.add_argument("--robot_usd", default="")
 parser.add_argument("--grid", type=int, nargs=2, default=(288, 384))
-parser.add_argument("--previews", action=argparse.BooleanOptionalAction, default=True,
-                    help="include derived tactile preview streams")
+parser.add_argument(
+    "--previews",
+    action=argparse.BooleanOptionalAction,
+    default=True,
+    help="include derived tactile preview streams",
+)
+add_write_arguments(parser)
 AppLauncher.add_app_launcher_args(parser)
 _known, _rest = parser.parse_known_args()
+if _known.write_queue_size < 1:
+    parser.error("write_queue_size must be positive")
+if _known.write_mode is None:
+    parser.set_defaults(write_mode="background" if TASK_IDS[_known.task].manager_cfg else "sync")
+if not TASK_IDS[_known.task].manager_cfg and _known.write_mode == "background":
+    parser.error("Background writing requires a native vector environment; use --write_mode sync")
+if _known.teleop_device == "vr":
+    if not TASK_IDS[_known.task].manager_cfg:
+        parser.error("VR requires a native vector environment")
+    _known.xr = True
+if _known.init_states and not TASK_IDS[_known.task].manager_cfg:
+    parser.error("init_states requires a native vector environment")
 if _known.episodes < 1:
     parser.error("episodes must be positive")
 if _known.seed < 0:
@@ -78,10 +100,14 @@ for kname, knob in TASK.knobs.items():
 args_cli = parser.parse_args()
 KNOBS = {k: PINS.get(k, getattr(args_cli, k)) for k in TASK.knobs}
 
-REC_EVERY = int(round(1 / (CTRL_FPS * DT)))     # sim steps per dataset frame
+REC_EVERY = int(round(1 / (CTRL_FPS * DT)))  # sim steps per dataset frame
 
 
 def main(cleanup: ExitStack) -> int:
+    if TASK_IDS[args_cli.task].manager_cfg:
+        from sim.collection import run_collection
+
+        return run_collection(args_cli, TASK, KNOBS, simulation_app, teleop=True)
     out = args_cli.out
     if not out:
         if args_cli.dataset:
@@ -105,9 +131,13 @@ def main(cleanup: ExitStack) -> int:
     horizon_s = args_cli.horizon_s or TASK.horizon_s
 
     preview = load_scene(args_cli.task).PREVIEW
-    h = Harness(TASK.make_scene_cfg(KNOBS), device=args_cli.device,
-                grid=tuple(args_cli.grid), robot_usd=args_cli.robot_usd,
-                scene_cam=(preview.eye, preview.look_at))
+    h = Harness(
+        TASK.make_scene_cfg(KNOBS),
+        device=args_cli.device,
+        grid=tuple(args_cli.grid),
+        robot_usd=args_cli.robot_usd,
+        scene_cam=(preview.eye, preview.look_at),
+    )
     TASK.apply_collision(h)
     h.start()
     if not args_cli.headless:
@@ -120,13 +150,16 @@ def main(cleanup: ExitStack) -> int:
         viewport.camera_path = Sdf.Path("/World/scene_cam")
         viewport.resolution = (960, 720)
     task_id = TASK.task_id(KNOBS)
-    recorder = (EpisodeRecorder(h, TASK, args_cli.dataset, fps=CTRL_FPS)
-                if args_cli.dataset else None)
-    device = make_device(args_cli.teleop_device, TASK, h,
-                         knobs=KNOBS,
-                         pos_speed=args_cli.pos_speed,
-                         rot_speed=args_cli.rot_speed,
-                         jaw_speed=args_cli.jaw_speed)
+    recorder = EpisodeRecorder(h, TASK, args_cli.dataset, fps=CTRL_FPS) if args_cli.dataset else None
+    device = make_device(
+        args_cli.teleop_device,
+        TASK,
+        h,
+        knobs=KNOBS,
+        pos_speed=args_cli.pos_speed,
+        rot_speed=args_cli.rot_speed,
+        jaw_speed=args_cli.jaw_speed,
+    )
     print(f"TELEOP task {task_id}  device {args_cli.teleop_device}", flush=True)
     print(device.help_text(), flush=True)
     print(f"TELEOP report: {out / (TASK.name + '_teleop.json')}", flush=True)
@@ -135,11 +168,19 @@ def main(cleanup: ExitStack) -> int:
     report_path = out / f"{TASK.name}_teleop.json"
 
     def write_report(status):
-        report = {"task": task_id, "device": args_cli.teleop_device,
-                  "seed": args_cli.seed, "knobs": KNOBS, "fps": CTRL_FPS,
-                  "status": status, "requested_attempts": args_cli.episodes,
-                  "episodes": episodes, "resets": resets,
-                  "n_episodes": len(episodes), "n_kept": n_saved}
+        report = {
+            "task": task_id,
+            "device": args_cli.teleop_device,
+            "seed": args_cli.seed,
+            "knobs": KNOBS,
+            "fps": CTRL_FPS,
+            "status": status,
+            "requested_attempts": args_cli.episodes,
+            "episodes": episodes,
+            "resets": resets,
+            "n_episodes": len(episodes),
+            "n_kept": n_saved,
+        }
         temporary = report_path.with_suffix(".tmp")
         temporary.write_text(json.dumps(report, indent=2, default=float) + "\n")
         temporary.replace(report_path)
@@ -154,8 +195,7 @@ def main(cleanup: ExitStack) -> int:
                 print(f"TELEOP dataset finalized: {recorder.finalize()}", flush=True)
                 if n_saved and args_cli.previews:
                     script = Path(__file__).resolve().parents[1] / "run/render_previews.py"
-                    subprocess.run([sys.executable, str(script), "--dataset",
-                                    str(recorder.root)], check=True)
+                    subprocess.run([sys.executable, str(script), "--dataset", str(recorder.root)], check=True)
         except BaseException:
             write_report("failed")
             raise
@@ -171,7 +211,7 @@ def main(cleanup: ExitStack) -> int:
     ep = 0
     while ep < args_cli.episodes and simulation_app.is_running():
         h.unlatch()
-        rng = np.random.default_rng([args_cli.seed, ep])
+        rng = np.random.default_rng([args_cli.seed, TASK.reset_seed_index(ep)])
         ctx = None
         for _attempt in range(3):
             try:
@@ -182,15 +222,24 @@ def main(cleanup: ExitStack) -> int:
             break
         if ctx is None:
             print(f"TELEOP ep{ep}: SKIPPED (no usable start)", flush=True)
-            episodes.append({"episode": ep, "status": "reset_failed",
-                             "marked_success": False, "criterion_success": None,
-                             "saved": False})
+            episodes.append(
+                {
+                    "episode": ep,
+                    "status": "reset_failed",
+                    "marked_success": False,
+                    "criterion_success": None,
+                    "saved": False,
+                }
+            )
             ep += 1
             write_report("running")
             continue
         if not nominal:
             h.initial_render()
             nominal = True
+        expert_metadata = (
+            TASK.prepare_expert(ctx, args_cli.seed, ep) if args_cli.teleop_device == "scripted" else {}
+        )
         device.begin_episode(ctx)
 
         hist: dict = {"t": []}
@@ -230,10 +279,18 @@ def main(cleanup: ExitStack) -> int:
             episodes.append({"episode": ep, "status": "interrupted", "saved": False})
             break
         marked = bool(cmd.mark_success)
-        rec = {"episode": ep, "arm": ctx["side"], "seconds": round(t_ep, 1),
-               "marked_success": marked, "discarded": bool(cmd.discard),
-               "criterion_success": None, "saved": False,
-               "timeouts": getattr(device, "timeouts", [])}
+        rec = {
+            "episode": ep,
+            "arm": ctx["side"],
+            "seconds": round(t_ep, 1),
+            "marked_success": marked,
+            "discarded": bool(cmd.discard),
+            "criterion_success": None,
+            "saved": False,
+            "timeouts": getattr(device, "timeouts", []),
+        }
+        if expert_metadata:
+            rec["expert"] = expert_metadata
         if cmd.discard or not hist["t"]:
             if recorder is not None:
                 recorder.discard_episode()
@@ -252,19 +309,31 @@ def main(cleanup: ExitStack) -> int:
         rec["criterion_success"] = bool(verdict_of.success)
         rec["status"] = "finished"
         keep = marked or verdict_of.success
-        rec["success_source"] = ("both" if marked and verdict_of.success
-                                 else "operator" if marked
-                                 else "criterion" if verdict_of.success else "none")
+        rec["success_source"] = (
+            "both"
+            if marked and verdict_of.success
+            else "operator"
+            if marked
+            else "criterion"
+            if verdict_of.success
+            else "none"
+        )
         if recorder is not None:
             if keep:
-                stats = recorder.save_episode(n_saved, verdict_of.success,
-                                              is_intervention=args_cli.teleop_device == "keyboard",
-                                              annotation={
-                                                  "attempt_id": ep, "seed": args_cli.seed,
-                                                  "device": args_cli.teleop_device,
-                                                  "marked_success": marked,
-                                                  "criterion_success": bool(verdict_of.success),
-                                                  "success_source": rec["success_source"]})
+                stats = recorder.save_episode(
+                    n_saved,
+                    verdict_of.success,
+                    is_intervention=args_cli.teleop_device == "keyboard",
+                    annotation={
+                        "attempt_id": ep,
+                        "seed": args_cli.seed,
+                        "device": args_cli.teleop_device,
+                        "expert": expert_metadata,
+                        "marked_success": marked,
+                        "criterion_success": bool(verdict_of.success),
+                        "success_source": rec["success_source"],
+                    },
+                )
                 rec["dataset_episode_index"] = n_saved
                 rec["saved"] = True
                 n_saved += 1

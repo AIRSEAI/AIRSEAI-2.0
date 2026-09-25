@@ -29,12 +29,23 @@ from sim.tactile.quantities import quat_apply
 from tactile_codec.tacff import DEPTH_MAX_MM as TACFF_DEPTH_MAX_MM
 from tactile_codec.tacff import SHEAR_MAX as TACFF_SHEAR_MAX
 
-__all__ = ["DT", "CTRL_FPS", "STEPS_PER_CTRL", "ARM_PADS", "Harness",
-           "HoldPosePolicy", "RemotePolicy", "load_policy", "look_at",
-           "tacff_image_batch", "TACFF_DEPTH_MAX_MM", "TACFF_SHEAR_MAX"]
+__all__ = [
+    "DT",
+    "CTRL_FPS",
+    "STEPS_PER_CTRL",
+    "ARM_PADS",
+    "Harness",
+    "HoldPosePolicy",
+    "RemotePolicy",
+    "load_policy",
+    "look_at",
+    "tacff_image_batch",
+    "TACFF_DEPTH_MAX_MM",
+    "TACFF_SHEAR_MAX",
+]
 
 DT = 1.0 / 60.0
-CTRL_FPS = 20                                  # dataset rate; policy rate too
+CTRL_FPS = 20  # dataset rate; policy rate too
 STEPS_PER_CTRL = int(round(1 / (CTRL_FPS * DT)))
 ARM_PADS = {"right": TACTILE_SENSORS[:2], "left": TACTILE_SENSORS[2:]}
 
@@ -52,12 +63,10 @@ def look_at(eye, target, up=(0.0, 0.0, 1.0)):
     y = np.cross(z, x)
     R = np.stack([x, y, z], axis=1)
     w = max(math.sqrt(max(1.0 + R.trace(), 0.0)) / 2.0, 1e-8)
-    return (w, (R[2, 1] - R[1, 2]) / (4 * w),
-            (R[0, 2] - R[2, 0]) / (4 * w), (R[1, 0] - R[0, 1]) / (4 * w))
+    return (w, (R[2, 1] - R[1, 2]) / (4 * w), (R[0, 2] - R[2, 0]) / (4 * w), (R[1, 0] - R[0, 1]) / (4 * w))
 
 
-def tacff_image_batch(depth_m: torch.Tensor, shear: torch.Tensor,
-                      rows: int, cols: int) -> torch.Tensor:
+def tacff_image_batch(depth_m: torch.Tensor, shear: torch.Tensor, rows: int, cols: int) -> torch.Tensor:
     """Sensor fields -> (1,3,H,W) float in [0,1], the converter's fixed scales.
 
     NaN is filled with 0, matching the converter: shear 0 maps to mid-gray.
@@ -73,8 +82,18 @@ def tacff_image_batch(depth_m: torch.Tensor, shear: torch.Tensor,
 class Harness:
     """One scene, both arms, the cameras and pads a task or policy can see."""
 
-    def __init__(self, cfg, *, device: str, grid=(288, 384), robot_usd: str = "",
-                 scene_cam: tuple | None = None, cameras: bool = True):
+    control_dt = DT
+
+    def __init__(
+        self,
+        cfg,
+        *,
+        device: str,
+        grid=(288, 384),
+        robot_usd: str = "",
+        scene_cam: tuple | None = None,
+        cameras: bool = True,
+    ):
         """`cfg` is a fully-configured scene cfg (knobs already applied).
         `scene_cam=(eye, target)` adds a third-person debug camera.
 
@@ -83,8 +102,9 @@ class Harness:
         renderer."""
         self.device = device
         self.rows, self.cols = grid
-        self.sim = sim_utils.SimulationContext(sim_utils.SimulationCfg(
-            dt=DT, device=device, physx=small_scene_physx_cfg()))
+        self.sim = sim_utils.SimulationContext(
+            sim_utils.SimulationCfg(dt=DT, device=device, physx=small_scene_physx_cfg())
+        )
         cfg.robot.spawn.usd_path = ensure_robot_asset(robot_usd)
         for pad in TACTILE_SENSORS:
             getattr(cfg, pad).tactile_array_size = (self.rows, self.cols)
@@ -94,63 +114,86 @@ class Harness:
         # Dataset cameras: the head camera is the `base` stream; the two D405s
         # ride the hand links. All are prims welded in by the asset builder.
         self.cams: dict[str, TiledCamera] = {}
-        for key, prim in () if not cameras else (
-                          ("base", "openarm_body_link/head_camera/camera"),
-                          ("left_wrist", "openarm_left_hand/wrist_camera/camera"),
-                          ("right_wrist", "openarm_right_hand/wrist_camera/camera")):
-            self.cams[key] = TiledCamera(TiledCameraCfg(
-                prim_path=f"/World/envs/env_0/Robot/{prim}",
-                offset=TiledCameraCfg.OffsetCfg(convention="opengl"),
-                width=640, height=480, data_types=["rgb"], spawn=None))
+        for key, prim in (
+            ()
+            if not cameras
+            else (
+                ("base", "openarm_body_link/head_camera/camera"),
+                ("left_wrist", "openarm_left_hand/wrist_camera/camera"),
+                ("right_wrist", "openarm_right_hand/wrist_camera/camera"),
+            )
+        ):
+            self.cams[key] = TiledCamera(
+                TiledCameraCfg(
+                    prim_path=f"/World/envs/env_0/Robot/{prim}",
+                    offset=TiledCameraCfg.OffsetCfg(convention="opengl"),
+                    width=640,
+                    height=480,
+                    data_types=["rgb"],
+                    spawn=None,
+                )
+            )
         self.scene_cam = None
         if scene_cam is not None and cameras:
             eye, target = scene_cam
-            self.scene_cam = TiledCamera(TiledCameraCfg(
-                prim_path="/World/scene_cam",
-                offset=TiledCameraCfg.OffsetCfg(
-                    pos=eye, rot=look_at(eye, target), convention="opengl"),
-                width=960, height=720, data_types=["rgb"],
-                spawn=sim_utils.PinholeCameraCfg()))
+            self.scene_cam = TiledCamera(
+                TiledCameraCfg(
+                    prim_path="/World/scene_cam",
+                    offset=TiledCameraCfg.OffsetCfg(pos=eye, rot=look_at(eye, target), convention="opengl"),
+                    width=960,
+                    height=720,
+                    data_types=["rgb"],
+                    spawn=sim_utils.PinholeCameraCfg(),
+                )
+            )
 
         # Deferred until after collision setup: the caller applies SDF /
         # triangle / CCD to the task's objects, then calls `start()`.
         self.robot = None
         self.sensors = {}
-        self._hold = None                # latched joint command; see `latch`
-        self._posture = {}               # side -> (rest joints, gain); see `set_posture_bias`
-        self._joint_idx = None           # name -> index, built on first use
+        self._hold = None  # latched joint command; see `latch`
+        self._posture = {}  # side -> (rest joints, gain); see `set_posture_bias`
+        self._joint_idx = None  # name -> index, built on first use
         self._chains = {}
         self.ch: dict = {}
 
     # ------------------------------------------------------------------ setup
     def start(self) -> None:
         self.sim.reset()
+        self._bind_scene()
+
+    def _bind_scene(self) -> None:
+        """Bind controllers to an already initialized scene."""
         self.robot = self.scene["robot"]
         self.sensors = {p: self.scene[p] for p in TACTILE_SENSORS}
         self.pitch = taxel_pitch((self.rows, self.cols))
 
         # One IK chain per arm, resolved once; `ch` is whichever is active.
         for side in ("right", "left"):
-            ent = SceneEntityCfg("robot", joint_names=[f"openarm_{side}_joint[1-7]"],
-                                 body_names=[f"openarm_{side}_ee_tcp"])
+            ent = SceneEntityCfg(
+                "robot", joint_names=[f"openarm_{side}_joint[1-7]"], body_names=[f"openarm_{side}_ee_tcp"]
+            )
             ent.resolve(self.scene)
             self._chains[side] = {
-                "side": side, "arm": ent, "ee_body": ent.body_ids[0],
-                "jac_idx": ent.body_ids[0] - 1,          # fixed base: body-1
-                "grip_ids": [i for i, n in enumerate(self.robot.joint_names)
-                             if f"{side}_finger_joint" in n],
+                "side": side,
+                "arm": ent,
+                "ee_body": ent.body_ids[0],
+                "jac_idx": ent.body_ids[0] - 1,  # fixed base: body-1
+                "grip_ids": [i for i, n in enumerate(self.robot.joint_names) if f"{side}_finger_joint" in n],
                 "pads": ARM_PADS[side],
             }
         self.select_arm("right")
 
         self.ik_pos = DifferentialIKController(
-            DifferentialIKControllerCfg(command_type="position",
-                                        use_relative_mode=False, ik_method="dls"),
-            num_envs=1, device=self.sim.device)
+            DifferentialIKControllerCfg(command_type="position", use_relative_mode=False, ik_method="dls"),
+            num_envs=1,
+            device=self.sim.device,
+        )
         self.ik_pose = DifferentialIKController(
-            DifferentialIKControllerCfg(command_type="pose",
-                                        use_relative_mode=False, ik_method="dls"),
-            num_envs=1, device=self.sim.device)
+            DifferentialIKControllerCfg(command_type="pose", use_relative_mode=False, ik_method="dls"),
+            num_envs=1,
+            device=self.sim.device,
+        )
 
         # 16-dim named state/action from the 22 raw joints: 7 arm joints (deg)
         # + gripper (jaw opening, mm) per arm, right first -- the real layout.
@@ -231,12 +274,16 @@ class Harness:
     def _tcp_pose_b(self):
         root = self.robot.data.root_state_w[:, 0:7]
         ee = self.robot.data.body_state_w[:, self.ch["ee_body"], 0:7]
-        return subtract_frame_transforms(root[:, 0:3], root[:, 3:7],
-                                         ee[:, 0:3], ee[:, 3:7])
+        return subtract_frame_transforms(root[:, 0:3], root[:, 3:7], ee[:, 0:3], ee[:, 3:7])
 
-    def step_ik_toward(self, target_pos_w, grip_m: float, quat_w=None,
-                       max_speed: float | None = None,
-                       max_ang_speed: float | None = None) -> None:
+    def step_ik_toward(
+        self,
+        target_pos_w,
+        grip_m: float,
+        quat_w=None,
+        max_speed: float | None = None,
+        max_ang_speed: float | None = None,
+    ) -> None:
         """One control step of the active arm: position IK (or pose IK when
         `quat_w` is given) toward the world target, gripper at `grip_m`.
 
@@ -257,31 +304,31 @@ class Harness:
             want = np.asarray(target_pos_w, dtype=float)
             d = want - here
             n = float(np.linalg.norm(d))
-            cap = float(max_speed) * DT
+            cap = float(max_speed) * self.control_dt
             if n > cap:
                 target_pos_w = here + d * (cap / n)
         if max_ang_speed is not None and quat_w is not None:
             q_now = r.data.body_state_w[0, ch["ee_body"], 3:7]
-            q_want = torch.as_tensor(quat_w, dtype=q_now.dtype,
-                                     device=q_now.device).reshape(4)
+            q_want = torch.as_tensor(quat_w, dtype=q_now.dtype, device=q_now.device).reshape(4)
             # The double cover: take the nearer representative, or a match can
             # read as a half turn and the slew would go the long way round.
             if float(torch.dot(q_now, q_want)) < 0.0:
                 q_want = -q_want
             dot = float(torch.clamp(torch.dot(q_now, q_want), -1.0, 1.0))
             ang = 2.0 * math.acos(min(1.0, abs(dot)))
-            cap = math.radians(float(max_ang_speed)) * DT
+            cap = math.radians(float(max_ang_speed)) * self.control_dt
             if ang > cap and ang > 1e-9:
                 t = cap / ang
                 sin_a = math.sin(ang / 2.0)
-                if sin_a > 1e-9:                       # slerp
-                    q_want = (math.sin((1 - t) * ang / 2.0) / sin_a * q_now
-                              + math.sin(t * ang / 2.0) / sin_a * q_want)
+                if sin_a > 1e-9:  # slerp
+                    q_want = (
+                        math.sin((1 - t) * ang / 2.0) / sin_a * q_now
+                        + math.sin(t * ang / 2.0) / sin_a * q_want
+                    )
                     q_want = q_want / torch.linalg.norm(q_want)
                 quat_w = q_want
         pos_b, quat_b = self._tcp_pose_b()
-        pos = torch.tensor(target_pos_w, dtype=torch.float32,
-                           device=self.sim.device).unsqueeze(0)
+        pos = torch.tensor(target_pos_w, dtype=torch.float32, device=self.sim.device).unsqueeze(0)
         jac_all = r.root_physx_view.get_jacobians()[:, ch["jac_idx"], :, :]
         jids = ch["arm"].joint_ids
         if quat_w is None:
@@ -290,11 +337,13 @@ class Harness:
             qdes = self.ik_pos.compute(pos_b, quat_b, jac, r.data.joint_pos[:, jids])
         else:
             # Tasks hand in either a tensor or a numpy (w, x, y, z).
-            q_w = torch.as_tensor(quat_w, dtype=torch.float32,
-                                  device=self.sim.device).reshape(1, 4)
+            q_w = torch.as_tensor(quat_w, dtype=torch.float32, device=self.sim.device).reshape(1, 4)
             _, q_cmd = subtract_frame_transforms(
-                r.data.root_state_w[:, 0:3], r.data.root_state_w[:, 3:7],
-                r.data.body_state_w[:, ch["ee_body"], 0:3], q_w)
+                r.data.root_state_w[:, 0:3],
+                r.data.root_state_w[:, 3:7],
+                r.data.body_state_w[:, ch["ee_body"], 0:3],
+                q_w,
+            )
             self.ik_pose.set_command(torch.cat([pos, q_cmd], dim=-1))
             jac = jac_all[:, :, jids]
             qdes = self.ik_pose.compute(pos_b, quat_b, jac, r.data.joint_pos[:, jids])
@@ -325,13 +374,13 @@ class Harness:
         for side, chain in self._chains.items():
             arm = [names[i] for i in chain["arm"].joint_ids]
             if all(n in joint_pos for n in arm):
-                rest = torch.tensor([[float(joint_pos[n]) for n in arm]],
-                                    dtype=torch.float32, device=self.sim.device)
+                rest = torch.tensor(
+                    [[float(joint_pos[n]) for n in arm]], dtype=torch.float32, device=self.sim.device
+                )
                 self._posture[side] = (rest, float(gain))
 
     @staticmethod
-    def _null_space_step(jac: torch.Tensor, q: torch.Tensor, rest: torch.Tensor,
-                         gain: float) -> torch.Tensor:
+    def _null_space_step(jac: torch.Tensor, q: torch.Tensor, rest: torch.Tensor, gain: float) -> torch.Tensor:
         """Joint step toward `rest` with its task-space component removed:
         (I - J+ J) * gain * (rest - q)."""
         jp = torch.linalg.pinv(jac)
@@ -444,12 +493,14 @@ class Harness:
         out = {}
         for p in TACTILE_SENSORS:
             d = self.sensors[p].data
-            out[p] = (0.0 if d.penetration_depth is None else
-                      float(contact_area(d.penetration_depth, px, py)["area_mm2"][0]))
+            out[p] = (
+                0.0
+                if d.penetration_depth is None
+                else float(contact_area(d.penetration_depth, px, py)["area_mm2"][0])
+            )
         return out
 
-    def pad_penetration(self, side: str | None = None,
-                        quantile: float | None = None) -> dict[str, float]:
+    def pad_penetration(self, side: str | None = None, quantile: float | None = None) -> dict[str, float]:
         """Gel penetration per pad, metres, keyed by pad name: the deepest
         taxel, or the `quantile` (0-1) of all taxels when given, which is
         steadier than the single deepest point."""
@@ -472,8 +523,7 @@ class Harness:
 
     def tcp_quat(self) -> np.ndarray:
         """Active arm's TCP orientation in the world, (w, x, y, z)."""
-        return self.robot.data.body_state_w[0, self.ch["ee_body"], 3:7] \
-            .detach().cpu().numpy()
+        return self.robot.data.body_state_w[0, self.ch["ee_body"], 3:7].detach().cpu().numpy()
 
     def approach_axis(self, side: str | None = None) -> np.ndarray:
         """Unit vector from the hand link to the TCP: the direction the
@@ -511,10 +561,16 @@ class Harness:
         The dataset's raw tactile channels."""
         d = self.sensors[pad].data
         r, c = self.rows, self.cols
-        pen = (d.penetration_depth[0].view(r, c, 1).detach().cpu().numpy() * 1e3
-               if d.penetration_depth is not None else np.zeros((r, c, 1), np.float32))
-        sh = (d.tactile_shear_force[0].view(r, c, 2).detach().cpu().numpy() * 1e3
-              if d.tactile_shear_force is not None else np.zeros((r, c, 2), np.float32))
+        pen = (
+            d.penetration_depth[0].view(r, c, 1).detach().cpu().numpy() * 1e3
+            if d.penetration_depth is not None
+            else np.zeros((r, c, 1), np.float32)
+        )
+        sh = (
+            d.tactile_shear_force[0].view(r, c, 2).detach().cpu().numpy() * 1e3
+            if d.tactile_shear_force is not None
+            else np.zeros((r, c, 2), np.float32)
+        )
         return pen, sh
 
     def tacrgb_u8(self, pad: str) -> np.ndarray:
@@ -525,8 +581,8 @@ class Harness:
             return np.zeros((288, 384, 3), np.uint8)
         t8 = d.tactile_rgb_image[0, ..., :3].float()
         t8 = torch.nn.functional.interpolate(
-            t8.permute(2, 0, 1).unsqueeze(0), size=(288, 384),
-            mode="bilinear", align_corners=False)[0].permute(1, 2, 0)
+            t8.permute(2, 0, 1).unsqueeze(0), size=(288, 384), mode="bilinear", align_corners=False
+        )[0].permute(1, 2, 0)
         return t8.clamp(0, 255).round().to(torch.uint8).detach().cpu().numpy()
 
     def tacrgb_batch(self, pad: str) -> torch.Tensor:
@@ -541,8 +597,11 @@ class Harness:
         n = self.rows * self.cols
         if d.penetration_depth is not None:
             pen = d.penetration_depth[0]
-            sh = (d.tactile_shear_force[0] if d.tactile_shear_force is not None
-                  else torch.zeros(n, 2, device=pen.device))
+            sh = (
+                d.tactile_shear_force[0]
+                if d.tactile_shear_force is not None
+                else torch.zeros(n, 2, device=pen.device)
+            )
         else:
             pen = torch.zeros(n, device=self.sim.device)
             sh = torch.zeros(n, 2, device=self.sim.device)
@@ -553,7 +612,7 @@ class Harness:
         """Scene sensor name -> the dataset/policy key stem, e.g.
         'right_left_finger_tactile' -> 'right_middle'. Goes through the
         feature-name map so the jaw->finger mapping is the real robot's."""
-        feat = SENSOR_FEATURE_NAME[pad]          # e.g. right_hand_middle_finger
+        feat = SENSOR_FEATURE_NAME[pad]  # e.g. right_hand_middle_finger
         parts = feat.split("_")
         return f"{parts[0]}_{parts[2]}"
 
@@ -566,16 +625,19 @@ class Harness:
         for k in keys:
             if k == "observation.state":
                 obs[k] = self.state16().to(self.device)
-            elif k in ("observation.images.base", "observation.images.left_wrist",
-                       "observation.images.right_wrist"):
+            elif k in (
+                "observation.images.base",
+                "observation.images.left_wrist",
+                "observation.images.right_wrist",
+            ):
                 obs[k] = self.image_batch(k.rsplit(".", 1)[-1])
             elif k.startswith("observation.images.tacff_"):
-                stem = k[len("observation.images.tacff_"):]
+                stem = k[len("observation.images.tacff_") :]
                 if stem not in stems:
                     raise KeyError(self._key_error(k, stems))
                 obs[k] = self.tacff_batch(stems[stem])
             elif k.startswith("observation.images.tacrgb_"):
-                stem = k[len("observation.images.tacrgb_"):]
+                stem = k[len("observation.images.tacrgb_") :]
                 if stem not in stems:
                     raise KeyError(self._key_error(k, stems))
                 obs[k] = self.tacrgb_batch(stems[stem])
@@ -584,12 +646,17 @@ class Harness:
         return obs
 
     def _key_error(self, key: str, stems: dict) -> str:
-        have = (["observation.state", "observation.images.base",
-                 "observation.images.left_wrist", "observation.images.right_wrist"]
-                + [f"observation.images.tacff_{s}" for s in stems]
-                + [f"observation.images.tacrgb_{s}" for s in stems])
-        return (f"the checkpoint expects '{key}', which this harness cannot "
-                f"provide. Keys available: {have}")
+        have = (
+            [
+                "observation.state",
+                "observation.images.base",
+                "observation.images.left_wrist",
+                "observation.images.right_wrist",
+            ]
+            + [f"observation.images.tacff_{s}" for s in stems]
+            + [f"observation.images.tacrgb_{s}" for s in stems]
+        )
+        return f"the checkpoint expects '{key}', which this harness cannot provide. Keys available: {have}"
 
 
 # ------------------------------------------------------------------ policies
@@ -616,6 +683,7 @@ class RemotePolicy:
         import pickle
         import socket
         import struct
+
         self._pickle, self._struct, self._socket = pickle, struct, socket
         host, port = addr.rsplit(":", 1)
         self._sock = socket.create_connection((host, int(port)), timeout=60)
@@ -655,8 +723,8 @@ def load_policy(path: str, device: str):
     policy.to(device)
     policy.eval()
     pre, post = make_pre_post_processors(
-        policy_cfg=cfg, pretrained_path=path,
-        preprocessor_overrides={"device_processor": {"device": device}})
+        policy_cfg=cfg, pretrained_path=path, preprocessor_overrides={"device_processor": {"device": device}}
+    )
     keys = list(cfg.input_features.keys())
 
     class _Wrapped:

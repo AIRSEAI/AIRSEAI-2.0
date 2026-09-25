@@ -4,7 +4,25 @@ import torch
 from isaaclab_contrib.sensors.tacsl_sensor import VisuoTactileSensor
 
 
-class SelectableTactileSensor(VisuoTactileSensor):
+class CompatibleTactileSensor(VisuoTactileSensor):
+    """Keep TacSL camera output compatible with its persistent tensor buffer."""
+
+    def _update_camera_tactile(self, env_ids):
+        if self._nominal_tactile is None:
+            raise RuntimeError("Call get_initial_render before reading tactile RGB")
+        self._camera_sensor.update(self._sim_physics_dt)
+        output = self._camera_sensor.data.output
+        depth_key = next((key for key in ("distance_to_image_plane", "depth") if key in output), None)
+        if depth_key is None:
+            return
+        depth = self._data.tactile_depth_image
+        depth[env_ids] = output[depth_key][env_ids].to(depth.dtype)
+        difference = self._nominal_tactile[depth_key][env_ids] - depth[env_ids]
+        rgb = self._data.tactile_rgb_image
+        rgb[env_ids] = self._tactile_rgb_render.render(difference.squeeze(-1)).to(rgb.dtype)
+
+
+class SelectableTactileSensor(CompatibleTactileSensor):
     target_names = ()
 
     def _initialize_impl(self):

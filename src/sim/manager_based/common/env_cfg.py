@@ -10,10 +10,12 @@ from isaaclab.sim import PinholeCameraCfg, RenderCfg, SimulationCfg
 from isaaclab.utils import configclass
 
 from sim.assets.provision import ensure_robot_asset
+from sim.envs.bimanual_tactile import TACTILE_SENSORS
 from sim.harness import look_at
 from sim.physx_settings import small_scene_physx_cfg
 
 from . import mdp
+from .tactile import CompatibleTactileSensor
 
 
 @configclass
@@ -52,10 +54,12 @@ class VectorEnvCfg(ManagerBasedEnvCfg):
     restore_task_state = None
 
 
-def build_cfg(scene_module, *, num_envs=1, device="cuda:0", robot_usd="", joint_deg=""):
+def build_cfg(
+    scene_module, *, num_envs=1, device="cuda:0", robot_usd="", joint_deg="", scene_cfg=None, seed=0
+):
     if num_envs < 1:
         raise ValueError("num_envs must be positive")
-    scene = scene_module.make_preview_cfg()
+    scene = scene_module.make_preview_cfg() if scene_cfg is None else scene_cfg
     scene.num_envs = num_envs
     # TacSL requires per-environment cooked SDF shapes. Keep USD physics
     # independent while sharing a single PhysX tensor simulation/Kit process.
@@ -92,6 +96,8 @@ def build_cfg(scene_module, *, num_envs=1, device="cuda:0", robot_usd="", joint_
                 spawn=None,
             ),
         )
+    for name in TACTILE_SENSORS:
+        getattr(scene, name).class_type = CompatibleTactileSensor
     events = EventsCfg()
     events.collisions.params = dict(
         sdf_prims=spec.sdf_prims, tri_prims=spec.tri_prims, sdf_resolution=spec.sdf_resolution
@@ -104,7 +110,7 @@ def build_cfg(scene_module, *, num_envs=1, device="cuda:0", robot_usd="", joint_
         observations=ObservationsCfg(),
         events=events,
         decimation=3,
-        seed=0,
+        seed=seed,
         num_rerenders_on_reset=2,
         sim=SimulationCfg(
             dt=1 / 60,

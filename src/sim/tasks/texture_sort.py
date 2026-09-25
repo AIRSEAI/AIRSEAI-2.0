@@ -8,6 +8,8 @@ Phases::
 
 from __future__ import annotations
 
+import copy
+
 import numpy as _np
 import torch as _torch
 
@@ -20,6 +22,7 @@ from sim.envs.bimanual_tactile import TABLE_TOP_Z, gel_gap
 from sim.envs.texture_sort import (
     BIN_RADIUS,
     BIN_WALL_HEIGHT,
+    DEFAULT_LIGHT_SCALE,
     FIXTURES,
     OBJECT_SPAWN_Z,
     PARKED_POS,
@@ -29,14 +32,17 @@ from sim.envs.texture_sort import (
 )
 from sim.tactile import apply_sdf_collision, apply_triangle_mesh_collision
 from sim.tasks.scene_utils import oblique_grasp_quat, retarget_pads
-from sim.tasks.spec import Knob, Task
+from sim.tasks.spec import Task
 
 # Controller parameters.
 # Jaw command while approaching and releasing, metres per jaw: a 46 mm gel gap around the 38 mm puck.
 OPEN_WIDTH = 0.026
 
 
-__all__ = ["TextureSortTask", "TASK"]
+__all__ = [
+    "TextureSortTask",
+    "TASK",
+]
 
 DT = 1.0 / 60.0
 
@@ -54,19 +60,28 @@ BIN_DROP_Z = TABLE_TOP_Z + BIN_WALL_HEIGHT + 0.070
 # m back along the blade from the grasp point to the pre-grasp point: the hand
 # lines up there and then moves in along its own blade.
 APPROACH_BACKOFF = 0.060
+APPROACH_JITTER = 0.030  # m, xy disc radius; z spread is one third
+DESCEND_DETOUR = 0.020  # m, xy disc radius
+GATE_BACKOFF = 0.040  # m along the entry direction
+ENTRY_PAUSE = 0.012  # m before the grasp
+ENTRY_RESIDUAL = 0.006  # m lateral offset at the pause
+PRELOAD = 0.008  # m, summed pad penetration
+ROUGH_THRESH_MM = 0.035
+GRASP_PITCH_DEG = 45.0
+GRASP_YAW_DEG = 0.0
+SDF_RESOLUTION = 96
 # m above the pre-grasp point where `home` ends, so the wrist turns clear of the puck.
 HOME_ABOVE_PREGRASP = 0.030
 
 # --- closing ramp ----------------------------------------------------------
 # Fast across the free travel, slow once a pad feels anything, so the preload
 # lands where it was aimed rather than wherever the drive lag left it.
-CLOSE_RATE_FAST = 0.006       # m/s per jaw
-CLOSE_RATE_SLOW = 0.0025      # m/s per jaw, after first touch
-FIRST_TOUCH_M = 0.00005       # m of penetration that switches to the slow rate
-# Floor for the ramp, metres per jaw: 20 mm is a 34 mm gap, 4 mm inside the
-# puck, which is the squeeze that holds it. The ramp stops here.
-GRIP_MIN_WIDTH = 0.020
-AREA_CONTACT = 5.0            # mm2 summed; below this `classify` has no contact
+CLOSE_RATE_FAST = 0.006  # m/s per jaw
+CLOSE_RATE_SLOW = 0.0025  # m/s per jaw, after first touch
+FIRST_TOUCH_M = 0.00005  # m of penetration that switches to the slow rate
+# Closing floor, metres per jaw: a 30 mm commanded gel gap.
+GRIP_MIN_WIDTH = 0.018
+AREA_CONTACT = 5.0  # mm2 summed; below this `classify` has no contact
 
 # --- classification --------------------------------------------------------
 # Ripple filter: subtract a local average and take the RMS of the remainder.
@@ -74,8 +89,8 @@ AREA_CONTACT = 5.0            # mm2 summed; below this `classify` has no contact
 # curvature, so a smooth puck leaves almost nothing and a dimpled one leaves
 # the dimples.
 RIPPLE_KERNEL = 31
-RIPPLE_CONTACT_M = 5e-5       # m; below this peak the pad is not in contact
-RIPPLE_PATCH_TAXELS = 200     # minimum loaded taxels for a usable sample
+RIPPLE_CONTACT_M = 5e-5  # m; below this peak the pad is not in contact
+RIPPLE_PATCH_TAXELS = 200  # minimum loaded taxels for a usable sample
 
 # --- transport -------------------------------------------------------------
 # Commanded TCP speed limits, m/s. Differential IK turns the target into a
@@ -83,7 +98,7 @@ RIPPLE_PATCH_TAXELS = 200     # minimum loaded taxels for a usable sample
 # displacement the first one. The command point advances from the previous
 # command, so the position term keeps pulling while pose IK turns the wrist.
 FREE_SPEED = 0.30
-APPROACH_SPEED = 0.10         # along the blade into the grasp
+APPROACH_SPEED = 0.10  # along the blade into the grasp
 CARRY_SPEED = 0.18
 CARRY_PHASES = ("close", "classify", "lift", "above_bin", "lower")
 
@@ -92,17 +107,17 @@ CARRY_PHASES = ("close", "classify", "lift", "above_bin", "lower")
 # released off a cup's centre lands on the rim. Over the cups the commanded
 # xy therefore carries the accumulated miss. The phase's completion test
 # still reads the TRUE error, never the biased one.
-XY_BIAS_GAIN = 0.05           # per step at 60 Hz
-XY_BIAS_MAX = 0.030           # m
+XY_BIAS_GAIN = 0.05  # per step at 60 Hz
+XY_BIAS_MAX = 0.030  # m
 BIAS_PHASES = ("above_bin", "lower")
 
 # --- phase completion ------------------------------------------------------
-ORIENT_TOL_DEG = 3.0          # wrist within this of its grasp orientation
+ORIENT_TOL_DEG = 3.0  # wrist within this of its grasp orientation
 # Measured gel gap, m, before the level orientation is computed. The jaw axis
 # is the difference of the two gel centroids, which has no reliable sign while
 # the shut gels overlap.
 LEVEL_MIN_GEL_GAP = 0.010
-SETTLE_STEPS = 40             # steps held at HOME, jaws shut, before t = 0
+SETTLE_STEPS = 40  # steps held at HOME, jaws shut, before t = 0
 
 
 class TextureSortTask(Task):
@@ -111,44 +126,38 @@ class TextureSortTask(Task):
     # is supposed to feel for.
     instruction = "put the block in the matching cup"
     report_name = "texture_sort_scripted.json"
-    knobs = {
-        "light_scale": Knob(0.15, "multiplier on the dome and key lights"),
-        "rough_thresh_mm": Knob(0.030,
-                                "ripple RMS above which the puck is textured, mm"),
-        "preload_mm": Knob(3.0,
-                           "total penetration across the two pads to close to"),
-        "sdf_resolution": Knob(96,
-                               "PhysX SDF grid resolution for the pucks", type=int),
-        "grasp_pitch_deg": Knob(45.0, "blade pitch below horizontal at the grasp, deg"),
-        "grasp_yaw_deg": Knob(0.0, "blade heading in the world xy plane, deg; 0 is +x"),
-    }
+    knobs = {}
     phases = [
-        ("home", 2.0), ("above_target", 2.5), ("orient", 3.0), ("descend", 5.0),
-        ("close", 4.0), ("classify", 1.2), ("lift", 3.0), ("above_bin", 5.5),
-        ("lower", 4.0), ("open", 0.8), ("retreat", 1.5),
+        ("home", 2.0),
+        ("above_target", 2.5),
+        ("orient", 3.0),
+        ("descend", 7.0),
+        ("close", 4.0),
+        ("classify", 1.2),
+        ("lift", 3.0),
+        ("above_bin", 5.5),
+        ("lower", 4.0),
+        ("open", 0.8),
+        ("retreat", 1.5),
     ]
     # The policy takes control at t = 0: no prologue, the whole episode is
     # recorded, matching a rollout from the robot's own HOME.
     handover_phase = None
     horizon_s = 30.0
     scene_cam = ((1.25, -1.00, 0.80), (0.15, -0.08, 0.30))
-    _sdf_resolution = 96
 
     def _timeout(self, name: str) -> float:
         return dict(self.phases)[name]
 
     # ---- scene -------------------------------------------------------------
     def make_scene_cfg(self, knobs: dict):
-        # `apply_collision` takes no knobs, so the SDF grid is latched here.
-        self._sdf_resolution = int(knobs["sdf_resolution"])
         cfg = TextureSortSceneCfg(num_envs=1, env_spacing=3.0)
-        cfg.set_light_scale(float(knobs["light_scale"]))
+        cfg.set_light_scale(DEFAULT_LIGHT_SCALE)
         return cfg
 
     def apply_collision(self, h) -> None:
         for spec in OBJECT_SPECS.values():
-            apply_sdf_collision(f"/World/envs/env_0/{spec.name}",
-                                sdf_resolution=self._sdf_resolution)
+            apply_sdf_collision(f"/World/envs/env_0/{spec.name}", sdf_resolution=SDF_RESOLUTION)
         for static in FIXTURES:
             # Triangle meshes, not convex hulls: a convex hull of the cup
             # fills it in and the puck lands on top.
@@ -180,7 +189,38 @@ class TextureSortTask(Task):
         # Aim at where the puck IS, read after the settle: only the class is
         # hidden, not the pose.
         seat = h.scene[spec.name].data.root_pos_w[0, :2].detach().cpu().numpy()
+        return self._new_ctx(target_key, layout, seat)
+
+    def prepare_expert(self, ctx: dict, seed: int, episode: int) -> dict:
+        """Draw approach offsets independently of scene randomisation."""
+        # The final component separates the expert stream from the scene stream.
+        entropy = [seed, episode, 1]
+        rng = _np.random.default_rng(entropy)
+
+        def disc(radius):
+            angle = rng.uniform(0.0, 2.0 * _np.pi)
+            return radius * _np.sqrt(rng.uniform(0.0, 1.0)) * _np.array([_np.cos(angle), _np.sin(angle)])
+
+        offset = _np.zeros(3)
+        offset[:2] = disc(APPROACH_JITTER)
+        offset[2] = rng.uniform(-APPROACH_JITTER / 3.0, APPROACH_JITTER / 3.0)
+        ctx["approach_offset"] = offset
+        ctx["descend_detour"] = disc(DESCEND_DETOUR)
+        ctx["gate_stage"] = 0
         return {
+            "rng_entropy": entropy,
+            "bit_generator": type(rng.bit_generator).__name__,
+            "approach_offset_mm": (offset * 1e3).tolist(),
+            "descend_detour_mm": (ctx["descend_detour"] * 1e3).tolist(),
+        }
+
+    def _new_ctx(self, target_key, layout, seat) -> dict:
+        """The episode's working state, however the episode was started."""
+        spec = OBJECT_SPECS[target_key]
+        return {
+            "approach_offset": _np.zeros(3),
+            "descend_detour": _np.zeros(2),
+            "gate_stage": 0,
             "side": "right",
             "target_key": target_key,
             "correct_bin": spec.bin_index,
@@ -202,11 +242,83 @@ class TextureSortTask(Task):
             "drop_offset_mm": float("nan"),
         }
 
+    # ---- frozen initial states ---------------------------------------------
+
+    restore_contact_clearance_m = 1.0
+    settle_seconds = SETTLE_STEPS * DT
+
+    def sample_init_state(self, robot, rng, state_id, knobs):
+        target_key = "smooth" if rng.random() < 0.5 else "rough"
+        return self.layout_init_state(robot, sample_layout(rng), target_key, state_id)
+
+    def layout_init_state(self, robot, layout, target_key, state_id):
+        """Build a start using the authored smooth or rough asset."""
+        if target_key not in OBJECT_SPECS:
+            raise ValueError(f"Unknown target class: {target_key}")
+        objects = {n: [*layout[n], TABLE_TOP_Z, 1.0, 0.0, 0.0, 0.0] for n in FIXTURES}
+        for key, spec in OBJECT_SPECS.items():
+            position = (*layout["object"], OBJECT_SPAWN_Z) if key == target_key else PARKED_POS
+            objects[spec.name] = [*position, 1.0, 0.0, 0.0, 0.0]
+        return dict(
+            id=state_id,
+            robot=copy.deepcopy(robot),
+            objects=objects,
+            task_vars=dict(target_key=target_key, layout=copy.deepcopy(layout)),
+        )
+
+    def begin_restored_episode(self, h, state, knobs):
+        values = state["task_vars"]
+        spec = OBJECT_SPECS[values["target_key"]]
+        h.select_arm("right")
+        seat = h.scene[spec.name].data.root_pos_w[0, :2].cpu().numpy().copy()
+        layout = {name: h.scene[name].data.root_pos_w[0, :2].cpu().numpy().copy() for name in FIXTURES}
+        layout["object"] = seat.copy()
+        return self._new_ctx(values["target_key"], layout, seat)
+
+    def validate_init_state(self, state):
+        values = state["task_vars"]
+        if values.get("target_key") not in OBJECT_SPECS:
+            raise ValueError("texture_sort requires target_key=smooth or rough")
+        layout = values.get("layout", {})
+        if set(layout) != {"object", *FIXTURES}:
+            raise ValueError("texture_sort requires object and cup layout coordinates")
+        for name, xy in layout.items():
+            xy = _np.asarray(xy, dtype=float)
+            prim = OBJECT_SPECS[values["target_key"]].name if name == "object" else name
+            if xy.shape != (2,) or not _np.allclose(xy, state["objects"][prim][:2], atol=0.01):
+                raise ValueError(f"Layout and object pose disagree for {name}")
+
+    def init_state_objects(self) -> tuple[str, ...]:
+        # Both pucks: which one is on the table and which is parked is the
+        # episode's hidden draw, and it has to come back the same way.
+        return FIXTURES + tuple(s.name for s in OBJECT_SPECS.values())
+
+    def snapshot_init_state(self, h, ctx: dict) -> dict:
+        return {
+            "target_key": ctx["target_key"],
+            "layout": {k: [float(v[0]), float(v[1])] for k, v in ctx["layout"].items()},
+        }
+
+    def restore_init_state(self, h, state: dict, knobs: dict) -> dict:
+        v = state["task_vars"]
+        spec = OBJECT_SPECS[v["target_key"]]
+        h.select_arm("right")
+        # The pads sense one named prim, so they have to be pointed at the
+        # puck this state uses before anything touches it.
+        retarget_pads(h.sensors, spec.name)
+        # The snapshot already follows settling. Advancing it again moves
+        # the inactive body parked below the ground plane. Refresh transforms
+        # for sensing without advancing the restored starting state.
+        h.sim.forward()
+        seat = h.scene[spec.name].data.root_pos_w[0, :2].detach().cpu().numpy()
+        layout = {k: tuple(val) for k, val in v["layout"].items()}
+        return self._new_ctx(v["target_key"], layout, seat)
+
     @staticmethod
-    def _blade(knobs) -> _np.ndarray:
-        """Unit blade direction at the grasp, from the pitch and heading knobs."""
-        th = _np.radians(float(knobs["grasp_pitch_deg"]))
-        psi = _np.radians(float(knobs["grasp_yaw_deg"]))
+    def _blade() -> _np.ndarray:
+        """Unit blade direction at the fixed grasp orientation."""
+        th = _np.radians(GRASP_PITCH_DEG)
+        psi = _np.radians(GRASP_YAW_DEG)
         return _np.array([_np.cos(th) * _np.cos(psi), _np.cos(th) * _np.sin(psi), -_np.sin(th)])
 
     @staticmethod
@@ -236,8 +348,8 @@ class TextureSortTask(Task):
             if peak < RIPPLE_CONTACT_M:
                 continue
             blur = _torch.nn.functional.avg_pool2d(
-                pen, kernel_size=RIPPLE_KERNEL, stride=1,
-                padding=RIPPLE_KERNEL // 2, count_include_pad=False)
+                pen, kernel_size=RIPPLE_KERNEL, stride=1, padding=RIPPLE_KERNEL // 2, count_include_pad=False
+            )
             resid = pen - blur
             # Only over the loaded patch: including the unloaded rim would
             # divide the ripple by however much of the pad happened to be free.
@@ -254,8 +366,7 @@ class TextureSortTask(Task):
             "pen": pen,
             "pen_total": float(sum(pen.values())),
             "tilt": h.blade_tilt_deg(),
-            "obj_pos": h.scene[ctx["obj_prim"]].data.root_pos_w[0]
-                       .detach().cpu().numpy().copy(),
+            "obj_pos": h.scene[ctx["obj_prim"]].data.root_pos_w[0].detach().cpu().numpy().copy(),
         }
 
     # ---- phases ------------------------------------------------------------
@@ -263,7 +374,7 @@ class TextureSortTask(Task):
         seat, bins = ctx["seat"], ctx["bins"]
         grip = ctx["grip"]
         grasp = _np.array([seat[0], seat[1], GRASP_TCP_Z])
-        pregrasp = grasp - self._blade(knobs) * APPROACH_BACKOFF
+        pregrasp = grasp - self._blade() * APPROACH_BACKOFF + ctx["approach_offset"]
         if name == "home":
             # Jaws still shut, as HOME leaves them; `above_target` opens them.
             grip = START_JAW_WIDTH["right"]
@@ -273,26 +384,41 @@ class TextureSortTask(Task):
             tgt = pregrasp.tolist()
             # Position IK only until the jaws have opened the gels apart: the
             # jaw axis has no reliable sign while they overlap.
-            if (ctx["level_quat"] is None
-                    and gel_gap(h.grip_measured()) >= LEVEL_MIN_GEL_GAP):
+            if ctx["level_quat"] is None and gel_gap(h.grip_measured()) >= LEVEL_MIN_GEL_GAP:
                 ctx["level_quat"] = oblique_grasp_quat(
-                    h.tcp_quat(), h.jaw_axis(), h.approach_axis(),
-                    float(knobs["grasp_pitch_deg"]), float(knobs["grasp_yaw_deg"]))
+                    h.tcp_quat(), h.jaw_axis(), h.approach_axis(), GRASP_PITCH_DEG, GRASP_YAW_DEG
+                )
         elif name == "descend":
-            # In along the blade: the command point slides from the pre-grasp
-            # point to the grasp point on a straight line.
             grip = OPEN_WIDTH
             tgt = grasp.tolist()
+            if ctx["gate_stage"] < 3:
+                blade = self._blade()
+                gate = grasp - blade * GATE_BACKOFF
+                detour = ctx["descend_detour"]
+                if ctx["gate_stage"] == 0:
+                    waypoint = gate + _np.array([*detour, 0.0])
+                elif ctx["gate_stage"] == 1:
+                    waypoint = gate
+                else:
+                    waypoint = grasp - blade * ENTRY_PAUSE
+                    length = float(_np.linalg.norm(detour))
+                    if length > 1e-9:
+                        waypoint += _np.array([*detour, 0.0]) * (ENTRY_RESIDUAL / length)
+                at_command = ctx["cmd_pos"] is not None and _np.linalg.norm(waypoint - ctx["cmd_pos"]) < 0.002
+                # Wait for the measured hand at the gate and the short stop.
+                if at_command and (ctx["gate_stage"] == 0 or h.tcp_err(waypoint) < 0.005):
+                    ctx["gate_stage"] += 1
+                if ctx["gate_stage"] < 3:
+                    tgt = waypoint.tolist()
         elif name == "close":
             # Latch on the MEASURED jaw position once the preload is reached;
             # the drive lags a moving command and would keep closing into it.
-            preload = float(knobs["preload_mm"]) * 1e-3
+            preload = PRELOAD
             if ctx["grip_hold"] is not None:
                 grip = ctx["grip_hold"]
             elif sig["pen_total"] < preload and grip > GRIP_MIN_WIDTH:
-                rate = (CLOSE_RATE_SLOW if sig["pen_total"] > FIRST_TOUCH_M
-                        else CLOSE_RATE_FAST)
-                grip = max(GRIP_MIN_WIDTH, grip - rate * DT)
+                rate = CLOSE_RATE_SLOW if sig["pen_total"] > FIRST_TOUCH_M else CLOSE_RATE_FAST
+                grip = max(GRIP_MIN_WIDTH, grip - rate * h.control_dt)
             else:
                 grip = ctx["grip_hold"] = h.grip_measured()
             tgt = [seat[0], seat[1], GRASP_TCP_Z]
@@ -317,7 +443,7 @@ class TextureSortTask(Task):
                 ctx["release_xy"] = h.tcp_pos()[:2].copy()
                 ctx["xy_bias"][:] = 0.0
             tgt = [ctx["release_xy"][0], ctx["release_xy"][1], BIN_DROP_Z]
-        else:                                        # retreat
+        else:  # retreat
             grip = OPEN_WIDTH
             tgt = [ctx["release_xy"][0], ctx["release_xy"][1], HOVER_TCP_Z]
 
@@ -325,11 +451,13 @@ class TextureSortTask(Task):
         ctx["goal"] = list(tgt)
         if name in BIAS_PHASES:
             ctx["xy_bias"][:] = _np.clip(
-                ctx["xy_bias"] + XY_BIAS_GAIN * (_np.asarray(tgt[:2]) - h.tcp_pos()[:2]),
-                -XY_BIAS_MAX, XY_BIAS_MAX)
+                ctx["xy_bias"]
+                + XY_BIAS_GAIN * (h.control_dt / DT) * (_np.asarray(tgt[:2]) - h.tcp_pos()[:2]),
+                -XY_BIAS_MAX,
+                XY_BIAS_MAX,
+            )
             tgt = [tgt[0] + ctx["xy_bias"][0], tgt[1] + ctx["xy_bias"][1], tgt[2]]
-        speed = (CARRY_SPEED if name in CARRY_PHASES
-                 else APPROACH_SPEED if name == "descend" else FREE_SPEED)
+        speed = CARRY_SPEED if name in CARRY_PHASES else APPROACH_SPEED if name == "descend" else FREE_SPEED
         return self._rate_limited(h, ctx, tgt, speed), grip, ctx["level_quat"]
 
     def _rate_limited(self, h, ctx, goal, speed: float) -> list:
@@ -338,9 +466,10 @@ class TextureSortTask(Task):
             ctx["cmd_pos"] = h.tcp_pos().astype(float)
         delta = _np.asarray(goal, dtype=float) - ctx["cmd_pos"]
         dist = float(_np.linalg.norm(delta))
-        step = speed * DT
-        ctx["cmd_pos"] = (ctx["cmd_pos"] + delta * (step / dist) if dist > step
-                          else _np.asarray(goal, dtype=float))
+        step = speed * h.control_dt
+        ctx["cmd_pos"] = (
+            ctx["cmd_pos"] + delta * (step / dist) if dist > step else _np.asarray(goal, dtype=float)
+        )
         return ctx["cmd_pos"].tolist()
 
     def phase_done(self, h, ctx, name, t_phase, sig, target, knobs) -> bool:
@@ -353,13 +482,12 @@ class TextureSortTask(Task):
         if name == "orient":
             return t_phase > 0.3 and self._wrist_err_deg(h, ctx) < ORIENT_TOL_DEG
         if name == "descend":
-            return h.tcp_err(target) < 0.005
+            return ctx["gate_stage"] >= 3 and h.tcp_err(target) < 0.005
         if name == "close":
             ctx["blade_tilt_deg"] = round(sig["tilt"], 1)
-            preload = float(knobs["preload_mm"]) * 1e-3
+            preload = PRELOAD
             both = all(v >= 0.3 * preload for v in sig["pen"].values())
-            return ((sig["pen_total"] >= preload and both)
-                    or ctx["grip"] <= GRIP_MIN_WIDTH)
+            return (sig["pen_total"] >= preload and both) or ctx["grip"] <= GRIP_MIN_WIDTH
         if name == "classify":
             if sum(sig["areas"].values()) > AREA_CONTACT:
                 ctx["ripples"].append(self._ripple_mm(h, ctx))
@@ -369,7 +497,7 @@ class TextureSortTask(Task):
                 # surface reads a ripple that has nothing to do with dimples.
                 r = float(_np.median(ctx["ripples"])) if ctx["ripples"] else 0.0
                 ctx["ripple_mm"] = round(r, 4)
-                ctx["chosen_bin"] = 1 if r > float(knobs["rough_thresh_mm"]) else 0
+                ctx["chosen_bin"] = 1 if r > ROUGH_THRESH_MM else 0
             return done
         if name == "lift":
             # Height is what this phase is for: under pose IK the arm settles
@@ -393,8 +521,7 @@ class TextureSortTask(Task):
         """Which cup the puck ended in, or -1 for neither. Read from the
         puck's final position, not from what the controller intended, so the
         verdict is recomputable from a recording."""
-        d = [float(_np.linalg.norm(_np.asarray(xy) - _np.asarray(ctx["layout"][b])))
-             for b in FIXTURES]
+        d = [float(_np.linalg.norm(_np.asarray(xy) - _np.asarray(ctx["layout"][b]))) for b in FIXTURES]
         i = int(_np.argmin(d))
         return i if d[i] < BIN_RADIUS else -1
 
@@ -402,17 +529,14 @@ class TextureSortTask(Task):
         pos = _np.asarray(hist["obj_pos"])
         return _Trace(
             t=_np.asarray(hist["t"]),
-            pad_area={p: _np.asarray([a[p] for a in hist["areas"]])
-                      for p in h.ch["pads"]},
+            pad_area={p: _np.asarray([a[p] for a in hist["areas"]]) for p in h.ch["pads"]},
             object_pos={"target": pos},
         )
 
     def verdict(self, trace, ctx, knobs):
         landed = self._bin_of(ctx, trace.object_pos["target"][-1][:2])
         ctx["landed_bin"] = landed
-        return _verdict(trace, chosen_bin=landed,
-                        correct_bin=ctx["correct_bin"],
-                        pads=tuple(trace.pad_area))
+        return _verdict(trace, chosen_bin=landed, correct_bin=ctx["correct_bin"], pads=tuple(trace.pad_area))
 
     def episode_extra(self, ctx, hist) -> dict:
         return {
@@ -424,16 +548,25 @@ class TextureSortTask(Task):
             "n_ripple_samples": len(ctx["ripples"]),
             "blade_tilt_deg": ctx["blade_tilt_deg"],
             "drop_offset_mm": ctx["drop_offset_mm"],
-            "layout": {n: [round(float(v), 4) for v in ctx["layout"][n]]
-                       for n in FIXTURES},
+            "layout": {n: [round(float(v), 4) for v in ctx["layout"][n]] for n in ctx["layout"]},
         }
 
     def report_extra(self, knobs) -> dict:
-        return {"light_scale": float(knobs["light_scale"]),
-                "rough_thresh_mm": float(knobs["rough_thresh_mm"]),
-                "preload_mm": float(knobs["preload_mm"]),
-                "grasp_pitch_deg": float(knobs["grasp_pitch_deg"]),
-                "grasp_yaw_deg": float(knobs["grasp_yaw_deg"])}
+        return {
+            "light_scale": DEFAULT_LIGHT_SCALE,
+            "rough_thresh_mm": ROUGH_THRESH_MM,
+            "preload_mm": PRELOAD * 1e3,
+            "grip_floor_mm": GRIP_MIN_WIDTH * 1e3,
+            "approach_jitter_mm": APPROACH_JITTER * 1e3,
+            "descend_detour_mm": DESCEND_DETOUR * 1e3,
+            "entry_pause_mm": ENTRY_PAUSE * 1e3,
+            "entry_residual_mm": ENTRY_RESIDUAL * 1e3,
+            "pair_episodes": False,
+            "preload_jitter": 0.0,
+            "sdf_resolution": SDF_RESOLUTION,
+            "grasp_pitch_deg": GRASP_PITCH_DEG,
+            "grasp_yaw_deg": GRASP_YAW_DEG,
+        }
 
 
 TASK = TextureSortTask()
