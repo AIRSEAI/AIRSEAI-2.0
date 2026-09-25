@@ -1,28 +1,73 @@
-"""The task registry: id -> (task module, pinned knobs).
+"""The task registry: the one place a task is registered.
 
-Read by the expert runner, the evaluator and the dataset collector. A task
-id that pins a knob (as `blind_peg_dim` pins `light_scale`) runs its parent's
-module with that knob fixed; the pin overrides the CLI.
+Read by the expert runner, the evaluator, the dataset collector, the
+environment viewer and the installer's asset step. An entry names the task's
+modules and the knobs its id pins; a task id that pins a knob runs its
+parent's module with that knob fixed, and the pin overrides the CLI.
+
+Nothing here imports Isaac: the paths are strings, resolved by whoever needs
+them once the app is running.
 """
 
 from __future__ import annotations
 
 import importlib
+from dataclasses import dataclass, field
 
-__all__ = ["TASKS", "load_task"]
+__all__ = ["TaskEntry", "TASKS", "load_task", "load_scene"]
 
-TASKS: dict[str, tuple[str, dict]] = {
-    "stack_cube":            ("sim.tasks.stack_cube", {}),
-    "blind_peg_insertion":   ("sim.tasks.blind_peg_insertion", {}),
-    "blind_peg_dim":         ("sim.tasks.blind_peg_insertion", {"light_scale": 0.15}),
-    "texture_sort":          ("sim.tasks.texture_sort", {}),
-    "sleeve_on_shaft":       ("sim.tasks.sleeve_on_shaft", {}),
-    "handover":              ("sim.tasks.handover", {}),
+
+@dataclass(frozen=True)
+class TaskEntry:
+    module: str  # sim.tasks.<name>, the expert
+    scene: str  # sim.envs.<name>, the scene and its preview
+    assets: str | None = None  # generator script, None when the scene is primitives
+    pins: dict = field(default_factory=dict)
+    manager_cfg: str | None = None
+
+    @property
+    def name(self) -> str:
+        """The name the task's modules share. Two ids that differ only in a
+        pinned knob share it, and so share a scene and an asset directory."""
+        return self.module.rsplit(".", 1)[1]
+
+
+TASKS: dict[str, TaskEntry] = {
+    "stack_cube": TaskEntry(
+        module="sim.tasks.stack_cube",
+        scene="sim.envs.stack_cube",
+        manager_cfg="sim.manager_based.stack_cube.env_cfg",
+    ),
+    "blind_peg_insertion": TaskEntry(
+        module="sim.tasks.blind_peg_insertion",
+        scene="sim.envs.blind_peg_insertion",
+        assets="benchmark/run/make_blind_peg_insertion_assets.py",
+    ),
+    "texture_sort": TaskEntry(
+        module="sim.tasks.texture_sort",
+        scene="sim.envs.texture_sort",
+        assets="benchmark/run/make_texture_sort_assets.py",
+        manager_cfg="sim.manager_based.texture_sort.env_cfg",
+    ),
+    "sleeve_on_shaft": TaskEntry(
+        module="sim.tasks.sleeve_on_shaft",
+        scene="sim.envs.sleeve_on_shaft",
+        assets="benchmark/run/make_sleeve_on_shaft_assets.py",
+    ),
+    "handover": TaskEntry(
+        module="sim.tasks.handover", scene="sim.envs.handover", assets="benchmark/run/make_handover_assets.py"
+    ),
 }
 
 
 def load_task(task_id: str):
     """-> (TASK object, pinned knobs). Import happens here because the task
     modules import isaaclab, which needs Kit running."""
-    module, pins = TASKS[task_id]
-    return importlib.import_module(module).TASK, dict(pins)
+    entry = TASKS[task_id]
+    return importlib.import_module(entry.module).TASK, dict(entry.pins)
+
+
+def load_scene(task_id: str):
+    """-> the task's scene module, without importing its expert. Same reason
+    for the late import as `load_task`."""
+    return importlib.import_module(TASKS[task_id].scene)

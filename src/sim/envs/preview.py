@@ -18,8 +18,8 @@ class PreviewSpec:
 
     @property
     def look_at(self) -> tuple[float, float, float]:
-        return tuple((a + b) / 2 for a, b in zip(self.work_target, ANIM_AIM_CHEST))
+        return tuple((a + b) / 2 for a, b in zip(self.work_target, ANIM_AIM_CHEST, strict=True))
 
     @property
     def eye(self) -> tuple[float, float, float]:
-        return tuple(a + ANIM_EYE_DIST * b for a, b in zip(self.look_at, ANIM_EYE_DIR))
+        return tuple(a + ANIM_EYE_DIST * b for a, b in zip(self.look_at, ANIM_EYE_DIR, strict=True))

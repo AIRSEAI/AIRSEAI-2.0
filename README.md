@@ -120,16 +120,31 @@ and loaded automatically on activation.
 
 ### Stage 1 — preview an environment
 
-```bash
-# Interactive viewer
-python benchmark/run/launch_env.py --env stack_cube --gui
+`stack_cube` and `texture_sort` use the shared ManagerBased environment.
+`--num_envs` defaults to 1; multiple environments run in one Kit process.
 
-# Headless snapshot or video
-python benchmark/run/launch_env.py --env stack_cube \
+```bash
+# Interactive overview of four environments
+python benchmark/run/launch_env.py --env stack_cube --num_envs 4 --gui
+# Focus one environment in the GUI (zero-based slot)
+python benchmark/run/launch_env.py --env stack_cube --num_envs 4 --gui --view_env 2
+# Synchronous per-environment grid, 30 simulation seconds at 20 fps
+python benchmark/run/launch_env.py --env texture_sort --num_envs 4 \
+    --video "$OUTPUT_ROOT/preview/texture_sort.mp4" --steps 1800
+# Settled snapshot
+python benchmark/run/launch_env.py --env stack_cube --num_envs 4 \
     --snapshot "$OUTPUT_ROOT/preview/stack_cube.png"
-python benchmark/run/launch_env.py --env stack_cube \
-    --video "$OUTPUT_ROOT/preview/stack_cube.mp4"
 ```
+
+`--steps` counts 60 Hz physics steps, rounded up to a complete 3-step control
+tick. Video defaults to 300 physics steps (5 seconds). Every grid tile shows
+its environment ID and simulation time; a `.frames.json` sidecar records
+frame/tick correspondence. Add `--report path.json` to save the backend,
+Kit PID, origins, collider paths, sensor inventory and timing. GUI needs an
+accessible display. Other tasks retain their single-environment preview.
+
+Native batching for collection and evaluation is a subsequent migration
+stage; preview support alone does not certify those entry points.
 
 ### Stage 2 — collect demonstrations
 
