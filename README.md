@@ -155,23 +155,56 @@ RENDER=1 PREVIEWS=1 bash scripts/run_collect.sh stack_cube 50 \
     "$OUTPUT_ROOT/raw/stack_cube_expert"
 ```
 
-Or collect 200 episode attempts with four environments on two GPUs:
+Or collect 200 episode attempts with four native environments on one GPU:
 
 ```bash
-NUM_ENVS=4 GPUS=0,1 SEED=7 RENDER=1 PREVIEWS=1 \
+NUM_ENVS=4 GPUS=0 SEED=7 RENDER=1 PREVIEWS=1 \
     bash scripts/run_collect.sh stack_cube 200 \
     "$OUTPUT_ROOT/raw/stack_cube_expert_parallel"
 ```
 
-`NUM_ENVS=4 GPUS=0` runs four environments on one GPU if memory permits.
-The count is the total episode attempts across all environments; accepted
-episodes are automatically combined into one dataset.
+`stack_cube` and `texture_sort` use one Isaac Lab ManagerBasedEnv process with
+60 Hz physics and 20 Hz control/recording. Each slot has its own expert, reset,
+and episode buffer. The count is total attempts, including failures. Accepted
+episodes are combined in attempt-ID order. Use one GPU per native invocation;
+other tasks retain their existing worker-process collection path.
+
+Native collection defaults to `--write_mode background`; use `--write_mode sync`
+for synchronous saving. The shell entry accepts `WRITE_MODE=sync` and
+`WRITE_QUEUE_SIZE=2`. `--write_queue_size 2` bounds outstanding episode saves,
+including the running save. A full queue pauses collection without dropping data.
+Each completed attempt transfers its detached CPU data and private disk buffer to
+one writer thread. Reports list pending attempt IDs; `saved` becomes true only
+after episode finalization succeeds. A write failure stops collection and marks
+the run failed. Normal exit or a handled interrupt drains accepted writes before
+closing; a forced kill cannot guarantee completion. Runs without write errors merge
+accepted episodes into the final dataset in attempt-ID order.
+
+Per-frame disk buffering and live review/mosaic video encoding remain synchronous;
+background mode moves episode finalization and its output files off the simulation
+thread. It does not change camera views, sampling ticks, or seed assignment.
+The same options apply to native single-environment keyboard/VR collection.
+
+Random starts use `(seed, attempt_id, purpose)` streams. Slots consume attempt
+IDs in fixed strides, so completion or encoding time does not choose the next
+random start. Repeating the same configuration is intended to reproduce its
+trajectories; physics and sensor determinism still requires runtime validation.
+
+Supply `INIT_STATES=/path/to/states.json` to consume every state once in file
+order; the file's count overrides `--episodes`. Without it, each attempt draws
+an independent layout. The run saves both requested and settled initial states.
+Metadata is retained in `meta/episode_annotations.json`, including during
+conversion. Raw output is LeRobot v3 with tactile `data` streams; use Stage 3
+for the standard vision/tacrgb/tacff training variants.
+
+For paired smooth/rough layouts, see `example/texture_sort/README.md`.
 
 | Option | Meaning / default |
 | --- | --- |
 | `NUM_ENVS` | Concurrent environments; `1` |
-| `GPUS` | GPU IDs, distributed round-robin; `0` |
+| `GPUS` | One GPU ID for native vector tasks; `0` |
 | `SEED` | Collection seed; `7` |
+| `INIT_STATES` | Optional initial-state JSON; absent means independent draws |
 | `RENDER=1` | Record review videos |
 | `PREVIEWS=1` | Include tactile preview streams |
 
@@ -182,10 +215,14 @@ episodes are automatically combined into one dataset.
 | Review videos | `$OUTPUT_ROOT/raw/stack_cube_expert/review/third_person/` |
 
 For the parallel example, replace `stack_cube_expert` with
-`stack_cube_expert_parallel`; worker logs are under
-`$OUTPUT_ROOT/raw/stack_cube_expert_parallel_run/workers/worker_<id>/`.
+`stack_cube_expert_parallel`. Per-attempt states, trajectories, terminal
+observations, results, and recording shards are under
+`$OUTPUT_ROOT/raw/stack_cube_expert_parallel_run/attempts/<attempt_id>/`.
+`RENDER=1` writes a tiled video of all environments into the run directory.
+Image and tactile buffers are spooled to disk; allow space for pending attempts
+and the final dataset in addition to the preserved recording shards.
 
-#### Keyboard teleoperation
+#### Keyboard and VR teleoperation
 
 ```bash
 python benchmark/teleop/run_teleop.py --task stack_cube \
@@ -195,6 +232,16 @@ python benchmark/teleop/run_teleop.py --task stack_cube \
 
 Omit `--dataset` to practise without recording. `--episodes` counts attempts;
 the report records manual success marks and task criterion results separately.
+Native teleoperation accepts `--num_envs 1` only and supports `--init_states`.
+Press SPACE to begin/pause, ENTER to mark success and save, BACKSPACE to discard,
+R to discard and reset to the next start, TAB to switch arms, and K to toggle jaws.
+Pausing freezes physics so no unrecorded interval enters a demonstration.
+
+Use `--teleop_device vr --xr` for Isaac Lab OpenXR hand tracking. The selected
+hand drives the selected arm with relative pose increments; keyboard controls
+manage the jaws and recording. Tracking loss freezes physics and reacquisition
+reanchors hand motion. This requires a compatible OpenXR runtime and tracked
+hands; the operator/device workflow has not yet been validated.
 
 | Output | Path |
 | --- | --- |
