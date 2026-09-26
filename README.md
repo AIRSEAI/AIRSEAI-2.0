@@ -294,7 +294,7 @@ DATASET=stack_cube_mixed VARIANT=tacff POLICY=act GPU=0 \
 | `DATASET` | Dataset name from stage 3 |
 | `VARIANT` | `vision`, `tacff`, or `tacrgb` |
 | `POLICY` | LeRobot policy type; `act` |
-| `GPU` | Training GPU |
+| `GPU` | Training GPU; defaults to the GPU with the most free memory |
 | `STEPS` | Training steps; `50000` |
 | `SEED` | Training seed; `1000` |
 | `BATCH` / `WORKERS` | Batch size / loader workers; `8` / `8` |
@@ -306,6 +306,7 @@ DATASET=stack_cube_mixed VARIANT=tacff POLICY=act GPU=0 \
 Pass additional LeRobot options as shell arguments, for example
 `bash scripts/run_train.sh --policy.chunk_size=100`.
 Set `GPU` explicitly on shared servers according to the available allocation.
+Relative `DS` and `BASE` paths are resolved from the calling directory.
 For the 500-episode stack-cube recording:
 
 ```bash
@@ -323,8 +324,8 @@ and dataset validation complete.
 ACT is the initial baseline. Other model families may require additional
 model configuration and dependencies.
 
-- Checkpoints: `$OUTPUT_ROOT/outputs/stack_cube_mixed_tacff_act_s1000/checkpoints/`.
-- Log: `$OUTPUT_ROOT/logs/train_stack_cube_mixed_tacff_act_s1000.log`.
+- Checkpoints: `$BASE/outputs/${DATASET}_${VARIANT}_${POLICY}_s${SEED}/checkpoints/`.
+- Log: `$BASE/logs/train_${DATASET}_${VARIANT}_${POLICY}_s${SEED}.log`.
 
 ### Stage 5 — evaluate
 

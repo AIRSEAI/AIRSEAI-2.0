@@ -99,8 +99,7 @@ VARIANT=tacrgb GPU=6 \
 
 Choose an allocated GPU and repeat for `vision` and `tacff` with the matching
 dataset paths. Each invocation trains one variant on all 500 episodes, including
-both members of all 250 pairs. It does not select the older paired/unpaired
-experiment's episode subsets.
+both members of all 250 pairs.
 
 Defaults are 60,000 steps, batch size 8, seed 1000, eight loader workers,
 checkpoints every 20,000 steps and logs every 200 steps. Override `STEPS`, `BATCH`,
@@ -109,6 +108,7 @@ checkpoints every 20,000 steps and logs every 200 steps. Override `STEPS`, `BATC
 entry with explicit ACT settings: one observation, 100 predicted and executed
 actions, ImageNet-pretrained ResNet18, learning rate 1e-5 for both backbone and
 policy, weight decay 1e-4, KL weight 10, and AMP disabled.
+Additional command-line arguments are passed to the LeRobot training entry.
 
 With the default dataset name, outputs are:
 
@@ -120,7 +120,7 @@ With the default dataset name, outputs are:
 After training, transfer the complete `060000/pretrained_model` directory,
 including weights, configuration and preprocessing files, to the evaluation
 host. Keep optimizer state on the training host for resuming training. Verify
-file checksums and policy loading before evaluation. The planned air destination
-is `$HOME/outputs/isaaclab-vector-env/stage4/checkpoints/texture_sort/<variant>/act_s1000/060000/pretrained_model/`.
+file checksums and policy loading before evaluation. An evaluation destination is
+`<evaluation_root>/checkpoints/texture_sort/<variant>/act_s1000/060000/pretrained_model/`.
 Stack-cube models use the same destination structure with task `stack_cube` and
 step `050000`. Model deployment does not start evaluation automatically.
