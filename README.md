@@ -193,6 +193,8 @@ trajectories; physics and sensor determinism still requires runtime validation.
 Supply `INIT_STATES=/path/to/states.json` to consume every state once in file
 order; the file's count overrides `--episodes`. Without it, each attempt draws
 an independent layout. The run saves both requested and settled initial states.
+Saved `meta.expert_seed` values control expert perturbations independently of
+file ordering. Older states without this field use the run seed and attempt index.
 Metadata is retained in `meta/episode_annotations.json`, including during
 conversion. Raw output is LeRobot v3 with tactile `data` streams; use Stage 3
 for the standard vision/tacrgb/tacff training variants.
@@ -295,6 +297,28 @@ DATASET=stack_cube_mixed VARIANT=tacff POLICY=act GPU=0 \
 | `GPU` | Training GPU |
 | `STEPS` | Training steps; `50000` |
 | `SEED` | Training seed; `1000` |
+| `BATCH` / `WORKERS` | Batch size / loader workers; `8` / `8` |
+| `SAVE_FREQ` / `LOG_FREQ` | Checkpoint / log interval; `10000` / `200` steps |
+| `DS` | Explicit converted dataset path |
+| `BASE` | Training output root; defaults to `OUTPUT_ROOT` |
+| `DEFAULT_PY` | Python executable from the training environment |
+
+Pass additional LeRobot options as shell arguments, for example
+`bash scripts/run_train.sh --policy.chunk_size=100`.
+Set `GPU` explicitly on shared servers according to the available allocation.
+For the 500-episode stack-cube recording:
+
+```bash
+DATASET=stack_cube_s51_n500 VARIANT=vision POLICY=act GPU=0 \
+    DS="<converted_dataset_root>/stack_cube_s51_n500_vision" \
+    BASE="<task_output_root>/stage4" STEPS=50000 SEED=1000 \
+    bash scripts/run_train.sh
+```
+
+Repeat with `VARIANT=tacrgb` or `tacff` and the matching `DS` path.
+Texture-sort training uses `example/texture_sort/train.sh`.
+Evaluation initial states are not training inputs. Only launch after conversion
+and dataset validation complete.
 
 ACT is the initial baseline. Other model families may require additional
 model configuration and dependencies.
@@ -356,15 +380,19 @@ keep 50 that the scripted expert completes:
 
 ```bash
 python benchmark/run/make_init_states.py --task stack_cube \
-    --n 50 --candidates 80 --seed 0 \
+    --count 50 --max-candidates 80 --seed 0 --expert --num_envs 4 \
+    --headless --enable_cameras \
     --out "$OUTPUT_ROOT/custom_states/stack_cube.json"
 ```
 
-Restore the saved states and run the expert again to verify them:
+Each candidate is settled, frozen and restored before the expert runs. Only
+successful candidates enter the final set. To generate without an expert:
 
 ```bash
 python benchmark/run/make_init_states.py --task stack_cube \
-    --out "$OUTPUT_ROOT/custom_states/stack_cube.json" --verify
+    --count 50 --max-candidates 80 --seed 1 --no-expert --num_envs 4 \
+    --out "$OUTPUT_ROOT/custom_states/stack_cube_unfiltered.json" \
+    --headless --enable_cameras
 ```
 
 Then evaluate using the new file:
@@ -375,6 +403,11 @@ INIT_STATES="$OUTPUT_ROOT/custom_states/stack_cube.json" \
     OUT="$OUTPUT_ROOT/eval/stack_cube_custom" \
     bash scripts/run_eval.sh stack_cube "$CKPT"
 ```
+
+An incomplete run writes a `.partial.json` file and exits unsuccessfully.
+Use `--exclude <training_states.json>` to exclude exact training starts.
+Texture-sort paired collection and independent evaluation sampling are described
+in [the task example](example/texture_sort/README.md).
 
 The new set is saved separately from the published set. Its scores are
 comparable only with evaluations using the same states and configuration.

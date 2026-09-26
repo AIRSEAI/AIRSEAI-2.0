@@ -70,6 +70,14 @@ def validate_states(document, task, knobs, joint_count):
                 raise ValueError(f"Invalid object pose in state {state['id']}")
         if not isinstance(state["task_vars"], dict) or not isinstance(state.get("meta", {}), dict):
             raise ValueError("task_vars and meta must be objects")
+        entropy = state.get("meta", {}).get("expert_seed")
+        if entropy is not None and (
+            not isinstance(entropy, list)
+            or len(entropy) != 3
+            or any(type(value) is not int or value < 0 for value in entropy)
+            or entropy[2] != 1
+        ):
+            raise ValueError("expert_seed must be [nonnegative seed, nonnegative index, 1]")
         task.validate_init_state(state)
         state_hash(state)
 
@@ -95,6 +103,7 @@ class Attempt:
     terminal_reason: str | None = None
     marked_success: bool = False
     target: object = None
+    frozen: bool = False
 
 
 class Collector:
@@ -186,8 +195,8 @@ class Collector:
                 versions=versions,
                 python=sys.version,
                 rng="numpy.PCG64",
-                scene_stream="[seed, attempt_id, 0]",
-                expert_stream="[seed, attempt_id, 1]",
+                scene_stream=getattr(self, "scene_stream", "[seed, attempt_id, 0]"),
+                expert_stream="meta.expert_seed when supplied; otherwise [seed, attempt_id, 1]",
                 device=str(self.env.device),
                 joint_names=self.env.scene["robot"].joint_names,
             ),
@@ -231,12 +240,8 @@ class Collector:
             ),
         )
 
-    def assign(self, slot):
-        attempt_id = self.next_ids[slot]
-        if attempt_id >= self.stop:
-            return
-        self.next_ids[slot] += self.num_envs
-        state = (
+    def sample_state(self, attempt_id):
+        return (
             copy.deepcopy(self.document["states"][attempt_id])
             if self.document
             else self.task.sample_init_state(
@@ -246,6 +251,18 @@ class Collector:
                 self.knobs,
             )
         )
+
+    def schedule(self):
+        for slot, attempt in enumerate(self.active):
+            if attempt is None:
+                self.assign(slot)
+
+    def assign(self, slot):
+        attempt_id = self.next_ids[slot]
+        if attempt_id >= self.stop:
+            return
+        self.next_ids[slot] += self.num_envs
+        state = self.sample_state(attempt_id)
         folder = self.out / "attempts" / f"{attempt_id:06d}"
         folder.mkdir(parents=True)
         attempt = Attempt(attempt_id, slot, state, folder)
@@ -263,7 +280,7 @@ class Collector:
         write_json(folder / "requested_state.json", state)
         prepare_restore(self.env, [state], [slot])
 
-    def begin(self, attempt):
+    def snapshot_start(self, attempt):
         h = self.handles[attempt.env_id]
         h.reset_ik()
         h.unlatch()
@@ -272,6 +289,14 @@ class Collector:
         actual["task_vars"] = self.task.snapshot_init_state(h, attempt.ctx)
         self.env.frozen_task_vars[attempt.env_id] = copy.deepcopy(actual["task_vars"])
         actual.update(id=attempt.requested["id"], meta=copy.deepcopy(attempt.requested.get("meta", {})))
+        return actual
+
+    def begin(self, attempt):
+        attempt.requested.setdefault("meta", {}).setdefault(
+            "expert_seed", [self.args.seed, attempt.attempt_id, 1]
+        )
+        actual = self.snapshot_start(attempt)
+        h = self.handles[attempt.env_id]
         attempt.report["init_state_hash"] = state_hash(actual)
         write_json(attempt.folder / "initial_state.json", actual)
         self.snapshots.append((attempt.attempt_id, actual))
@@ -293,9 +318,11 @@ class Collector:
             attempt.paused = self.args.teleop_device != "scripted"
             print(attempt.controller.help_text(), flush=True)
         if not self.teleop or self.args.teleop_device == "scripted":
-            attempt.report["expert"] = self.task.prepare_expert(
-                attempt.ctx, self.args.seed, attempt.attempt_id
+            entropy = attempt.requested.get("meta", {}).get(
+                "expert_seed", [self.args.seed, attempt.attempt_id, 1]
             )
+            attempt.report["expert_seed"] = entropy
+            attempt.report["expert"] = self.task.prepare_expert(attempt.ctx, entropy[0], entropy[1])
         attempt.mode = "running"
 
     def command(self, attempt):
@@ -485,9 +512,7 @@ class Collector:
             self.report("running")
             while not self.stop_requested() and self.app.is_running():
                 self.collect_writes()
-                for slot, attempt in enumerate(self.active):
-                    if attempt is None:
-                        self.assign(slot)
+                self.schedule()
                 if not any(self.active):
                     status = "complete"
                     break
@@ -520,8 +545,9 @@ class Collector:
                                 self.begin(attempt)
                     for attempt in clearing:
                         restore_states(self.env, [attempt.requested], [attempt.env_id])
-                        if self.document and not self.document.get("generator", {}).get(
-                            "requires_settle", False
+                        if attempt.frozen or (
+                            self.document
+                            and not self.document.get("generator", {}).get("requires_settle", False)
                         ):
                             self.begin(attempt)
                         else:
@@ -537,7 +563,7 @@ class Collector:
                     attempt.terminal_reason = "interrupted"
                     self.finish(attempt)
             self.collect_writes(drain=True)
-            kept = sorted((r for r in self.reports if r["saved"]), key=lambda r: r["attempt_id"])
+            kept = self.saved_rows()
             if kept and self.dataset:
                 merge_recordings(
                     [self.out / "attempts" / f"{r['attempt_id']:06d}" / "raw" for r in kept], self.dataset
@@ -548,23 +574,17 @@ class Collector:
                 if self.teleop and self.args.previews:
                     script = Path(__file__).resolve().parents[2] / "benchmark/run/render_previews.py"
                     subprocess.run([sys.executable, str(script), "--dataset", str(self.dataset)], check=True)
-            elif self.dataset and status == "complete":
+            elif self.dataset and status == "complete" and not getattr(self.args, "allow_empty", False):
                 raise RuntimeError("No successful demonstrations were accepted")
-            states = [state for _, state in sorted(self.snapshots)]
+            payload = self.state_output()
             init_state.save(
                 self.out / "init_states.json",
-                task=self.task.task_id(self.knobs),
-                states=states,
-                rejected=[],
-                generator=dict(seed=self.args.seed, num_envs=self.num_envs, requires_settle=False),
+                **payload,
             )
             if getattr(self.args, "init_states_out", ""):
                 init_state.save(
                     self.args.init_states_out,
-                    task=self.task.task_id(self.knobs),
-                    states=states,
-                    rejected=[],
-                    generator=dict(seed=self.args.seed, requires_settle=False),
+                    **payload,
                 )
             self.close_recorders()
             self.report(status)
@@ -589,6 +609,17 @@ class Collector:
                 self.close_recorders()
             finally:
                 self.env.close()
+
+    def saved_rows(self):
+        return sorted((r for r in self.reports if r["saved"]), key=lambda r: r["attempt_id"])
+
+    def state_output(self):
+        return dict(
+            task=self.task.task_id(self.knobs),
+            states=[state for _, state in sorted(self.snapshots)],
+            rejected=[],
+            generator=dict(seed=self.args.seed, num_envs=self.num_envs, requires_settle=False),
+        )
 
     def close_recorders(self):
         errors = []
