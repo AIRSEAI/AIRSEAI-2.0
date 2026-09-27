@@ -22,16 +22,12 @@ from sim.dims.mug_on_hook import (
     HANDLE_SECTION,
     MUG_OUTER_R,
     STOP_BALL_R,
-    hang_offset_x,
-    hang_offset_z,
-    peg_axis_z,
     peg_span,
 )
 from sim.envs.bimanual_tactile import (
     REAL_HOME_JOINT_POS,
     TABLE_TOP_Z,
     BimanualTactileSceneCfg,
-    park_default_manipuland,
     point_pads_at,
     start_joint_pos,
 )
@@ -47,15 +43,12 @@ __all__ = [
     "MUG_SPAWN_Z",
     "MUG_YAW_JITTER_DEG",
     "PAD_TARGET",
-    "PARKED_POS",
-    "PREVIEW_CLEARANCE",
     "RAIL_JITTER",
     "RAIL_XY",
     "START_JAW_WIDTH",
     "START_JOINT_POS",
     "MugOnHookSceneCfg",
     "ensure_assets",
-    "hang_pose",
     "sample_layout",
 ]
 
@@ -81,7 +74,8 @@ def ensure_assets() -> None:
     if missing:
         raise FileNotFoundError(
             f"mug_on_hook geometry missing from {ASSETS_DIR}: {', '.join(missing)}\n"
-            f"    python benchmark/run/make_mug_on_hook_assets.py --headless")
+            f"    python benchmark/run/make_mug_on_hook_assets.py --headless"
+        )
 
 
 # ----- objects ---------------------------------------------------------------
@@ -90,9 +84,6 @@ def ensure_assets() -> None:
 # carry without creeping and heavy enough that its shear, and the moment that
 # shear goes, are well clear of the noise.
 MUG_MASS = 0.045
-
-# Where the placeholder sphere waits: below the ground plane.
-PARKED_POS = (0.0, 0.0, -5.0)
 
 
 # ----- layout ----------------------------------------------------------------
@@ -111,6 +102,7 @@ def rest_along() -> float:
     """How far out the mug comes to rest, metres: against the stop ball."""
     return peg_span() - STOP_BALL_R - HANDLE_SECTION / 2.0
 
+
 # The coaster's centre, metres: well inside the right arm's top-grasp region
 # and clear of the rail.
 COASTER_XY = (0.245, -0.090)
@@ -126,34 +118,21 @@ MUG_YAW_JITTER_DEG = 6.0
 # The mug's base at spawn: standing on the coaster's floor.
 MUG_SPAWN_Z = TABLE_TOP_Z + COASTER_FLOOR
 
-# How far above the seated pose `set_mug_hung` starts the mug, metres.
-PREVIEW_CLEARANCE = 0.001
 
-
-def hang_pose(rail_xy=RAIL_XY, along: float | None = None) -> tuple[float, float, float]:
-    """Where a mug hung `along` metres out on the peg has its base, metres.
-
-    The seated pose: the eye's roof on the peg's top, the body on the near
-    side of it. Defaults to where the mug comes to rest, against the ball.
-    """
-    along = rest_along() if along is None else along
-    return (rail_xy[0] + hang_offset_x(),
-            rail_xy[1] + along,
-            TABLE_TOP_Z + peg_axis_z(along) + hang_offset_z())
-
-
-def sample_layout(rng, rail_jitter: float = RAIL_JITTER,
-                  coaster_jitter: float = COASTER_JITTER,
-                  mug_jitter: float = MUG_JITTER,
-                  yaw_jitter_deg: float = MUG_YAW_JITTER_DEG) -> dict:
+def sample_layout(
+    rng,
+    rail_jitter: float = RAIL_JITTER,
+    coaster_jitter: float = COASTER_JITTER,
+    mug_jitter: float = MUG_JITTER,
+    yaw_jitter_deg: float = MUG_YAW_JITTER_DEG,
+) -> dict:
     """Draw xy for the rail and the coaster, and the mug's pose in the dish.
 
     The mug's offset is capped to what the dish allows, so it always starts
     upright on the floor rather than riding up the inner wall.
     """
     out: dict = {}
-    for key, (x, y), j in (("rail", RAIL_XY, rail_jitter),
-                           ("coaster", COASTER_XY, coaster_jitter)):
+    for key, (x, y), j in (("rail", RAIL_XY, rail_jitter), ("coaster", COASTER_XY, coaster_jitter)):
         dx, dy = rng.uniform(-j, j, 2) if j else (0.0, 0.0)
         out[key] = (float(x + dx), float(y + dy))
     room = COASTER_INNER_R - MUG_OUTER_R
@@ -188,18 +167,18 @@ def _spawn_mug(prim: str) -> RigidObjectCfg:
             rigid_props=sim_utils.RigidBodyPropertiesCfg(
                 # Depenetration well under the default metre per second: a
                 # body this light leaves a deep contact at that speed.
-                disable_gravity=False, max_depenetration_velocity=0.2,
+                disable_gravity=False,
+                max_depenetration_velocity=0.2,
                 solver_position_iteration_count=16,
-                solver_velocity_iteration_count=1),
+                solver_velocity_iteration_count=1,
+            ),
             mass_props=sim_utils.MassPropertiesCfg(mass=MUG_MASS),
             # Contact generated a millimetre and a half out, so the solver
             # answers the gels, the coaster and the peg before any is deep in;
             # well under the 3.5 mm the eye clears the peg by.
-            collision_props=sim_utils.CollisionPropertiesCfg(
-                contact_offset=0.0015, rest_offset=0.0),
+            collision_props=sim_utils.CollisionPropertiesCfg(contact_offset=0.0015, rest_offset=0.0),
         ),
-        init_state=RigidObjectCfg.InitialStateCfg(
-            pos=(*COASTER_XY, MUG_SPAWN_Z)),
+        init_state=RigidObjectCfg.InitialStateCfg(pos=(*COASTER_XY, MUG_SPAWN_Z)),
     )
 
 
@@ -210,8 +189,7 @@ def _spawn_fixture(prim: str, mesh: str, xy, z: float) -> RigidObjectCfg:
         spawn=sim_utils.UsdFileCfg(
             usd_path=str(_usd(mesh)),
             rigid_props=sim_utils.RigidBodyPropertiesCfg(kinematic_enabled=True),
-            collision_props=sim_utils.CollisionPropertiesCfg(
-                contact_offset=0.002, rest_offset=0.0),
+            collision_props=sim_utils.CollisionPropertiesCfg(contact_offset=0.002, rest_offset=0.0),
         ),
         init_state=RigidObjectCfg.InitialStateCfg(pos=(*xy, z)),
     )
@@ -220,58 +198,38 @@ def _spawn_fixture(prim: str, mesh: str, xy, z: float) -> RigidObjectCfg:
 # ----- scene -----------------------------------------------------------------
 @configclass
 class MugOnHookSceneCfg(BimanualTactileSceneCfg):
-    """Minimal unit + table + wall rail + coaster + mug.
+    """Robot, tactile pads, table, mug, rail and coaster."""
 
-    Set `robot.spawn.usd_path` to the grafted asset before constructing, as
-    with the parent class. `set_mug_hung` spawns the mug already on the peg,
-    which is how a preview shows the pose the task aims at.
-    """
+    manipuland = None
 
     table = AssetBaseCfg(
         prim_path="{ENV_REGEX_NS}/table",
         spawn=sim_utils.CuboidCfg(
             size=(0.55, 0.75, 0.04),
             collision_props=sim_utils.CollisionPropertiesCfg(),
-            physics_material=sim_utils.RigidBodyMaterialCfg(
-                static_friction=0.9, dynamic_friction=0.8),
-            visual_material=sim_utils.PreviewSurfaceCfg(
-                diffuse_color=(0.52, 0.42, 0.32)),
+            physics_material=sim_utils.RigidBodyMaterialCfg(static_friction=0.9, dynamic_friction=0.8),
+            visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.52, 0.42, 0.32)),
         ),
-        init_state=AssetBaseCfg.InitialStateCfg(
-            pos=(0.32, 0.0, TABLE_TOP_Z - 0.02)),
+        init_state=AssetBaseCfg.InitialStateCfg(pos=(0.32, 0.0, TABLE_TOP_Z - 0.02)),
     )
 
     hook = _spawn_fixture("{ENV_REGEX_NS}/hook", "hook", RAIL_XY, TABLE_TOP_Z)
-    coaster = _spawn_fixture("{ENV_REGEX_NS}/coaster", "coaster", COASTER_XY,
-                             TABLE_TOP_Z)
+    coaster = _spawn_fixture("{ENV_REGEX_NS}/coaster", "coaster", COASTER_XY, TABLE_TOP_Z)
     mug = _spawn_mug("{ENV_REGEX_NS}/mug")
 
     key_light = AssetBaseCfg(
         prim_path="/World/KeyLight",
-        spawn=sim_utils.SphereLightCfg(
-            intensity=3000.0, radius=0.05, color=(1.0, 0.98, 0.95)),
+        spawn=sim_utils.SphereLightCfg(intensity=3000.0, radius=0.05, color=(1.0, 0.98, 0.95)),
         init_state=AssetBaseCfg.InitialStateCfg(pos=(0.51, -0.02, 0.70)),
     )
 
     fill_light = AssetBaseCfg(
         prim_path="/World/FillLight",
-        spawn=sim_utils.SphereLightCfg(
-            intensity=250.0, radius=0.12, color=(0.92, 0.95, 1.0)),
+        spawn=sim_utils.SphereLightCfg(intensity=250.0, radius=0.12, color=(0.92, 0.95, 1.0)),
         init_state=AssetBaseCfg.InitialStateCfg(pos=(0.20, -0.55, 0.55)),
     )
 
     def __post_init__(self):
         ensure_assets()
         self.robot.init_state.joint_pos = start_joint_pos(START_JOINT_POS, START_JAW_WIDTH)
-        park_default_manipuland(self, PARKED_POS)
-        self.manipuland.spawn.rigid_props.kinematic_enabled = True
         point_pads_at(self, PAD_TARGET)
-
-    def set_mug_hung(self, along: float = HANG_ALONG) -> tuple[float, float, float]:
-        """Spawn the mug on the peg instead of on the coaster, for a preview."""
-        x, y, z = hang_pose(RAIL_XY, along)
-        # A millimetre of air, so the settle resolves downward onto the peg
-        # rather than out of an initial overlap.
-        pos = (x, y, z + PREVIEW_CLEARANCE)
-        self.mug.init_state.pos = pos
-        return pos

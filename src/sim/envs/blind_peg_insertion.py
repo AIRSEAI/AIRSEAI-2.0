@@ -76,7 +76,8 @@ def ensure_assets() -> None:
     if missing:
         raise FileNotFoundError(
             f"blind_peg_insertion geometry missing from {ASSETS_DIR}: {', '.join(missing)}\n"
-            f"    python benchmark/run/make_blind_peg_insertion_assets.py --headless")
+            f"    python benchmark/run/make_blind_peg_insertion_assets.py --headless"
+        )
 
 
 # ----- layout ----------------------------------------------------------------
@@ -88,7 +89,7 @@ HOLE_XY = (0.26, 0.0)
 
 PEG_SPAWN_XY = {"right": (0.26, -0.18), "left": (0.26, 0.18)}
 
-SPAWN_JITTER = 0.01            # metres, uniform +/- on x and y
+SPAWN_JITTER = 0.01  # metres, uniform +/- on x and y
 
 # How far the board (and so the hole's true pose) is redrawn each episode,
 # metres. Tighter than the peg's jitter: the hole sits near the edge of both
@@ -126,25 +127,24 @@ def _spawn_peg(prim: str, xy: tuple[float, float]) -> RigidObjectCfg:
         # Mesh, not a primitive: TacSL needs an SDF collision mesh on
         # anything a sensor tracks, and the peg is the only sensed object.
         spawn=sim_utils.MeshCylinderCfg(
-            radius=PEG_DIAMETER / 2, height=PEG_LENGTH,
+            radius=PEG_DIAMETER / 2,
+            height=PEG_LENGTH,
             # CCD is applied after spawn by `sim.tactile.sdf.apply_ccd`;
             # RigidBodyPropertiesCfg has no field for it here.
             rigid_props=sim_utils.RigidBodyPropertiesCfg(
-                disable_gravity=False, max_depenetration_velocity=5.0,
+                disable_gravity=False,
+                max_depenetration_velocity=5.0,
                 solver_position_iteration_count=16,
-                solver_velocity_iteration_count=1),
+                solver_velocity_iteration_count=1,
+            ),
             mass_props=sim_utils.MassPropertiesCfg(mass=0.06),
             # Speculative-contact margin, metres, so a falling peg does not
             # tunnel. Detection range only; it does not change the grasp.
-            collision_props=sim_utils.CollisionPropertiesCfg(
-                contact_offset=0.010, rest_offset=0.0),
-            physics_material=sim_utils.RigidBodyMaterialCfg(
-                static_friction=1.1, dynamic_friction=0.9),
-            visual_material=sim_utils.PreviewSurfaceCfg(
-                diffuse_color=(0.80, 0.72, 0.25), metallic=0.4),
+            collision_props=sim_utils.CollisionPropertiesCfg(contact_offset=0.010, rest_offset=0.0),
+            physics_material=sim_utils.RigidBodyMaterialCfg(static_friction=1.1, dynamic_friction=0.9),
+            visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.80, 0.72, 0.25), metallic=0.4),
         ),
-        init_state=RigidObjectCfg.InitialStateCfg(
-            pos=(xy[0], xy[1], TABLE_TOP_Z + PEG_LENGTH / 2 + 0.002)),
+        init_state=RigidObjectCfg.InitialStateCfg(pos=(xy[0], xy[1], TABLE_TOP_Z + PEG_LENGTH / 2 + 0.002)),
     )
 
 
@@ -161,18 +161,17 @@ class BlindPegInsertionSceneCfg(BimanualTactileSceneCfg):
         cfg.set_clearance(0.002)
     """
 
+    manipuland = None
+
     table = AssetBaseCfg(
         prim_path="{ENV_REGEX_NS}/table",
         spawn=sim_utils.CuboidCfg(
             size=(0.55, 0.75, 0.04),
             collision_props=sim_utils.CollisionPropertiesCfg(),
-            physics_material=sim_utils.RigidBodyMaterialCfg(
-                static_friction=0.9, dynamic_friction=0.8),
-            visual_material=sim_utils.PreviewSurfaceCfg(
-                diffuse_color=(0.72, 0.66, 0.55)),
+            physics_material=sim_utils.RigidBodyMaterialCfg(static_friction=0.9, dynamic_friction=0.8),
+            visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.72, 0.66, 0.55)),
         ),
-        init_state=AssetBaseCfg.InitialStateCfg(
-            pos=(0.32, 0.0, TABLE_TOP_Z - 0.02)),
+        init_state=AssetBaseCfg.InitialStateCfg(pos=(0.32, 0.0, TABLE_TOP_Z - 0.02)),
     )
 
     # Kinematic rather than a static collider, so `reset` can re-place it
@@ -180,19 +179,18 @@ class BlindPegInsertionSceneCfg(BimanualTactileSceneCfg):
     # board would pin the hole's true xy and let a policy skip the search.
     board = RigidObjectCfg(
         prim_path="{ENV_REGEX_NS}/board",
-        spawn=sim_utils.CuboidCfg(          # placeholder, replaced by set_clearance
+        spawn=sim_utils.CuboidCfg(  # placeholder, replaced by set_clearance
             size=(BOARD_X, BOARD_Y, BOARD_THICKNESS),
             rigid_props=sim_utils.RigidBodyPropertiesCfg(kinematic_enabled=True),
             collision_props=sim_utils.CollisionPropertiesCfg(),
-            physics_material=sim_utils.RigidBodyMaterialCfg(
-                static_friction=0.6, dynamic_friction=0.5),
-            visual_material=sim_utils.PreviewSurfaceCfg(
-                diffuse_color=(0.35, 0.38, 0.42), metallic=0.6),
+            physics_material=sim_utils.RigidBodyMaterialCfg(static_friction=0.6, dynamic_friction=0.5),
+            visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.35, 0.38, 0.42), metallic=0.6),
         ),
         # Nominal pose; `reset` draws the episode's within HOLE_JITTER of it.
         # Which arm inserts is decided by which side the peg spawns on.
         init_state=RigidObjectCfg.InitialStateCfg(
-            pos=(HOLE_XY[0], HOLE_XY[1], TABLE_TOP_Z + BOARD_THICKNESS / 2)),
+            pos=(HOLE_XY[0], HOLE_XY[1], TABLE_TOP_Z + BOARD_THICKNESS / 2)
+        ),
     )
 
     # Nominal pose; `reset` re-poses it, and may put it on the left side.
@@ -202,9 +200,7 @@ class BlindPegInsertionSceneCfg(BimanualTactileSceneCfg):
     # dimming it leaves the board rim the brightest thing in frame.
     key_light = AssetBaseCfg(
         prim_path="/World/KeyLight",
-        spawn=sim_utils.SphereLightCfg(
-            intensity=KEY_LIGHT_INTENSITY, radius=0.05,
-            color=(1.0, 0.98, 0.95)),
+        spawn=sim_utils.SphereLightCfg(intensity=KEY_LIGHT_INTENSITY, radius=0.05, color=(1.0, 0.98, 0.95)),
         init_state=AssetBaseCfg.InitialStateCfg(pos=(0.51, -0.02, 0.70)),
     )
 
@@ -219,9 +215,7 @@ class BlindPegInsertionSceneCfg(BimanualTactileSceneCfg):
         Returns the resulting hole diameter, metres.
         """
         if clearance not in CLEARANCE_SWEEP:
-            raise ValueError(
-                f"clearance {clearance} has no authored board; "
-                f"available: {CLEARANCE_SWEEP}")
+            raise ValueError(f"clearance {clearance} has no authored board; available: {CLEARANCE_SWEEP}")
         d_mm = round(hole_diameter(clearance) * 1000, 2)
         usd = _usd(f"board_hole_{d_mm:.2f}mm")
         # `UsdFileCfg` has no `physics_material` field; the board uses the
@@ -248,13 +242,12 @@ class BlindPegInsertionSceneCfg(BimanualTactileSceneCfg):
 # -- preview -----------------------------------------------------------------
 
 # Pulled back to show the arms relative to the objects.
-PREVIEW = PreviewSpec(sdf_prims=("peg",), tri_prims=("board",),
-                      work_target=(0.26, 0.0, TABLE_TOP_Z + 0.06))
+PREVIEW = PreviewSpec(sdf_prims=("peg",), tri_prims=("board",), work_target=(0.26, 0.0, TABLE_TOP_Z + 0.06))
 
 
 def make_preview_cfg() -> BlindPegInsertionSceneCfg:
     """Build the scene for preview."""
     cfg = BlindPegInsertionSceneCfg(num_envs=1, env_spacing=3.0)
-    cfg.set_clearance()          # anchor board, 1 mm clearance
+    cfg.set_clearance()  # anchor board, 1 mm clearance
     cfg.set_light_scale(1.0)
     return cfg

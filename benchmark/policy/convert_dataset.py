@@ -254,8 +254,7 @@ def main() -> int:
 
     keep_eps = sorted({int(e) for e, ok in zip(ep_idx, success, strict=True) if ok})
     dropped = sorted({int(e) for e in ep_idx} - set(keep_eps))
-    print(f"frames {n}; episodes: keep {len(keep_eps)}, drop (failed) {dropped}",
-          flush=True)
+    print(f"frames {n}; episodes: keep {len(keep_eps)}, drop (failed) {dropped}", flush=True)
 
     if not keep_eps:
         raise ValueError("No accepted episodes to convert")

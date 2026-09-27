@@ -1,12 +1,8 @@
 #!/usr/bin/env python3
-"""Generate mug_on_hook's USDs: the mug, the wall rail with its peg, and the coaster.
+"""Generate mug_on_hook USD assets: mug, rail and coaster.
 
-The mug is a solid of revolution plus a swept loop for the handle, authored as
-one rigid body; the rail is two boxes and a revolved peg. Dimensions come from
-`sim.dims.mug_on_hook`.
-
-    python benchmark/run/make_mug_on_hook_assets.py --headless
-    python benchmark/run/make_mug_on_hook_assets.py --headless --keep_obj
+python benchmark/run/make_mug_on_hook_assets.py --headless
+python benchmark/run/make_mug_on_hook_assets.py --headless --keep_obj
 """
 
 from __future__ import annotations
@@ -55,12 +51,13 @@ from sim.dims.mug_on_hook import (
 
 parser = argparse.ArgumentParser(description="Generate mug_on_hook's mug, rail and coaster.")
 parser.add_argument("--out", default=str(task_asset_dir("mug_on_hook")))
-parser.add_argument("--sections", type=int, default=96,
-                    help="mesh segments around each solid of revolution")
-parser.add_argument("--eye_x", type=float, default=EYE_X,
-                    help="clear width of the handle's eye, metres (the task's knob)")
-parser.add_argument("--keep_obj", action="store_true",
-                    help="also write an OBJ beside each USD, for a mesh viewer")
+parser.add_argument("--sections", type=int, default=96, help="mesh segments around each solid of revolution")
+parser.add_argument(
+    "--eye_x", type=float, default=EYE_X, help="clear width of the handle's eye, metres (the task's knob)"
+)
+parser.add_argument(
+    "--keep_obj", action="store_true", help="also write an OBJ beside each USD, for a mesh viewer"
+)
 AppLauncher.add_app_launcher_args(parser)
 args_cli = parser.parse_args()
 args_cli.headless = True
@@ -159,14 +156,30 @@ def revolved_volume(prof) -> float:
 def box(lo, hi):
     """(points, triangles) for the axis-aligned box between corners `lo` and `hi`."""
     (x0, y0, z0), (x1, y1, z1) = lo, hi
-    pts = [(x0, y0, z0), (x1, y0, z0), (x1, y1, z0), (x0, y1, z0),
-           (x0, y0, z1), (x1, y0, z1), (x1, y1, z1), (x0, y1, z1)]
-    tris = [(0, 2, 1), (0, 3, 2),          # bottom
-            (4, 5, 6), (4, 6, 7),          # top
-            (0, 1, 5), (0, 5, 4),          # -y
-            (1, 2, 6), (1, 6, 5),          # +x
-            (2, 3, 7), (2, 7, 6),          # +y
-            (3, 0, 4), (3, 4, 7)]          # -x
+    pts = [
+        (x0, y0, z0),
+        (x1, y0, z0),
+        (x1, y1, z0),
+        (x0, y1, z0),
+        (x0, y0, z1),
+        (x1, y0, z1),
+        (x1, y1, z1),
+        (x0, y1, z1),
+    ]
+    tris = [
+        (0, 2, 1),
+        (0, 3, 2),  # bottom
+        (4, 5, 6),
+        (4, 6, 7),  # top
+        (0, 1, 5),
+        (0, 5, 4),  # -y
+        (1, 2, 6),
+        (1, 6, 5),  # +x
+        (2, 3, 7),
+        (2, 7, 6),  # +y
+        (3, 0, 4),
+        (3, 4, 7),
+    ]  # -x
     return pts, tris
 
 
@@ -180,8 +193,7 @@ def sweep(path, diameter: float, sides: int = SECTION_SIDES):
     """
     n = len(path)
     r = diameter / 2.0
-    ring = [(math.cos(2 * math.pi * j / sides), math.sin(2 * math.pi * j / sides))
-            for j in range(sides)]
+    ring = [(math.cos(2 * math.pi * j / sides), math.sin(2 * math.pi * j / sides)) for j in range(sides)]
     pts: list[tuple[float, float, float]] = []
     for i, (px, pz) in enumerate(path):
         ax, az = path[max(i - 1, 0)]
@@ -201,8 +213,8 @@ def sweep(path, diameter: float, sides: int = SECTION_SIDES):
             tris.append((a + k, b + k2, a + k2))
     last = sides * (n - 1)
     for k in range(1, sides - 1):
-        tris.append((0, k, k + 1))                              # start cap
-        tris.append((last, last + k + 1, last + k))             # end cap
+        tris.append((0, k, k + 1))  # start cap
+        tris.append((last, last + k + 1, last + k))  # end cap
     return pts, tris
 
 
@@ -217,8 +229,14 @@ def transform(pts, rot_x_deg: float, offset):
 # ----- profiles and paths ----------------------------------------------------
 def mug_body_profile() -> list:
     """Base centre, up the outside, over the rim, down the bore, to the floor."""
-    return [(0.0, 0.0), (MUG_OUTER_R, 0.0), (MUG_OUTER_R, MUG_HEIGHT),
-            (MUG_INNER_R, MUG_HEIGHT), (MUG_INNER_R, MUG_FLOOR), (0.0, MUG_FLOOR)]
+    return [
+        (0.0, 0.0),
+        (MUG_OUTER_R, 0.0),
+        (MUG_OUTER_R, MUG_HEIGHT),
+        (MUG_INNER_R, MUG_HEIGHT),
+        (MUG_INNER_R, MUG_FLOOR),
+        (0.0, MUG_FLOOR),
+    ]
 
 
 def handle_path(eye_x: float) -> list:
@@ -253,13 +271,12 @@ def peg_profile() -> list:
     runs into the ball where the ball's radius equals the rod's, so there is
     no rim between them -- only the step a hung mug has to climb to pass.
     """
-    meet = PEG_LENGTH - math.sqrt(STOP_BALL_R ** 2 - PEG_R ** 2)
+    meet = PEG_LENGTH - math.sqrt(STOP_BALL_R**2 - PEG_R**2)
     prof = [(0.0, 0.0), (PEG_R, 0.0), (PEG_R, meet)]
     a0 = math.asin(PEG_R / STOP_BALL_R)
     for k in range(1, BALL_STEPS):
         a = a0 + (math.pi / 2 - a0) * k / BALL_STEPS
-        prof.append((STOP_BALL_R * math.cos(a),
-                     PEG_LENGTH + STOP_BALL_R * math.sin(a)))
+        prof.append((STOP_BALL_R * math.cos(a), PEG_LENGTH + STOP_BALL_R * math.sin(a)))
     prof.append((0.0, PEG_LENGTH + STOP_BALL_R))
     return prof
 
@@ -277,8 +294,7 @@ def _finish(name, pts, tris, colour, approx):
     """Check the mesh closes, point its normals out, and report its volume."""
     check_closed(tris)
     tris, vol = orient_outward(pts, tris, name)
-    print(f"[{name}] {len(pts)} verts, {len(tris)} tris, volume {vol * 1e6:.2f} cm3",
-          flush=True)
+    print(f"[{name}] {len(pts)} verts, {len(tris)} tris, volume {vol * 1e6:.2f} cm3", flush=True)
     return (name, pts, tris, colour, approx), vol
 
 
@@ -298,42 +314,51 @@ def main() -> int:
         rc |= 1
     path = handle_path(eye_x)
     handle, _ = _finish("handle", *sweep(path, HANDLE_SECTION), MUG_COLOR, None)
-    write_usd_parts(out / "mug.usd", [body, handle], rigid=True, root_name="mug",
-                    friction=MUG_FRICTION)
+    write_usd_parts(out / "mug.usd", [body, handle], rigid=True, root_name="mug", friction=MUG_FRICTION)
 
     # --- the rail: board, capping strip, peg --------------------------------
-    board, _ = _finish("board", *box((-RAIL_WIDTH / 2, -RAIL_THICKNESS, 0.0),
-                                     (RAIL_WIDTH / 2, 0.0, RAIL_HEIGHT)),
-                       RAIL_COLOR, "none")
-    cap, _ = _finish("cap", *box((-RAIL_WIDTH / 2 - 0.004, -RAIL_THICKNESS - 0.002,
-                                  RAIL_HEIGHT),
-                                 (RAIL_WIDTH / 2 + 0.004, RAIL_CAP_OVERHANG,
-                                  RAIL_HEIGHT + RAIL_CAP_H)),
-                     RAIL_COLOR, "none")
+    board, _ = _finish(
+        "board",
+        *box((-RAIL_WIDTH / 2, -RAIL_THICKNESS, 0.0), (RAIL_WIDTH / 2, 0.0, RAIL_HEIGHT)),
+        RAIL_COLOR,
+        "none",
+    )
+    cap, _ = _finish(
+        "cap",
+        *box(
+            (-RAIL_WIDTH / 2 - 0.004, -RAIL_THICKNESS - 0.002, RAIL_HEIGHT),
+            (RAIL_WIDTH / 2 + 0.004, RAIL_CAP_OVERHANG, RAIL_HEIGHT + RAIL_CAP_H),
+        ),
+        RAIL_COLOR,
+        "none",
+    )
     peg_pts, peg_tris = revolve(peg_profile(), args_cli.sections // 2)
     # The peg's own axis leaves the board along +y, falling by PEG_FALL_DEG.
     peg_pts = transform(peg_pts, -(90.0 + PEG_FALL_DEG), (0.0, 0.0, PEG_ROOT_Z))
     peg, _ = _finish("peg", peg_pts, peg_tris, PEG_COLOR, "none")
-    write_usd_parts(out / "hook.usd", [board, cap, peg], rigid=True, root_name="hook",
-                    friction=RAIL_FRICTION,
-                    friction_combine=RAIL_FRICTION_COMBINE)
+    write_usd_parts(
+        out / "hook.usd",
+        [board, cap, peg],
+        rigid=True,
+        root_name="hook",
+        friction=RAIL_FRICTION,
+        friction_combine=RAIL_FRICTION_COMBINE,
+    )
 
     # --- the coaster ---------------------------------------------------------
     prof = coaster_profile()
-    coaster, vol = _finish("coaster", *revolve(prof, 2 * args_cli.sections),
-                           COASTER_COLOR, "none")
+    coaster, vol = _finish("coaster", *revolve(prof, 2 * args_cli.sections), COASTER_COLOR, "none")
     want = revolved_volume(prof)
     err = abs(vol - want) / want
     if err >= 0.01:
-        print(f"[coaster] volume {vol * 1e6:.2f} vs {want * 1e6:.2f} cm3 MISMATCH",
-              flush=True)
+        print(f"[coaster] volume {vol * 1e6:.2f} vs {want * 1e6:.2f} cm3 MISMATCH", flush=True)
         rc |= 1
-    write_usd_parts(out / "coaster.usd", [coaster], rigid=True, root_name="coaster",
-                    friction=COASTER_FRICTION)
+    write_usd_parts(
+        out / "coaster.usd", [coaster], rigid=True, root_name="coaster", friction=COASTER_FRICTION
+    )
 
     if args_cli.keep_obj:
-        for name, parts in (("mug", [body, handle]), ("hook", [board, cap, peg]),
-                            ("coaster", [coaster])):
+        for name, parts in (("mug", [body, handle]), ("hook", [board, cap, peg]), ("coaster", [coaster])):
             pts: list = []
             tris: list = []
             for _, p, t, _c, _a in parts:
@@ -342,16 +367,18 @@ def main() -> int:
                 tris += [(a + base, b + base, c + base) for a, b, c in t]
             write_obj(out / f"{name}.obj", pts, tris)
 
-    print(f"[layout] eye {eye_x * 1000:.1f} mm wide; rod {2 * PEG_R * 1000:.1f} mm "
-          f"clears by +/-{(eye_x - 2 * PEG_R) / 2 * 1000:.1f} mm, stop ball "
-          f"{2 * STOP_BALL_R * 1000:.1f} mm by "
-          f"+/-{(eye_x - 2 * STOP_BALL_R) / 2 * 1000:.1f} mm", flush=True)
-    print("MUG_ON_HOOK_ASSETS_COMPLETE" if rc == 0 else "MUG_ON_HOOK_ASSETS_FAILED",
-          flush=True)
+    print(
+        f"[layout] eye {eye_x * 1000:.1f} mm wide; rod {2 * PEG_R * 1000:.1f} mm "
+        f"clears by +/-{(eye_x - 2 * PEG_R) / 2 * 1000:.1f} mm, stop ball "
+        f"{2 * STOP_BALL_R * 1000:.1f} mm by "
+        f"+/-{(eye_x - 2 * STOP_BALL_R) / 2 * 1000:.1f} mm",
+        flush=True,
+    )
+    print("MUG_ON_HOOK_ASSETS_COMPLETE" if rc == 0 else "MUG_ON_HOOK_ASSETS_FAILED", flush=True)
     return rc
 
 
 if __name__ == "__main__":
     rc = main()
     sys.stdout.flush()
-    os._exit(rc)       # skip Kit's own shutdown, which can hang
+    os._exit(rc)  # skip Kit's own shutdown, which can hang

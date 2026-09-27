@@ -2,9 +2,10 @@
 
 from sim.envs import handover as scene
 from sim.envs.bimanual_tactile import TACTILE_SENSORS
-from sim.envs.handover import SHELL_PRIMS, TASK
+from sim.envs.handover import SHELL_PRIMS
 from sim.manager_based.common.env_cfg import build_cfg
 from sim.manager_based.common.tactile import SelectableTactileSensor
+from sim.tasks.handover import TASK
 
 
 class TaskTactileSensor(SelectableTactileSensor):

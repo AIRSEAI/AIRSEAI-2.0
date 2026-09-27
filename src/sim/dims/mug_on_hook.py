@@ -58,7 +58,7 @@ MUG_WALL = 0.003
 MUG_INNER_R = MUG_OUTER_R - MUG_WALL
 MUG_HEIGHT = 0.080
 MUG_FLOOR = 0.009
-MUG_COLOR = (0.88, 0.87, 0.83)         # glazed off-white
+MUG_COLOR = (0.88, 0.87, 0.83)  # glazed off-white
 
 # ----- the handle ------------------------------------------------------------
 # A round-section loop in the mug's xz plane, standing off the +x side, swept
@@ -71,8 +71,8 @@ MUG_COLOR = (0.88, 0.87, 0.83)         # glazed off-white
 # sideways component. That is the eye's lead-in, and why the peg needs no
 # taper.
 HANDLE_SECTION = 0.006
-HANDLE_CORNER_R = 0.008                # path corner radius at the two outer corners
-HANDLE_ROOT_R = 0.017                  # where the path's ends sit, inside the wall
+HANDLE_CORNER_R = 0.008  # path corner radius at the two outer corners
+HANDLE_ROOT_R = 0.017  # where the path's ends sit, inside the wall
 
 # The eye: the hole between the body's wall and the handle's inner face. EYE_X
 # is its clear width, EYE_HEIGHT its clear height. Both the rod and the stop
@@ -120,12 +120,12 @@ def x_window(eye_x: float = EYE_X) -> float:
 
 # ----- the wall rail ---------------------------------------------------------
 # A backboard standing on the table with a capping strip, and one peg. Metres.
-RAIL_WIDTH = 0.090                     # along x
-RAIL_THICKNESS = 0.010                 # along y
+RAIL_WIDTH = 0.090  # along x
+RAIL_THICKNESS = 0.010  # along y
 RAIL_HEIGHT = 0.125
-RAIL_CAP_H = 0.008                     # the strip along the board's top edge
-RAIL_CAP_OVERHANG = 0.006              # how far it stands proud of the board's face
-RAIL_COLOR = (0.34, 0.24, 0.16)        # stained wood
+RAIL_CAP_H = 0.008  # the strip along the board's top edge
+RAIL_CAP_OVERHANG = 0.006  # how far it stands proud of the board's face
+RAIL_COLOR = (0.34, 0.24, 0.16)  # stained wood
 
 # The peg: a round rod of one diameter leaving the board's face, ending in a
 # ball. The rod falls towards that free end, so a hung mug runs down it and is
@@ -139,8 +139,8 @@ STOP_BALL_R = 0.0040
 # then stays slow, while a mug dropped onto the rod turns a large part of its
 # fall into motion along it. That difference is what the stop ball reads.
 PEG_FALL_DEG = 20.0
-PEG_ROOT_Z = 0.115                     # above the table, at the board's face
-PEG_COLOR = (0.34, 0.36, 0.40)         # brushed steel
+PEG_ROOT_Z = 0.115  # above the table, at the board's face
+PEG_COLOR = (0.34, 0.36, 0.40)  # brushed steel
 
 
 def peg_axis_z(along: float) -> float:
@@ -179,4 +179,4 @@ COASTER_OUTER_R = 0.032
 COASTER_INNER_R = 0.026
 COASTER_HEIGHT = 0.006
 COASTER_FLOOR = 0.003
-COASTER_COLOR = (0.24, 0.19, 0.14)     # cork
+COASTER_COLOR = (0.24, 0.19, 0.14)  # cork

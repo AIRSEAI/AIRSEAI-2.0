@@ -1,16 +1,8 @@
 #!/usr/bin/env python3
-"""Generate handover's USDs: the two sleeve half-shells and the cups.
+"""Generate handover USD assets: sleeve half-shells and cups.
 
-Each shell is half of a tube (outer SLEEVE_OUTER_R, inner SLEEVE_INNER_R,
-length SLEEVE_LENGTH along z) cut on the yz plane; the scene spawns the pair
-a gap apart along x and joins them with a spring. The source cup is a
-hollow cylinder with a floor and a chamfered rim; each target cup adds a
-key, a flat bar standing on the floor along y, one mesh per bore in
-TARGET_BORE_SWEEP. Dimensions come from `sim.dims.handover`; the files land
-in `assets/usds/handover/`.
-
-    python benchmark/run/make_handover_assets.py --headless
-    python benchmark/run/make_handover_assets.py --headless --keep_obj
+python benchmark/run/make_handover_assets.py --headless
+python benchmark/run/make_handover_assets.py --headless --keep_obj
 """
 
 from __future__ import annotations
@@ -47,10 +39,10 @@ from sim.dims.handover import (
 
 parser = argparse.ArgumentParser(description="Generate handover's sleeve shells and cups.")
 parser.add_argument("--out", default=str(task_asset_dir("handover")))
-parser.add_argument("--sectors", type=int, default=64,
-                    help="mesh segments over each shell's half circle")
-parser.add_argument("--keep_obj", action="store_true",
-                    help="also write an OBJ beside each USD, for a mesh viewer")
+parser.add_argument("--sectors", type=int, default=64, help="mesh segments over each shell's half circle")
+parser.add_argument(
+    "--keep_obj", action="store_true", help="also write an OBJ beside each USD, for a mesh viewer"
+)
 AppLauncher.add_app_launcher_args(parser)
 args_cli = parser.parse_args()
 args_cli.headless = True
@@ -81,8 +73,7 @@ def build_half_shell(sectors: int, sign: float):
     for j in range(n):
         a = -math.pi / 2 + math.pi * j / sectors
         c, s = sign * math.cos(a), math.sin(a)
-        pts += [(ro * c, ro * s, -h), (ro * c, ro * s, h),
-                (ri * c, ri * s, -h), (ri * c, ri * s, h)]
+        pts += [(ro * c, ro * s, -h), (ro * c, ro * s, h), (ri * c, ri * s, -h), (ri * c, ri * s, h)]
 
     def v(j: int, ring: int) -> int:
         return j * 4 + ring
@@ -90,13 +81,13 @@ def build_half_shell(sectors: int, sign: float):
     tris = []
     for j in range(sectors):
         k = j + 1
-        tris += [(v(j, 0), v(k, 0), v(k, 1)), (v(j, 0), v(k, 1), v(j, 1))]   # outer wall
-        tris += [(v(j, 2), v(j, 3), v(k, 3)), (v(j, 2), v(k, 3), v(k, 2))]   # inner wall
-        tris += [(v(j, 1), v(k, 1), v(k, 3)), (v(j, 1), v(k, 3), v(j, 3))]   # top rim
-        tris += [(v(j, 0), v(j, 2), v(k, 2)), (v(j, 0), v(k, 2), v(k, 0))]   # bottom rim
-    tris += [(v(0, 0), v(0, 1), v(0, 3)), (v(0, 0), v(0, 3), v(0, 2))]      # cut face at j = 0
+        tris += [(v(j, 0), v(k, 0), v(k, 1)), (v(j, 0), v(k, 1), v(j, 1))]  # outer wall
+        tris += [(v(j, 2), v(j, 3), v(k, 3)), (v(j, 2), v(k, 3), v(k, 2))]  # inner wall
+        tris += [(v(j, 1), v(k, 1), v(k, 3)), (v(j, 1), v(k, 3), v(j, 3))]  # top rim
+        tris += [(v(j, 0), v(j, 2), v(k, 2)), (v(j, 0), v(k, 2), v(k, 0))]  # bottom rim
+    tris += [(v(0, 0), v(0, 1), v(0, 3)), (v(0, 0), v(0, 3), v(0, 2))]  # cut face at j = 0
     s = sectors
-    tris += [(v(s, 0), v(s, 3), v(s, 1)), (v(s, 0), v(s, 2), v(s, 3))]      # cut face at j = sectors
+    tris += [(v(s, 0), v(s, 3), v(s, 1)), (v(s, 0), v(s, 2), v(s, 3))]  # cut face at j = sectors
     if sign < 0:
         tris = [(a, c, b) for a, b, c in tris]
     return pts, tris
@@ -111,8 +102,7 @@ def cup_profile(bore_r: float, height: float) -> list:
     its vertices, so a wall with vertices only at its ends lets the sleeve
     sink into its middle.
     """
-    prof = [(CUP_OUTER_R, 0.0), (CUP_OUTER_R, height),
-            (bore_r + CUP_CHAMFER, height)]
+    prof = [(CUP_OUTER_R, 0.0), (CUP_OUTER_R, height), (bore_r + CUP_CHAMFER, height)]
     prof += [(bore_r, z) for z in steps(height - CUP_CHAMFER, CUP_FLOOR, CONTACT_STEP)]
     prof += [(r, CUP_FLOOR) for r in steps(bore_r, 0.0, CONTACT_STEP)[1:-1]]
     return prof
@@ -208,7 +198,7 @@ def build_cup(sections: int, bore_r: float, height: float, key: bool):
 
 def cup_volume(bore_r: float, height: float, key: bool) -> float:
     """Analytic volume of a cup, chamfers ignored, m^3."""
-    vol = math.pi * CUP_OUTER_R ** 2 * height - math.pi * bore_r ** 2 * (height - CUP_FLOOR)
+    vol = math.pi * CUP_OUTER_R**2 * height - math.pi * bore_r**2 * (height - CUP_FLOOR)
     if key:
         vol += KEY_THICKNESS * 2 * KEY_HALF_LENGTH * (KEY_HEIGHT + 0.001)
     return vol
@@ -219,7 +209,7 @@ def main() -> int:
     out.mkdir(parents=True, exist_ok=True)
     rc = 0
 
-    want = 0.5 * math.pi * (SLEEVE_OUTER_R ** 2 - SLEEVE_INNER_R ** 2) * SLEEVE_LENGTH
+    want = 0.5 * math.pi * (SLEEVE_OUTER_R**2 - SLEEVE_INNER_R**2) * SLEEVE_LENGTH
     for name, sign in zip(SHELL_MESH_NAMES, (+1.0, -1.0), strict=True):
         pts, tris = build_half_shell(args_cli.sectors, sign)
         check_closed(tris)
@@ -228,12 +218,14 @@ def main() -> int:
         flag = "ok" if err < 0.01 else "MISMATCH"
         rc |= flag != "ok"
         usd = out / f"{name}.usd"
-        write_usd(usd, pts, tris, SLEEVE_COLOR, rigid=True, root_name="sleeve_half",
-                  friction=SHELL_FRICTION)
+        write_usd(usd, pts, tris, SLEEVE_COLOR, rigid=True, root_name="sleeve_half", friction=SHELL_FRICTION)
         if args_cli.keep_obj:
             write_obj(usd.with_suffix(".obj"), pts, tris)
-        print(f"[shells] {name}: {len(pts)} verts, volume {vol * 1e6:.3f} cm3 vs "
-              f"{want * 1e6:.3f} ({err * 100:.2f} %) {flag} -> {usd.name}", flush=True)
+        print(
+            f"[shells] {name}: {len(pts)} verts, volume {vol * 1e6:.3f} cm3 vs "
+            f"{want * 1e6:.3f} ({err * 100:.2f} %) {flag} -> {usd.name}",
+            flush=True,
+        )
 
     cups = [("cup_source", SOURCE_BORE_R, "source", False)]
     cups += [(target_mesh_name(d), d / 2, "target", True) for d in TARGET_BORE_SWEEP]
@@ -249,13 +241,17 @@ def main() -> int:
         usd = out / f"{name}.usd"
         # Static fixture: triangles kept, so the bore survives; the scene
         # makes the body kinematic.
-        write_usd(usd, pts, tris, colour, rigid=True, root_name="cup",
-                  friction=CUP_FRICTION, approximation="none")
+        write_usd(
+            usd, pts, tris, colour, rigid=True, root_name="cup", friction=CUP_FRICTION, approximation="none"
+        )
         if args_cli.keep_obj:
             write_obj(usd.with_suffix(".obj"), pts, tris)
-        print(f"[cups] {name}: bore {bore_r * 2e3:.1f} mm, key {key}, {len(pts)} verts, "
-              f"volume {vol * 1e6:.2f} cm3 vs {want_c * 1e6:.2f} ({err * 100:.2f} %) {flag} "
-              f"-> {usd.name}", flush=True)
+        print(
+            f"[cups] {name}: bore {bore_r * 2e3:.1f} mm, key {key}, {len(pts)} verts, "
+            f"volume {vol * 1e6:.2f} cm3 vs {want_c * 1e6:.2f} ({err * 100:.2f} %) {flag} "
+            f"-> {usd.name}",
+            flush=True,
+        )
 
     print("HANDOVER_ASSETS_COMPLETE" if rc == 0 else "HANDOVER_ASSETS_FAILED", flush=True)
     return rc
@@ -264,4 +260,4 @@ def main() -> int:
 if __name__ == "__main__":
     rc = main()
     sys.stdout.flush()
-    os._exit(rc)       # skip Kit's own shutdown, which can hang
+    os._exit(rc)  # skip Kit's own shutdown, which can hang

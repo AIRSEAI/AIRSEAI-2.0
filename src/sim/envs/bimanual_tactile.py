@@ -35,7 +35,6 @@ __all__ = [
     "TCP_JAW_L",
     "BimanualTactileSceneCfg",
     "gel_gap",
-    "park_default_manipuland",
     "point_pads_at",
     "start_joint_pos",
 ]
@@ -51,17 +50,16 @@ GRASP_POINT = (0.0003, -0.1533, 0.0969)
 
 # ----- gripper ---------------------------------------------------------------
 # The gripper's frame in TCP-local coordinates.
-TCP_BLADE_L = (0.0, 0.0, 1.0)        # along the blade, palm on this side
+TCP_BLADE_L = (0.0, 0.0, 1.0)  # along the blade, palm on this side
 
-TCP_JAW_L = (0.0, 1.0, 0.0)          # the pad normal: the jaws close along it
+TCP_JAW_L = (0.0, 1.0, 0.0)  # the pad normal: the jaws close along it
 
 # Gap between the two gel faces at gripper command g is `2g - GEL_GAP_OFFSET`,
 # metres. Use it to size objects and to floor a closing ramp; read the
 # penetration field, not this, for how hard a grasp is squeezing.
 GEL_GAP_OFFSET = 0.006
 
-FINGER_JOINTS = {"right": "openarm_right_finger_joint.*",
-                 "left": "openarm_left_finger_joint.*"}
+FINGER_JOINTS = {"right": "openarm_right_finger_joint.*", "left": "openarm_left_finger_joint.*"}
 
 
 def gel_gap(g: float) -> float:
@@ -71,8 +69,12 @@ def gel_gap(g: float) -> float:
 
 # ----- sensors ---------------------------------------------------------------
 # Scene attribute names of the four tactile pads.
-TACTILE_SENSORS = ("right_left_finger_tactile", "right_right_finger_tactile",
-                   "left_left_finger_tactile", "left_right_finger_tactile")
+TACTILE_SENSORS = (
+    "right_left_finger_tactile",
+    "right_right_finger_tactile",
+    "left_left_finger_tactile",
+    "left_right_finger_tactile",
+)
 
 # The two pads on the right gripper, the arm the real robot instruments.
 RIGHT_ARM_SENSORS = TACTILE_SENSORS[:2]
@@ -164,8 +166,7 @@ class BimanualTactileSceneCfg(InteractiveSceneCfg):
     USD (`sim.assets.provision.ensure_robot_asset()`) before constructing.
     """
 
-    ground = AssetBaseCfg(prim_path="/World/defaultGroundPlane",
-                          spawn=sim_utils.GroundPlaneCfg())
+    ground = AssetBaseCfg(prim_path="/World/defaultGroundPlane", spawn=sim_utils.GroundPlaneCfg())
     dome_light = AssetBaseCfg(
         prim_path="/World/Light",
         spawn=sim_utils.DomeLightCfg(intensity=3000.0, color=(0.75, 0.75, 0.75)),
@@ -185,50 +186,52 @@ class BimanualTactileSceneCfg(InteractiveSceneCfg):
             ],
             compliant_contact_stiffness=2000.0,
             compliant_contact_damping=20.0,
-            collision_props=sim_utils.CollisionPropertiesCfg(
-                contact_offset=0.001, rest_offset=-0.0005),
+            collision_props=sim_utils.CollisionPropertiesCfg(contact_offset=0.001, rest_offset=-0.0005),
             # Gravity off on the links: the arm is driven by task-space IK.
             rigid_props=sim_utils.RigidBodyPropertiesCfg(
-                disable_gravity=True, max_depenetration_velocity=5.0),
+                disable_gravity=True, max_depenetration_velocity=5.0
+            ),
             articulation_props=sim_utils.ArticulationRootPropertiesCfg(
                 enabled_self_collisions=False,
                 solver_position_iteration_count=12,
-                solver_velocity_iteration_count=1),
+                solver_velocity_iteration_count=1,
+            ),
         ),
         init_state=ArticulationCfg.InitialStateCfg(
-            joint_pos={"openarm_right_finger_joint.*": 0.014,
-                       "openarm_left_finger_joint.*": 0.010},
+            joint_pos={"openarm_right_finger_joint.*": 0.014, "openarm_left_finger_joint.*": 0.010},
         ),
         actuators={
             "arm": ImplicitActuatorCfg(
                 joint_names_expr=["openarm_left_joint[1-7]", "openarm_right_joint[1-7]"],
-                stiffness=400.0, damping=80.0),
+                stiffness=400.0,
+                damping=80.0,
+            ),
             # Only finger_joint1 is driven; finger_joint2 mirrors it through
             # a mimic constraint.
             "gripper": ImplicitActuatorCfg(
-                joint_names_expr=["openarm_left_finger_joint1",
-                                  "openarm_right_finger_joint1"],
-                stiffness=2000.0, damping=100.0, effort_limit_sim=60.0),
+                joint_names_expr=["openarm_left_finger_joint1", "openarm_right_finger_joint1"],
+                stiffness=2000.0,
+                damping=100.0,
+                effort_limit_sim=60.0,
+            ),
         },
     )
 
-    # Placeholder the pads sense until a task scene re-points them. Every pad
-    # must name an existing prim, so this one is always declared.
+    # The minimal scene tactile target. Task scenes replace it with their own objects.
     manipuland = RigidObjectCfg(
         prim_path="{ENV_REGEX_NS}/manipuland",
         spawn=sim_utils.MeshSphereCfg(
             radius=0.008,
             rigid_props=sim_utils.RigidBodyPropertiesCfg(
-                disable_gravity=False, max_depenetration_velocity=1.0,
+                disable_gravity=False,
+                max_depenetration_velocity=1.0,
                 solver_position_iteration_count=16,
-                solver_velocity_iteration_count=1),
+                solver_velocity_iteration_count=1,
+            ),
             mass_props=sim_utils.MassPropertiesCfg(mass=0.05),
-            collision_props=sim_utils.CollisionPropertiesCfg(
-                contact_offset=0.002, rest_offset=0.0),
-            physics_material=sim_utils.RigidBodyMaterialCfg(
-                static_friction=1.2, dynamic_friction=1.0),
-            visual_material=sim_utils.PreviewSurfaceCfg(
-                diffuse_color=(0.85, 0.2, 0.2), metallic=0.3),
+            collision_props=sim_utils.CollisionPropertiesCfg(contact_offset=0.002, rest_offset=0.0),
+            physics_material=sim_utils.RigidBodyMaterialCfg(static_friction=1.2, dynamic_friction=1.0),
+            visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.85, 0.2, 0.2), metallic=0.3),
         ),
         init_state=RigidObjectCfg.InitialStateCfg(pos=GRASP_POINT),
     )
@@ -254,21 +257,13 @@ def point_pads_at(cfg, target) -> None:
         getattr(cfg, pad).contact_object_prim_path_expr = prim
 
 
-def park_default_manipuland(cfg, pos=(0.0, 0.0, -5.0)) -> None:
-    """Move the placeholder sphere out of the way for a scene that brings its
-    own objects. `point_pads_at` must follow."""
-    cfg.manipuland.init_state.pos = pos
-
-
 # -- preview -----------------------------------------------------------------
 
-PREVIEW = PreviewSpec(sdf_prims=("manipuland",),
-                      work_target=(0.0, -0.15, 0.10))
+PREVIEW = PreviewSpec(sdf_prims=("manipuland",), work_target=(0.0, -0.15, 0.10))
 
 
 def make_preview_cfg() -> BimanualTactileSceneCfg:
     """Build the scene for preview."""
     cfg = BimanualTactileSceneCfg(num_envs=1, env_spacing=3.0)
-    cfg.robot.init_state.joint_pos = start_joint_pos(
-        REAL_HOME_JOINT_POS, {"right": 0.0, "left": 0.0})
+    cfg.robot.init_state.joint_pos = start_joint_pos(REAL_HOME_JOINT_POS, {"right": 0.0, "left": 0.0})
     return cfg

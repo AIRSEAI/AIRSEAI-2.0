@@ -31,8 +31,9 @@ def cap_centre(pos, quat) -> np.ndarray:
     return np.asarray(pos, dtype=float) + axis_from_quat(quat, (0.0, 0.0, CAP_H / 2.0))
 
 
-def in_tray(centre, tray_pos, *, tray_r: float = TRAY_INNER_R,
-            max_above_m: float = TRAY_HEIGHT + CAP_R) -> bool:
+def in_tray(
+    centre, tray_pos, *, tray_r: float = TRAY_INNER_R, max_above_m: float = TRAY_HEIGHT + CAP_R
+) -> bool:
     """Is the cap's centre inside the tray's bore and no higher above its base
     than a cap lying in it on its side?"""
     c, t = np.asarray(centre, dtype=float), np.asarray(tray_pos, dtype=float)
@@ -45,9 +46,16 @@ def on_bottle(centre, bottle_pos, *, xy_tol: float = ON_BOTTLE_XY_TOL) -> bool:
     return bool(np.linalg.norm(c[:2] - b[:2]) <= xy_tol and c[2] >= b[2] + BOTTLE_H - CAP_H)
 
 
-def verdict(trace: EpisodeTrace, *, tray_pos, tray_r: float = TRAY_INNER_R,
-            max_above_m: float = TRAY_HEIGHT + CAP_R, area_mm2: float = 5.0,
-            turner_pads: tuple[str, ...], holder_pads: tuple[str, ...]) -> Verdict:
+def verdict(
+    trace: EpisodeTrace,
+    *,
+    tray_pos,
+    tray_r: float = TRAY_INNER_R,
+    max_above_m: float = TRAY_HEIGHT + CAP_R,
+    area_mm2: float = 5.0,
+    turner_pads: tuple[str, ...],
+    holder_pads: tuple[str, ...],
+) -> Verdict:
     """The cap reaches the tray at some point in the episode.
 
     Judged over the whole episode, not on the final sample: the task is
@@ -68,20 +76,25 @@ def verdict(trace: EpisodeTrace, *, tray_pos, tray_r: float = TRAY_INNER_R,
     centres = np.asarray([cap_centre(p, q) for p, q in zip(pos, quat, strict=True)])
     centre = centres[-1]
     reached = [in_tray(c, t, tray_r=tray_r, max_above_m=max_above_m) for c in centres]
-    released = all(float(np.asarray(trace.pad_area[p], dtype=float)[-1]) <= area_mm2
-                   for p in turner_pads + holder_pads if p in trace.pad_area)
-    metrics = {**m_grasp,
-               "cap_to_tray_xy_m": float(np.linalg.norm(centre[:2] - t[:2])),
-               "closest_to_tray_xy_m": float(
-                   np.linalg.norm(centres[:, :2] - t[:2], axis=1).min()) if n else 0.0,
-               "cap_above_tray_m": float(centre[2] - t[2]),
-               "tray_r_m": tray_r, "max_above_m": max_above_m,
-               "in_tray_ever": float(any(reached)),
-               "in_tray_final": float(reached[-1]) if n else 0.0,
-               "thread_turn_deg": float(thread[-1]) if n else 0.0,
-               "peak_thread_turn_deg": float(thread.max()) if n else 0.0,
-               "bottle_turn_deg": float(np.abs(spun).max()) if n else 0.0,
-               "released": float(released)}
+    released = all(
+        float(np.asarray(trace.pad_area[p], dtype=float)[-1]) <= area_mm2
+        for p in turner_pads + holder_pads
+        if p in trace.pad_area
+    )
+    metrics = {
+        **m_grasp,
+        "cap_to_tray_xy_m": float(np.linalg.norm(centre[:2] - t[:2])),
+        "closest_to_tray_xy_m": float(np.linalg.norm(centres[:, :2] - t[:2], axis=1).min()) if n else 0.0,
+        "cap_above_tray_m": float(centre[2] - t[2]),
+        "tray_r_m": tray_r,
+        "max_above_m": max_above_m,
+        "in_tray_ever": float(any(reached)),
+        "in_tray_final": float(reached[-1]) if n else 0.0,
+        "thread_turn_deg": float(thread[-1]) if n else 0.0,
+        "peak_thread_turn_deg": float(thread.max()) if n else 0.0,
+        "bottle_turn_deg": float(np.abs(spun).max()) if n else 0.0,
+        "released": float(released),
+    }
     if never_held:
         return Verdict(False, FailureMode.GRASP_FAILURE, metrics)
     if any(reached):

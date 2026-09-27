@@ -9,28 +9,9 @@ TCP socket.
 from __future__ import annotations
 
 import argparse
-import pickle
 import socket
-import struct
 
-
-def recv_msg(conn) -> dict | None:
-    hdr = conn.recv(8, socket.MSG_WAITALL)
-    if len(hdr) < 8:
-        return None
-    (n,) = struct.unpack("<Q", hdr)
-    buf = b""
-    while len(buf) < n:
-        chunk = conn.recv(min(1 << 20, n - len(buf)))
-        if not chunk:
-            return None
-        buf += chunk
-    return pickle.loads(buf)
-
-
-def send_msg(conn, obj) -> None:
-    data = pickle.dumps(obj, protocol=4)
-    conn.sendall(struct.pack("<Q", len(data)) + data)
+from sim.transport import recv_msg, send_msg
 
 
 def main() -> int:
@@ -54,10 +35,11 @@ def main() -> int:
     # lerobot keeps normalisation outside the policy: observations go through
     # the preprocessor and actions through the postprocessor.
     preprocessor, postprocessor = make_pre_post_processors(
-        policy_cfg=cfg, pretrained_path=args.policy,
-        preprocessor_overrides={"device_processor": {"device": args.device}})
-    print(f"SERVER loaded {type(policy).__name__} (+pre/post processors) "
-          f"from {args.policy}", flush=True)
+        policy_cfg=cfg,
+        pretrained_path=args.policy,
+        preprocessor_overrides={"device_processor": {"device": args.device}},
+    )
+    print(f"SERVER loaded {type(policy).__name__} (+pre/post processors) from {args.policy}", flush=True)
 
     srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -77,14 +59,12 @@ def main() -> int:
                 if op == "ping":
                     send_msg(conn, {"ok": True})
                 elif op == "meta":
-                    send_msg(conn, {"input_keys": list(cfg.input_features.keys()),
-                                    "policy_type": cfg.type})
+                    send_msg(conn, {"input_keys": list(cfg.input_features.keys()), "policy_type": cfg.type})
                 elif op == "reset":
                     policy.reset()
                     send_msg(conn, {"ok": True})
                 elif op == "act":
-                    obs = {k: torch.as_tensor(v)
-                           for k, v in msg["obs"].items()}
+                    obs = {k: torch.as_tensor(v) for k, v in msg["obs"].items()}
                     obs = preprocessor(obs)
                     with torch.inference_mode():
                         a = policy.select_action(obs)

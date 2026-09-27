@@ -1,4 +1,4 @@
-"""Source hashes for runs made from an uncommitted worktree."""
+"""Record source hashes and runtime metadata for reproducible runs."""
 
 import hashlib
 import json
@@ -12,7 +12,6 @@ def write_manifest(path, **metadata):
         [
             *root.joinpath("src").rglob("*.py"),
             *root.joinpath("benchmark/run").glob("*.py"),
-            *root.joinpath("benchmark/dev/vector_env").glob("*.py"),
         ]
     )
     sources = {str(p.relative_to(root)): hashlib.sha256(p.read_bytes()).hexdigest() for p in files}

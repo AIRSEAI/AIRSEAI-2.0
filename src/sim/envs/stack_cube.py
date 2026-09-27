@@ -38,11 +38,11 @@ __all__ = [
 # ----- layout ----------------------------------------------------------------
 # Nominal cube positions, metres. x = 0.26 is the table-top line every task
 # puts its manipulanda on: the arm's top-grasp reach at this table height.
-CUBE_A_XY = (0.26, -0.15)      # the cube that is picked
+CUBE_A_XY = (0.26, -0.15)  # the cube that is picked
 
-CUBE_B_XY = (0.26, -0.02)      # the cube it is stacked onto
+CUBE_B_XY = (0.26, -0.02)  # the cube it is stacked onto
 
-SPAWN_JITTER = 0.02            # metres, uniform +/- on x and y, per episode
+SPAWN_JITTER = 0.02  # metres, uniform +/- on x and y, per episode
 
 
 # ----- start state -----------------------------------------------------------
@@ -65,18 +65,17 @@ def _spawn_cube(prim: str, xy: tuple[float, float], colour: tuple[float, float, 
         spawn=sim_utils.MeshCuboidCfg(
             size=(CUBE_SIZE, CUBE_SIZE, CUBE_SIZE),
             rigid_props=sim_utils.RigidBodyPropertiesCfg(
-                disable_gravity=False, max_depenetration_velocity=1.0,
+                disable_gravity=False,
+                max_depenetration_velocity=1.0,
                 solver_position_iteration_count=16,
-                solver_velocity_iteration_count=1),
+                solver_velocity_iteration_count=1,
+            ),
             mass_props=sim_utils.MassPropertiesCfg(mass=0.04),
-            collision_props=sim_utils.CollisionPropertiesCfg(
-                contact_offset=0.002, rest_offset=0.0),
-            physics_material=sim_utils.RigidBodyMaterialCfg(
-                static_friction=1.1, dynamic_friction=0.9),
+            collision_props=sim_utils.CollisionPropertiesCfg(contact_offset=0.002, rest_offset=0.0),
+            physics_material=sim_utils.RigidBodyMaterialCfg(static_friction=1.1, dynamic_friction=0.9),
             visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=colour),
         ),
-        init_state=RigidObjectCfg.InitialStateCfg(
-            pos=(xy[0], xy[1], TABLE_TOP_Z + CUBE_SIZE / 2 + 0.002)),
+        init_state=RigidObjectCfg.InitialStateCfg(pos=(xy[0], xy[1], TABLE_TOP_Z + CUBE_SIZE / 2 + 0.002)),
     )
 
 
@@ -90,18 +89,17 @@ class StackCubeSceneCfg(BimanualTactileSceneCfg):
     with the parent class.
     """
 
+    manipuland = None
+
     table = AssetBaseCfg(
         prim_path="{ENV_REGEX_NS}/table",
         spawn=sim_utils.CuboidCfg(
             size=(0.55, 0.75, 0.04),
             collision_props=sim_utils.CollisionPropertiesCfg(),
-            physics_material=sim_utils.RigidBodyMaterialCfg(
-                static_friction=0.9, dynamic_friction=0.8),
-            visual_material=sim_utils.PreviewSurfaceCfg(
-                diffuse_color=(0.72, 0.66, 0.55)),
+            physics_material=sim_utils.RigidBodyMaterialCfg(static_friction=0.9, dynamic_friction=0.8),
+            visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.72, 0.66, 0.55)),
         ),
-        init_state=AssetBaseCfg.InitialStateCfg(
-            pos=(0.32, 0.0, TABLE_TOP_Z - 0.02)),
+        init_state=AssetBaseCfg.InitialStateCfg(pos=(0.32, 0.0, TABLE_TOP_Z - 0.02)),
     )
 
     # In front of the right gripper. cube_a is picked and stacked onto cube_b.
@@ -117,8 +115,12 @@ class StackCubeSceneCfg(BimanualTactileSceneCfg):
 
 PREVIEW = PreviewSpec(
     sdf_prims=("cube_a", "cube_b"),
-    work_target=(0.5 * (CUBE_A_XY[0] + CUBE_B_XY[0]),
-                 0.5 * (CUBE_A_XY[1] + CUBE_B_XY[1]), TABLE_TOP_Z + 0.05))
+    work_target=(
+        0.5 * (CUBE_A_XY[0] + CUBE_B_XY[0]),
+        0.5 * (CUBE_A_XY[1] + CUBE_B_XY[1]),
+        TABLE_TOP_Z + 0.05,
+    ),
+)
 
 
 def make_preview_cfg() -> StackCubeSceneCfg:

@@ -31,7 +31,6 @@ from sim.envs.bimanual_tactile import (
     REAL_HOME_JOINT_POS,
     TABLE_TOP_Z,
     BimanualTactileSceneCfg,
-    park_default_manipuland,
     point_pads_at,
     start_joint_pos,
 )
@@ -45,7 +44,6 @@ __all__ = [
     "CUP_RIM_Z",
     "CUP_XY",
     "PAD_TARGET",
-    "PARKED_POS",
     "SHELL_MASS",
     "SHELL_PRIMS",
     "SHELL_QUAT",
@@ -69,8 +67,7 @@ __all__ = [
 # (the installer does this for every task).
 ASSETS_DIR = task_asset_dir("handover")
 
-ASSET_NAMES = SHELL_MESH_NAMES + ("cup_source",) + tuple(
-    target_mesh_name(d) for d in TARGET_BORE_SWEEP)
+ASSET_NAMES = SHELL_MESH_NAMES + ("cup_source",) + tuple(target_mesh_name(d) for d in TARGET_BORE_SWEEP)
 
 
 def _usd(name: str) -> Path:
@@ -84,7 +81,8 @@ def ensure_assets() -> None:
     if missing:
         raise FileNotFoundError(
             f"handover geometry missing from {ASSETS_DIR}: {', '.join(missing)}\n"
-            f"    python benchmark/run/make_handover_assets.py --headless")
+            f"    python benchmark/run/make_handover_assets.py --headless"
+        )
 
 
 # ----- objects ---------------------------------------------------------------
@@ -104,8 +102,6 @@ SHELL_MASS = 0.010
 SLEEVE_STIFFNESS = 600.0
 SLEEVE_DAMPING = 10.0
 
-# Where the placeholder sphere waits: below the ground plane.
-PARKED_POS = (0.0, 0.0, -5.0)
 
 # The sleeve's centre when it stands on a cup's floor.
 SLEEVE_SPAWN_Z = TABLE_TOP_Z + CUP_FLOOR + SLEEVE_LENGTH / 2 + 0.001
@@ -150,10 +146,12 @@ START_JOINT_POS = REAL_HOME_JOINT_POS
 # each, the left pads both the same shell, since the tactile views fault when
 # both arms' pads are split across the two shells at build. The expert
 # re-points each arm's pads once its wrist is placed.
-PAD_TARGET = {"right_left_finger_tactile": "{ENV_REGEX_NS}/sleeve_a",
-              "right_right_finger_tactile": "{ENV_REGEX_NS}/sleeve_b",
-              "left_left_finger_tactile": "{ENV_REGEX_NS}/sleeve_a",
-              "left_right_finger_tactile": "{ENV_REGEX_NS}/sleeve_a"}
+PAD_TARGET = {
+    "right_left_finger_tactile": "{ENV_REGEX_NS}/sleeve_a",
+    "right_right_finger_tactile": "{ENV_REGEX_NS}/sleeve_b",
+    "left_left_finger_tactile": "{ENV_REGEX_NS}/sleeve_a",
+    "left_right_finger_tactile": "{ENV_REGEX_NS}/sleeve_a",
+}
 
 
 # ----- spawn helpers ---------------------------------------------------------
@@ -165,20 +163,21 @@ def _spawn_shell(prim: str, mesh: str, y_off: float) -> RigidObjectCfg:
         spawn=sim_utils.UsdFileCfg(
             usd_path=str(_usd(mesh)),
             rigid_props=sim_utils.RigidBodyPropertiesCfg(
-                disable_gravity=False, max_depenetration_velocity=1.0,
+                disable_gravity=False,
+                max_depenetration_velocity=1.0,
                 solver_position_iteration_count=16,
-                solver_velocity_iteration_count=1),
+                solver_velocity_iteration_count=1,
+            ),
             mass_props=sim_utils.MassPropertiesCfg(mass=SHELL_MASS),
             # Contact offset well under the gap and the bore clearance, so
             # neither the other shell nor the cup generates contacts before
             # touching.
-            collision_props=sim_utils.CollisionPropertiesCfg(
-                contact_offset=0.0004, rest_offset=0.0),
+            collision_props=sim_utils.CollisionPropertiesCfg(contact_offset=0.0004, rest_offset=0.0),
             visual_material=sim_utils.PreviewSurfaceCfg(
-                diffuse_color=SLEEVE_COLOR, roughness=0.4, metallic=0.3),
+                diffuse_color=SLEEVE_COLOR, roughness=0.4, metallic=0.3
+            ),
         ),
-        init_state=RigidObjectCfg.InitialStateCfg(
-            pos=(xy[0], xy[1] + y_off, SLEEVE_SPAWN_Z), rot=SHELL_QUAT),
+        init_state=RigidObjectCfg.InitialStateCfg(pos=(xy[0], xy[1] + y_off, SLEEVE_SPAWN_Z), rot=SHELL_QUAT),
     )
 
 
@@ -190,8 +189,7 @@ def _spawn_cup(prim: str, key: str, mesh: str) -> RigidObjectCfg:
         spawn=sim_utils.UsdFileCfg(
             usd_path=str(_usd(mesh)),
             rigid_props=sim_utils.RigidBodyPropertiesCfg(kinematic_enabled=True),
-            collision_props=sim_utils.CollisionPropertiesCfg(
-                contact_offset=0.0004, rest_offset=0.0),
+            collision_props=sim_utils.CollisionPropertiesCfg(contact_offset=0.0004, rest_offset=0.0),
         ),
         init_state=RigidObjectCfg.InitialStateCfg(pos=(xy[0], xy[1], TABLE_TOP_Z)),
     )
@@ -206,23 +204,21 @@ class HandoverSceneCfg(BimanualTactileSceneCfg):
     with the parent class.
     """
 
+    manipuland = None
+
     table = AssetBaseCfg(
         prim_path="{ENV_REGEX_NS}/table",
         spawn=sim_utils.CuboidCfg(
             size=(0.55, 0.75, 0.04),
             collision_props=sim_utils.CollisionPropertiesCfg(),
-            physics_material=sim_utils.RigidBodyMaterialCfg(
-                static_friction=0.9, dynamic_friction=0.8),
-            visual_material=sim_utils.PreviewSurfaceCfg(
-                diffuse_color=(0.72, 0.66, 0.55)),
+            physics_material=sim_utils.RigidBodyMaterialCfg(static_friction=0.9, dynamic_friction=0.8),
+            visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.72, 0.66, 0.55)),
         ),
-        init_state=AssetBaseCfg.InitialStateCfg(
-            pos=(0.32, 0.0, TABLE_TOP_Z - 0.02)),
+        init_state=AssetBaseCfg.InitialStateCfg(pos=(0.32, 0.0, TABLE_TOP_Z - 0.02)),
     )
 
     cup_source = _spawn_cup("{ENV_REGEX_NS}/cup_source", SOURCE, "cup_source")
-    cup_target = _spawn_cup("{ENV_REGEX_NS}/cup_target", TARGET,
-                            target_mesh_name(DEFAULT_TARGET_BORE))
+    cup_target = _spawn_cup("{ENV_REGEX_NS}/cup_target", TARGET, target_mesh_name(DEFAULT_TARGET_BORE))
 
     # `_a` is the +y shell and `_b` the -y one, spawned SPAWN_GAP apart.
     sleeve_a = _spawn_shell("{ENV_REGEX_NS}/sleeve_a", SHELL_MESH_NAMES[0], SPAWN_GAP / 2)
@@ -230,16 +226,13 @@ class HandoverSceneCfg(BimanualTactileSceneCfg):
 
     key_light = AssetBaseCfg(
         prim_path="/World/KeyLight",
-        spawn=sim_utils.SphereLightCfg(
-            intensity=3000.0, radius=0.05, color=(1.0, 0.98, 0.95)),
+        spawn=sim_utils.SphereLightCfg(intensity=3000.0, radius=0.05, color=(1.0, 0.98, 0.95)),
         init_state=AssetBaseCfg.InitialStateCfg(pos=(0.51, -0.02, 0.70)),
     )
 
     def __post_init__(self):
         ensure_assets()
         self.robot.init_state.joint_pos = start_joint_pos(START_JOINT_POS, START_JAW_WIDTH)
-        park_default_manipuland(self, PARKED_POS)
-        self.manipuland.spawn.rigid_props.kinematic_enabled = True
         point_pads_at(self, PAD_TARGET)
 
     def set_target_bore(self, bore: float) -> float:
@@ -254,10 +247,12 @@ class HandoverSceneCfg(BimanualTactileSceneCfg):
 # -- preview -----------------------------------------------------------------
 
 # Framed to show both cups and the sleeve standing in the source one.
-PREVIEW = PreviewSpec(sdf_prims=("sleeve_a", "sleeve_b"),
-                      tri_prims=("cup_source", "cup_target"),
-                      work_target=(0.22, 0.0, TABLE_TOP_Z + 0.06),
-                      sdf_resolution=128)
+PREVIEW = PreviewSpec(
+    sdf_prims=("sleeve_a", "sleeve_b"),
+    tri_prims=("cup_source", "cup_target"),
+    work_target=(0.22, 0.0, TABLE_TOP_Z + 0.06),
+    sdf_resolution=128,
+)
 
 
 def make_preview_cfg() -> HandoverSceneCfg:

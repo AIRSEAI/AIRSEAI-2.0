@@ -40,8 +40,8 @@ def _hang_pos(quat=UPRIGHT, offset=(0.0, 0.0, 0.0), along=0.5):
 @pytest.fixture
 def mug_trace(held_trace):
     """-> make(pos, quat, ...): an episode ending with the mug at that pose."""
-    def make(pos, quat=UPRIGHT, n=100, area=20.0, end_area=None,
-             slip=0.0):
+
+    def make(pos, quat=UPRIGHT, n=100, area=20.0, end_area=None, slip=0.0):
         tr = held_trace(n=n, area=area)
         tr.object_pos.pop("manipuland")
         p = np.tile(np.asarray(pos, dtype=float), (n, 1))
@@ -55,6 +55,7 @@ def mug_trace(held_trace):
                 tr.pad_area[k] = tr.pad_area[k].copy()
                 tr.pad_area[k][-1] = end_area
         return tr
+
     return make
 
 
@@ -117,8 +118,7 @@ def test_resting_over_the_handles_top_is_mistiming(mug_trace, right_pads):
 
 def test_fallen_on_the_table_is_mistiming(mug_trace, right_pads):
     q = _turn("y", 90.0)
-    assert _v(mug_trace((0.26, -0.20, 0.219), q, end_area=0.0),
-              right_pads).failure is FailureMode.MISTIMING
+    assert _v(mug_trace((0.26, -0.20, 0.219), q, end_area=0.0), right_pads).failure is FailureMode.MISTIMING
 
 
 def test_still_in_the_pads_at_the_end_is_unfinished(mug_trace, right_pads):
@@ -127,8 +127,7 @@ def test_still_in_the_pads_at_the_end_is_unfinished(mug_trace, right_pads):
 
 
 def test_never_held_is_a_grasp_failure(mug_trace, right_pads):
-    assert _v(mug_trace(_hang_pos(UPRIGHT), area=0.0),
-              right_pads).failure is FailureMode.GRASP_FAILURE
+    assert _v(mug_trace(_hang_pos(UPRIGHT), area=0.0), right_pads).failure is FailureMode.GRASP_FAILURE
 
 
 def test_slip_is_named_only_when_the_mug_is_not_hung(mug_trace, right_pads):

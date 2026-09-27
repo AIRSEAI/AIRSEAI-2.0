@@ -10,8 +10,15 @@ import math
 from collections import Counter
 from pathlib import Path
 
-__all__ = ["check_closed", "orient_outward", "signed_volume", "steps", "write_obj",
-           "write_usd", "write_usd_parts"]
+__all__ = [
+    "check_closed",
+    "orient_outward",
+    "signed_volume",
+    "steps",
+    "write_obj",
+    "write_usd",
+    "write_usd_parts",
+]
 
 
 def check_closed(tris) -> None:
@@ -45,9 +52,7 @@ def signed_volume(pts, tris) -> float:
         ax, ay, az = pts[a]
         bx, by, bz = pts[b]
         cx, cy, cz = pts[c]
-        v += (ax * (by * cz - bz * cy)
-              - ay * (bx * cz - bz * cx)
-              + az * (bx * cy - by * cx))
+        v += ax * (by * cz - bz * cy) - ay * (bx * cz - bz * cx) + az * (bx * cy - by * cx)
     return v / 6.0
 
 
@@ -61,15 +66,20 @@ def orient_outward(pts, tris, label: str):
     vol = signed_volume(pts, tris)
     if vol < 0:
         tris = [(a, c, b) for a, b, c in tris]
-        print(f"[mesh] {label}: winding was inside-out "
-              f"(volume {vol * 1e6:+.1f} cm3), flipped", flush=True)
+        print(f"[mesh] {label}: winding was inside-out (volume {vol * 1e6:+.1f} cm3), flipped", flush=True)
     return tris, abs(vol)
 
 
-def write_usd(path: Path, pts, tris, colour, rigid: bool = False,
-              root_name: str = "mesh_root",
-              friction: tuple[float, float] | None = None,
-              approximation: str | None = None) -> None:
+def write_usd(
+    path: Path,
+    pts,
+    tris,
+    colour,
+    rigid: bool = False,
+    root_name: str = "mesh_root",
+    friction: tuple[float, float] | None = None,
+    approximation: str | None = None,
+) -> None:
     """Author one mesh as `/<root_name>/mesh` in a new USD at `path`.
 
     `rigid`: apply `RigidBodyAPI` to the root. Required on anything a tactile
@@ -85,14 +95,23 @@ def write_usd(path: Path, pts, tris, colour, rigid: bool = False,
     unset for sensed objects; `sim.tactile.apply_sdf_collision` sets "sdf"
     at runtime.
     """
-    write_usd_parts(path, [("mesh", pts, tris, colour, approximation)],
-                    rigid=rigid, root_name=root_name, friction=friction)
+    write_usd_parts(
+        path,
+        [("mesh", pts, tris, colour, approximation)],
+        rigid=rigid,
+        root_name=root_name,
+        friction=friction,
+    )
 
 
-def write_usd_parts(path: Path, parts, rigid: bool = False,
-                    root_name: str = "mesh_root",
-                    friction: tuple[float, float] | None = None,
-                    friction_combine: str | None = None) -> None:
+def write_usd_parts(
+    path: Path,
+    parts,
+    rigid: bool = False,
+    root_name: str = "mesh_root",
+    friction: tuple[float, float] | None = None,
+    friction_combine: str | None = None,
+) -> None:
     """Author several meshes under one `/<root_name>` in a new USD at `path`.
 
     `parts` is a sequence of `(name, pts, tris, colour, approximation)`, each
@@ -127,8 +146,8 @@ def write_usd_parts(path: Path, parts, rigid: bool = False,
         api.CreateRestitutionAttr(0.0)
         if friction_combine is not None:
             from pxr import PhysxSchema
-            PhysxSchema.PhysxMaterialAPI.Apply(mat.GetPrim()) \
-                .CreateFrictionCombineModeAttr(friction_combine)
+
+            PhysxSchema.PhysxMaterialAPI.Apply(mat.GetPrim()).CreateFrictionCombineModeAttr(friction_combine)
 
     for name, pts, tris, colour, approximation in parts:
         mesh = UsdGeom.Mesh.Define(stage, f"/{root_name}/{name}")
@@ -148,7 +167,8 @@ def write_usd_parts(path: Path, parts, rigid: bool = False,
             mca.CreateApproximationAttr(getattr(UsdPhysics.Tokens, approximation))
         if mat is not None:
             UsdShade.MaterialBindingAPI.Apply(mesh.GetPrim()).Bind(
-                mat, UsdShade.Tokens.weakerThanDescendants, "physics")
+                mat, UsdShade.Tokens.weakerThanDescendants, "physics"
+            )
 
     if rigid:
         UsdPhysics.RigidBodyAPI.Apply(root.GetPrim())

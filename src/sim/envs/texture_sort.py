@@ -25,7 +25,6 @@ from sim.envs.bimanual_tactile import (
     REAL_HOME_JOINT_POS,
     TABLE_TOP_Z,
     BimanualTactileSceneCfg,
-    park_default_manipuland,
     point_pads_at,
     start_joint_pos,
 )
@@ -68,6 +67,7 @@ ASSETS_DIR = task_asset_dir("texture_sort")
 
 ASSET_NAMES = ("puck_smooth", "puck_rough", "sort_cup")
 
+
 def _usd(name: str) -> Path:
     """Path to one of this task's generated USDs."""
     return ASSETS_DIR / f"{name}.usd"
@@ -79,7 +79,9 @@ def ensure_assets() -> None:
     if missing:
         raise FileNotFoundError(
             f"texture_sort geometry missing from {ASSETS_DIR}: {', '.join(missing)}\n"
-            f"    python benchmark/run/make_texture_sort_assets.py --headless")
+            f"    python benchmark/run/make_texture_sort_assets.py --headless"
+        )
+
 
 # ----- objects ---------------------------------------------------------------
 # Puck mass, kg. Low enough for the jaw preload the gel tolerates, high
@@ -120,11 +122,13 @@ FIXTURES = ("bin_0", "bin_1")
 
 PLACED = ("object",) + FIXTURES
 
+
 def sample_layout(rng, tries: int = 2000) -> dict[str, tuple[float, float]]:
     """Draw xy for the puck and both cups, rejecting draws closer than
     LAYOUT_MIN_SEP. Falls back to the nominal layout if `tries` is exhausted.
     """
     import numpy as np
+
     for _ in range(tries):
         pts = np.column_stack([rng.uniform(*LAYOUT_X, 3), rng.uniform(*LAYOUT_Y, 3)])
         d = np.linalg.norm(pts[:, None, :] - pts[None, :, :], axis=-1)
@@ -163,14 +167,14 @@ def _spawn_puck(prim: str, spec: ObjectSpec, pos) -> RigidObjectCfg:
         spawn=sim_utils.UsdFileCfg(
             usd_path=str(_usd(spec.name)),
             rigid_props=sim_utils.RigidBodyPropertiesCfg(
-                disable_gravity=False, max_depenetration_velocity=1.0,
+                disable_gravity=False,
+                max_depenetration_velocity=1.0,
                 solver_position_iteration_count=16,
-                solver_velocity_iteration_count=1),
+                solver_velocity_iteration_count=1,
+            ),
             mass_props=sim_utils.MassPropertiesCfg(mass=OBJECT_MASS),
-            collision_props=sim_utils.CollisionPropertiesCfg(
-                contact_offset=0.002, rest_offset=0.0),
-            visual_material=sim_utils.PreviewSurfaceCfg(
-                diffuse_color=spec.colour, roughness=0.6),
+            collision_props=sim_utils.CollisionPropertiesCfg(contact_offset=0.002, rest_offset=0.0),
+            visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=spec.colour, roughness=0.6),
         ),
         init_state=RigidObjectCfg.InitialStateCfg(pos=pos),
     )
@@ -200,49 +204,45 @@ class TextureSortSceneCfg(BimanualTactileSceneCfg):
     stand, is drawn by the expert at reset.
     """
 
+    manipuland = None
+
     table = AssetBaseCfg(
         prim_path="{ENV_REGEX_NS}/table",
         spawn=sim_utils.CuboidCfg(
             size=(0.55, 0.75, 0.04),
             collision_props=sim_utils.CollisionPropertiesCfg(),
-            physics_material=sim_utils.RigidBodyMaterialCfg(
-                static_friction=0.9, dynamic_friction=0.8),
-            visual_material=sim_utils.PreviewSurfaceCfg(
-                diffuse_color=(0.72, 0.66, 0.55)),
+            physics_material=sim_utils.RigidBodyMaterialCfg(static_friction=0.9, dynamic_friction=0.8),
+            visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.72, 0.66, 0.55)),
         ),
-        init_state=AssetBaseCfg.InitialStateCfg(
-            pos=(0.32, 0.0, TABLE_TOP_Z - 0.02)),
+        init_state=AssetBaseCfg.InitialStateCfg(pos=(0.32, 0.0, TABLE_TOP_Z - 0.02)),
     )
 
     # bin_0 blue (smooth), bin_1 orange (textured). The cups are told apart
     # by colour; the pucks are not, which is the point of the task.
-    bin_0 = _spawn_cup("{ENV_REGEX_NS}/bin_0", "sort_cup",
-                    (BIN_XY[0][0], BIN_XY[0][1], TABLE_TOP_Z),
-                    (0.16, 0.35, 0.70))
-    bin_1 = _spawn_cup("{ENV_REGEX_NS}/bin_1", "sort_cup",
-                    (BIN_XY[1][0], BIN_XY[1][1], TABLE_TOP_Z),
-                    (0.85, 0.45, 0.12))
+    bin_0 = _spawn_cup(
+        "{ENV_REGEX_NS}/bin_0", "sort_cup", (BIN_XY[0][0], BIN_XY[0][1], TABLE_TOP_Z), (0.16, 0.35, 0.70)
+    )
+    bin_1 = _spawn_cup(
+        "{ENV_REGEX_NS}/bin_1", "sort_cup", (BIN_XY[1][0], BIN_XY[1][1], TABLE_TOP_Z), (0.85, 0.45, 0.12)
+    )
 
     # Both classes are spawned and the reset parks whichever is not drawn at
     # PARKED_POS. Both must exist from the start: TacSL resolves its sensed
     # prim at initialisation, before the draw.
-    puck_smooth = _spawn_puck("{ENV_REGEX_NS}/puck_smooth", OBJECT_SPECS["smooth"],
-                          (OBJECT_XY[0], OBJECT_XY[1], OBJECT_SPAWN_Z))
-    puck_rough = _spawn_puck("{ENV_REGEX_NS}/puck_rough", OBJECT_SPECS["rough"],
-                         PARKED_POS)
+    puck_smooth = _spawn_puck(
+        "{ENV_REGEX_NS}/puck_smooth", OBJECT_SPECS["smooth"], (OBJECT_XY[0], OBJECT_XY[1], OBJECT_SPAWN_Z)
+    )
+    puck_rough = _spawn_puck("{ENV_REGEX_NS}/puck_rough", OBJECT_SPECS["rough"], PARKED_POS)
 
     key_light = AssetBaseCfg(
         prim_path="/World/KeyLight",
-        spawn=sim_utils.SphereLightCfg(
-            intensity=KEY_LIGHT_INTENSITY, radius=0.05,
-            color=(1.0, 0.98, 0.95)),
+        spawn=sim_utils.SphereLightCfg(intensity=KEY_LIGHT_INTENSITY, radius=0.05, color=(1.0, 0.98, 0.95)),
         init_state=AssetBaseCfg.InitialStateCfg(pos=(0.51, -0.16, 0.70)),
     )
 
     def __post_init__(self):
         ensure_assets()
         self.robot.init_state.joint_pos = start_joint_pos(START_JOINT_POS, START_JAW_WIDTH)
-        park_default_manipuland(self, PARKED_POS)
         point_pads_at(self, PAD_TARGET)
         self.set_light_scale(DEFAULT_LIGHT_SCALE)
 
@@ -257,10 +257,12 @@ class TextureSortSceneCfg(BimanualTactileSceneCfg):
 
 # -- preview -----------------------------------------------------------------
 
-PREVIEW = PreviewSpec(sdf_prims=("puck_smooth", "puck_rough"),
-                      tri_prims=("bin_0", "bin_1"),
-                      work_target=(0.15, -0.08, 0.30),
-                      sdf_resolution=96)
+PREVIEW = PreviewSpec(
+    sdf_prims=("puck_smooth", "puck_rough"),
+    tri_prims=("bin_0", "bin_1"),
+    work_target=(0.15, -0.08, 0.30),
+    sdf_resolution=96,
+)
 
 
 def make_preview_cfg() -> TextureSortSceneCfg:
