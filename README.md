@@ -329,10 +329,59 @@ model configuration and dependencies.
 
 ### Stage 5 — evaluate
 
+For `texture_sort` and `stack_cube`, evaluate a completed ACT checkpoint with
+the same native vector scheduler at one or more environments. The initial-state
+file determines the episode count; every state is consumed once without retries
+or resampling. These tasks load ACT in the simulation process and require
+LeRobot in that Python environment. ACT must use one observation and no temporal
+ensembling. Each environment keeps its own action queue.
+Vector ACT evaluation executes 100 actions per inference by default. Set
+`N_ACTION_STEPS` to override it; the value must not exceed the checkpoint chunk size.
+
+```bash
+INIT_STATES=meta/init_states/texture_sort.json NUM_ENVS=1 \
+    OUT="$HOME/outputs/evaluation/texture_sort/vision/envs_1/run_01" \
+    bash scripts/run_eval.sh texture_sort "$CKPT"
+
+INIT_STATES=meta/init_states/texture_sort.json NUM_ENVS=4 \
+    OUT="$HOME/outputs/evaluation/texture_sort/vision/envs_4/run_01" \
+    bash scripts/run_eval.sh texture_sort "$CKPT"
+```
+
+Use the complete final `060000/pretrained_model` directory for texture sort and
+`050000/pretrained_model` for stack cube. Repeat for vision, tacrgb and tacff.
+Run on an available simulation host with Isaac and LeRobot installed.
+Set `DEFAULT_PY` and `GPU` for that host.
+Run a model's single and vector evaluations sequentially on the same GPU.
+
+For both tasks, task position conditions must remain true
+continuously for one second, with a prior valid grasp lasting at least 0.5 seconds.
+Stack cube checks the relative horizontal position and height of the two cubes.
+Texture sort checks that the nearest cup is the correct one and the object's
+horizontal distance from its centre is less than 40 mm; height is not checked.
+Gripper opening and release are not required. Success is latched, and only the
+completed environment stops; other environments continue. Runs that reach the
+time limit without success fail. Expert collection uses the same criterion and
+may finish its remaining scripted phases after success.
+
+The default output is `$HOME/outputs/evaluation/<task>/run_01`. Set `OUT` to
+select a distinct directory for another checkpoint, variant or run.
+
+Each output directory contains `eval_report.json`, `configuration.json`,
+`checkpoint_sha256.json`, and per-episode starts, terminal states and results
+under `attempts/`. Reports include success rates, confidence intervals, state
+identities and timing. A failed or interrupted run has no final success rate.
+Use a new output directory for each run.
+
+For visual review, set `VIDEO=1` and a separate output directory. This writes
+`visual_review/mosaic.mp4` and frame metadata with slot and initial-state IDs.
+Use a fixed subset initial-state file for shorter review runs. Keep video disabled
+in performance comparisons, and retain all 100 published states for success rates.
+
 #### Evaluate with existing initial states
 
 Every evaluation uses a saved initial-state file. Start with the published
-50-state set for the task:
+initial-state set for the task (100 states for texture sort and stack cube):
 
 ```bash
 CKPT="$OUTPUT_ROOT/outputs/stack_cube_mixed_tacff_act_s1000/checkpoints/last/pretrained_model"

@@ -121,6 +121,16 @@ class Task:
         """Gate at `handover_phase`: is the state fit to hand to a policy?"""
         return True
 
+    completion_on_success: bool = False
+
+    def policy_should_terminate(self, h, ctx: dict, hist: dict, knobs: dict) -> bool:
+        """Use the task verdict for completion-enabled tasks."""
+        if self.completion_on_success:
+            if len(hist["t"]) < 2:
+                return False
+            return self.verdict(self.build_trace(h, ctx, hist), ctx, knobs).success
+        return self.should_terminate(ctx, hist)
+
     def should_terminate(self, ctx: dict, hist: dict) -> bool:
         """Early stop during policy control (evaluator only)."""
         return False

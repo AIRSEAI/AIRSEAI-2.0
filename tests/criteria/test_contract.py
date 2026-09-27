@@ -17,7 +17,7 @@ import sim.criteria
 from sim.tasks.registry import TASKS
 
 CRITERIA_DIR = Path(sim.criteria.__file__).parent
-SHARED = ("detectors", "probes", "trace")
+SHARED = ("completion", "detectors", "probes", "trace")
 TASK_MODULES = sorted(p.stem for p in CRITERIA_DIR.glob("*.py")
                       if p.stem not in SHARED and p.stem != "__init__")
 FORBIDDEN_PREFIXES = ("isaaclab", "isaacsim", "omni", "torch", "sim.envs", "sim.tasks")
@@ -63,7 +63,7 @@ def test_the_shared_modules_name_no_task(module):
 
 @pytest.mark.parametrize("task_id", sorted(TASKS))
 def test_every_registered_task_has_a_criterion(task_id):
-    module, _ = TASKS[task_id]
+    module = TASKS[task_id].module
     assert module.rsplit(".", 1)[1] in TASK_MODULES
 
 

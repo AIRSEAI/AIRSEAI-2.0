@@ -30,6 +30,7 @@ parser.add_argument("--robot_usd", type=str, default="")
 parser.add_argument("--grid", type=int, nargs=2, default=(288, 384))
 parser.add_argument("--episodes", type=int, default=10)
 parser.add_argument("--num_envs", type=int, default=1)
+parser.add_argument("--allow_empty", action="store_true", help="Allow no accepted vector episodes")
 parser.add_argument("--seed", type=int, default=7)
 parser.add_argument("--episode_start", type=int, default=0)
 parser.add_argument(

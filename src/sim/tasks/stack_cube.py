@@ -147,9 +147,12 @@ class StackCubeTask(Task):
         h.hold_default(SETTLE_STEPS)
         return self._new_ctx(h, side)
 
+    completion_on_success = True
+
     def signals(self, h, ctx) -> dict:
         return {
             "areas": h.pad_areas(),
+            "gripper_gap_m": gel_gap(h.grip_measured()),
             "tilt": h.blade_tilt_deg(),
             "a_pos": h.scene["cube_a"].data.root_pos_w[0].detach().cpu().numpy().copy(),
             "b_pos": h.scene["cube_b"].data.root_pos_w[0].detach().cpu().numpy().copy(),

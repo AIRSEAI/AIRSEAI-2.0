@@ -20,7 +20,6 @@ from sim.dims.texture_sort import (
 )
 from sim.envs.bimanual_tactile import TABLE_TOP_Z, gel_gap
 from sim.envs.texture_sort import (
-    BIN_RADIUS,
     BIN_WALL_HEIGHT,
     DEFAULT_LIGHT_SCALE,
     FIXTURES,
@@ -359,10 +358,13 @@ class TextureSortTask(Task):
             vals.append(float(resid[mask].pow(2).mean().sqrt()) * 1e3)
         return float(_np.mean(vals)) if vals else 0.0
 
+    completion_on_success = True
+
     def signals(self, h, ctx) -> dict:
         pen = h.pad_penetration()
         return {
             "areas": h.pad_areas(),
+            "gripper_gap_m": gel_gap(h.grip_measured()),
             "pen": pen,
             "pen_total": float(sum(pen.values())),
             "tilt": h.blade_tilt_deg(),
@@ -517,14 +519,6 @@ class TextureSortTask(Task):
         return False
 
     # ---- scoring -----------------------------------------------------------
-    def _bin_of(self, ctx, xy) -> int:
-        """Which cup the puck ended in, or -1 for neither. Read from the
-        puck's final position, not from what the controller intended, so the
-        verdict is recomputable from a recording."""
-        d = [float(_np.linalg.norm(_np.asarray(xy) - _np.asarray(ctx["layout"][b]))) for b in FIXTURES]
-        i = int(_np.argmin(d))
-        return i if d[i] < BIN_RADIUS else -1
-
     def build_trace(self, h, ctx, hist) -> _Trace:
         pos = _np.asarray(hist["obj_pos"])
         return _Trace(
@@ -534,9 +528,11 @@ class TextureSortTask(Task):
         )
 
     def verdict(self, trace, ctx, knobs):
-        landed = self._bin_of(ctx, trace.object_pos["target"][-1][:2])
-        ctx["landed_bin"] = landed
-        return _verdict(trace, chosen_bin=landed, correct_bin=ctx["correct_bin"], pads=tuple(trace.pad_area))
+        result = _verdict(trace, bin_xy=_np.asarray([ctx["layout"][b] for b in FIXTURES]),
+                          correct_bin=ctx["correct_bin"],
+                          pads=tuple(trace.pad_area))
+        ctx["landed_bin"] = int(result.metrics.get("chosen_bin", -1))
+        return result
 
     def episode_extra(self, ctx, hist) -> dict:
         return {

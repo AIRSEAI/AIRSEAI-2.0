@@ -23,6 +23,7 @@ import os
 import time
 
 from isaaclab.app import AppLauncher
+
 from sim.tasks.registry import TASKS as TASK_IDS
 
 parser = argparse.ArgumentParser(description="Policy evaluation in Isaac.")
@@ -32,7 +33,13 @@ parser.add_argument("--policy", default="",
 parser.add_argument("--policy-server", default="",
                     help="host:port of a running benchmark/policy/policy_server.py")
 parser.add_argument("--episodes", type=int, default=10)
-parser.add_argument("--seed", type=int, default=11, help="episode seed")
+parser.add_argument("--num_envs", type=int, default=1)
+parser.add_argument("--n_action_steps", type=int, default=None,
+                    help="Actions per inference for vector ACT (default: 100)")
+parser.add_argument("--seed", type=int, default=11,
+                    help="episode seed; ignored with --init_states")
+parser.add_argument("--init_states", default="",
+                    help="Frozen starts; vector tasks consume each state exactly once")
 parser.add_argument("--horizon_s", type=float, default=None,
                     help="policy control time after handover (default: the task's)")
 parser.add_argument("--out", default="")
@@ -43,12 +50,27 @@ parser.add_argument("--video_dir", default="",
                          "third-person) here")
 AppLauncher.add_app_launcher_args(parser)
 _known, _rest = parser.parse_known_args()
+if _known.num_envs < 1:
+    parser.error("num_envs must be positive")
+if _known.horizon_s is not None and _known.horizon_s <= 0:
+    parser.error("horizon_s must be positive")
+if _known.n_action_steps is not None and _known.n_action_steps < 1:
+    parser.error("n_action_steps must be positive")
+if _known.n_action_steps is not None and (
+    not TASK_IDS[_known.task].manager_cfg or not _known.policy
+    or _known.policy == "hold" or _known.policy_server
+):
+    parser.error("n_action_steps requires a vector task with an in-process policy")
+_known.enable_cameras = True
+_startup_started = time.perf_counter()
 app_launcher = AppLauncher(_known)
 simulation_app = app_launcher.app
 
 # ---------------------------------------------------------------------------
 import numpy as np
 import torch
+
+from sim import init_state as init_state_io
 from sim.harness import (
     CTRL_FPS,
     DT,
@@ -65,6 +87,7 @@ TASK, PINS = load_task(_known.task)
 for kname, knob in TASK.knobs.items():
     parser.add_argument(f"--{kname}", type=knob.type, default=knob.default, help=knob.help)
 args_cli = parser.parse_args()
+args_cli.startup_started = _startup_started
 KNOBS = {k: getattr(args_cli, k) for k in TASK.knobs} | PINS   # the id's pins win
 
 
@@ -100,6 +123,13 @@ def run_prologue(h, ctx, sig) -> tuple[bool, dict]:
 
 
 def main() -> int:
+    if TASK_IDS[args_cli.task].manager_cfg and args_cli.policy != "hold":
+        # The vector scheduler imports Isaac modules after Kit has started.
+        from sim.evaluation import run_evaluation
+
+        return run_evaluation(args_cli, TASK, KNOBS, simulation_app)
+    if args_cli.num_envs != 1:
+        raise ValueError("This task does not support vector evaluation")
     device = args_cli.device
     out = os.path.expanduser(args_cli.out or f"~/{TASK.name}_eval")
     os.makedirs(out, exist_ok=True)
@@ -131,13 +161,26 @@ def main() -> int:
 
     episodes = []
     nominal_captured = False
-    for ep in range(args_cli.episodes):
-        # One RNG stream per episode; reset and prologue are retried together.
-        ep_rng = np.random.default_rng([args_cli.seed, ep])
+    frozen = (init_state_io.load(os.path.expanduser(args_cli.init_states))["states"]
+              if args_cli.init_states else None)
+    n_episodes = args_cli.episodes
+    if frozen is not None:
+        # Wrap round if more episodes than states are asked for, so a longer
+        # run is still a whole number of passes over the same set.
+        print(f"EVAL initial states: {len(frozen)} from {args_cli.init_states}",
+              flush=True)
+    for ep in range(n_episodes):
+        ep_rng = np.random.default_rng([args_cli.seed, TASK.reset_seed_index(ep)])
         ctx, handoff = None, False
+        state_id = None
         for _attempt in range(3):
             try:
-                ctx = TASK.reset(h, ep_rng, ep, KNOBS)
+                if frozen is not None:
+                    state = frozen[ep % len(frozen)]
+                    state_id = state["id"]
+                    ctx = init_state_io.restore(h, TASK, state, KNOBS)
+                else:
+                    ctx = TASK.reset(h, ep_rng, ep, KNOBS)
             except RetryReset as e:
                 print(f"EVAL ep{ep}: reset retry ({e})", flush=True)
                 continue
@@ -156,7 +199,8 @@ def main() -> int:
             print(f"EVAL ep{ep}: prologue handover failed, retrying", flush=True)
         if not handoff:
             print(f"EVAL ep{ep}: SKIPPED (prologue failed 3x)", flush=True)
-            episodes.append({"episode": ep, "arm": ctx["side"] if ctx else None,
+            episodes.append({"episode": ep, "init_state_id": state_id,
+                             "arm": ctx["side"] if ctx else None,
                              "success": False, "failure": "pregrasp", "metrics": {},
                              "wall_s": 0.0})
             continue
@@ -186,14 +230,15 @@ def main() -> int:
                 h.apply_action16(a16)
                 h.step()
 
-            if TASK.should_terminate(ctx, hist):
+            if TASK.policy_should_terminate(h, ctx, hist, KNOBS):
                 stopped_early = True
                 print(f"EVAL early-stop ep{ep} at {step / CTRL_FPS:.1f} s", flush=True)
                 break
 
         trace = TASK.build_trace(h, ctx, hist)
         v = TASK.verdict(trace, ctx, KNOBS)
-        rec = {"episode": ep, "arm": ctx["side"], "success": v.success,
+        rec = {"episode": ep, "init_state_id": state_id,
+               "arm": ctx["side"], "success": v.success,
                "failure": v.failure.value, "metrics": v.metrics,
                "stopped_early": stopped_early,
                "wall_s": round(time.perf_counter() - t0, 1)}
@@ -206,6 +251,9 @@ def main() -> int:
 
     n_ok = sum(bool(e["success"]) for e in episodes)
     report = {"task": task_id, "policy": src, "input_keys": keys, "seed": args_cli.seed,
+              "init_states": (None if frozen is None else
+                              {"path": args_cli.init_states, "n": len(frozen),
+                               "sha256": init_state_io.digest(args_cli.init_states)}),
               "knobs": KNOBS, "horizon_s": horizon_s, **TASK.report_extra(KNOBS),
               "episodes": episodes, "n_episodes": len(episodes), "n_success": n_ok,
               "success_rate": n_ok / max(len(episodes), 1)}

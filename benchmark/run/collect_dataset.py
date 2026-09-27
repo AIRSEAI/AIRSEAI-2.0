@@ -174,6 +174,9 @@ def main() -> int:
     ap.add_argument("--gpus", default="0")
     ap.add_argument("--seed", type=int, default=7)
     ap.add_argument("--init_states", default="", help="Consume each supplied start once")
+    ap.add_argument(
+        "--allow_empty", action="store_true", help="Allow completed runs with no accepted episodes"
+    )
     add_write_arguments(ap)
     a, passthrough = ap.parse_known_args()
     if a.num_envs < 1 or a.episodes < 1:
@@ -197,6 +200,8 @@ def main() -> int:
         ap.error("Native vector collection uses one GPU per invocation")
     if a.init_states and not native:
         ap.error("Initial-state collection requires a native vector environment")
+    if a.allow_empty and not native:
+        ap.error("allow_empty requires a native vector environment")
     reserved = {
         "--episode_start",
         "--init_states",
@@ -239,6 +244,7 @@ def main() -> int:
         str(a.seed),
         *(["--num_envs", str(a.num_envs)] if native else []),
         *(["--init_states", a.init_states] if a.init_states else []),
+        *(["--allow_empty"] if a.allow_empty else []),
         "--record_dataset",
         a.dataset,
         "--out",
@@ -270,9 +276,9 @@ def main() -> int:
                 except ProcessLookupError:
                     pass
                 child.wait()
-    if rc == 0 and not (dataset / "meta/info.json").is_file():
+    if rc == 0 and not a.allow_empty and not (dataset / "meta/info.json").is_file():
         raise RuntimeError(f"No accepted demonstrations; see {out}")
-    if rc == 0 and a.previews:
+    if rc == 0 and a.previews and (dataset / "meta/info.json").is_file():
         pcmd = [sys.executable, str(REPO / "benchmark/run/render_previews.py"), "--dataset", a.dataset]
         print("[collect_dataset]", " ".join(pcmd), flush=True)
         rc = subprocess.call(pcmd)
