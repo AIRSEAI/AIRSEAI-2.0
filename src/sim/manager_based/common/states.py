@@ -22,10 +22,11 @@ def prepare_restore(env, states, env_ids, *, source_origin=(0.0, 0.0, 0.0)):
     ids, env_ids = _validate_slots(env, states, env_ids)
     if not hasattr(env, "pending_restores"):
         env.pending_restores = {}
-    for index, name in enumerate(states[0]["objects"]):
+    for name in states[0]["objects"]:
         poses = torch.tensor([state["objects"][name] for state in states], device=env.device)
         poses[:, :3] += env.scene.env_origins[ids] - torch.tensor(source_origin, device=env.device)
-        poses[:, 2] += index + 1.0
+        # Preserve relative poses of bodies connected by a spring joint.
+        poses[:, 2] += 1.0
         env.scene[name].write_root_pose_to_sim(poses, env_ids=ids)
         env.scene[name].write_root_velocity_to_sim(torch.zeros((len(ids), 6), device=env.device), env_ids=ids)
     for slot in env_ids:

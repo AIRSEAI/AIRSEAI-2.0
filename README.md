@@ -47,8 +47,8 @@ wrist/head cameras at `assets/usds/openarm_bimanual/openarm_tactile.usd`.
 
 ## 3. The environments
 
-Six registered scenes (every task in the registry, plus `minimal`); the clips
-at the top of this file show one demonstration of each task scene:
+Eight registered scenes (every task in the registry, plus `minimal`); the clips
+at the top of this file show demonstrations of the task scenes:
 
 | `--env` | what it is |
 | --- | --- |
@@ -58,6 +58,8 @@ at the top of this file show one demonstration of each task scene:
 | `sleeve_on_shaft` | slide a split sleeve onto a shaft, gripping hard enough to carry it but not so hard its bore closes |
 | `texture_sort` | tell two similar-looking balls apart by surface and sort them, in light too dim to see the texture |
 | `handover` | pinch a spring-loaded split sleeve out of the orange cup with the left arm, hand it to the right arm, and seat it over the key in the teal cup, holding it open just enough to fit |
+| `mug_on_hook` | carry a mug by its body and hang its handle on a peg |
+| `cap_unscrew` | hold a bottle, unscrew its cap with the other hand, and place it in a tray |
 
 ## 4. The pipeline
 
@@ -120,7 +122,7 @@ and loaded automatically on activation.
 
 ### Stage 1 — preview an environment
 
-`stack_cube` and `texture_sort` use the shared ManagerBased environment.
+All seven tasks use the shared ManagerBased environment.
 `--num_envs` defaults to 1; multiple environments run in one Kit process.
 
 ```bash
@@ -163,11 +165,32 @@ NUM_ENVS=4 GPUS=0 SEED=7 RENDER=1 PREVIEWS=1 \
     "$OUTPUT_ROOT/raw/stack_cube_expert_parallel"
 ```
 
-`stack_cube` and `texture_sort` use one Isaac Lab ManagerBasedEnv process with
+All seven tasks use one Isaac Lab ManagerBasedEnv process with
 60 Hz physics and 20 Hz control/recording. Each slot has its own expert, reset,
 and episode buffer. The count is total attempts, including failures. Accepted
-episodes are combined in attempt-ID order. Use one GPU per native invocation;
-other tasks retain their existing worker-process collection path.
+episodes are combined in attempt-ID order. Use one GPU per native invocation.
+
+The same preview, expert collection, teleoperation, initial-state generation,
+and ACT evaluation entries accept all seven task IDs. Teleoperation uses one
+slot; preview, expert collection, and ACT evaluation accept `--num_envs`.
+Success geometry and expert phases remain task-specific.
+
+Initial states store the robot joints and each task object's local pose. The
+additional task variables are:
+
+| Task | Task variables |
+| --- | --- |
+| `stack_cube` | Active arm |
+| `texture_sort` | Active arm, target material and cup layout |
+| `blind_peg_insertion` | Active arm and the observed hole-position error |
+| `sleeve_on_shaft` | Active arm and sleeve material |
+| `handover` | Receiver arm; cup layout is restored from object poses |
+| `mug_on_hook` | Active arm, grasp bias and alignment offsets |
+| `cap_unscrew` | Turner arm and thread release angle |
+
+Spring-connected shells retain their relative pose while clearing contacts.
+Their joints are created once per environment, and tactile target changes
+apply only to the selected environment.
 
 Native collection defaults to `--write_mode background`; use `--write_mode sync`
 for synchronous saving. The shell entry accepts `WRITE_MODE=sync` and
@@ -329,7 +352,7 @@ model configuration and dependencies.
 
 ### Stage 5 — evaluate
 
-For `texture_sort` and `stack_cube`, evaluate a completed ACT checkpoint with
+For any of the seven tasks, evaluate a completed ACT checkpoint with
 the same native vector scheduler at one or more environments. The initial-state
 file determines the episode count; every state is consumed once without retries
 or resampling. These tasks load ACT in the simulation process and require

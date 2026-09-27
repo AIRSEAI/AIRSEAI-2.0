@@ -42,6 +42,7 @@ TASKS: dict[str, TaskEntry] = {
         module="sim.tasks.blind_peg_insertion",
         scene="sim.envs.blind_peg_insertion",
         assets="benchmark/run/make_blind_peg_insertion_assets.py",
+        manager_cfg="sim.manager_based.blind_peg_insertion.env_cfg",
     ),
     "texture_sort": TaskEntry(
         module="sim.tasks.texture_sort",
@@ -53,9 +54,25 @@ TASKS: dict[str, TaskEntry] = {
         module="sim.tasks.sleeve_on_shaft",
         scene="sim.envs.sleeve_on_shaft",
         assets="benchmark/run/make_sleeve_on_shaft_assets.py",
+        manager_cfg="sim.manager_based.sleeve_on_shaft.env_cfg",
     ),
     "handover": TaskEntry(
-        module="sim.tasks.handover", scene="sim.envs.handover", assets="benchmark/run/make_handover_assets.py"
+        module="sim.tasks.handover",
+        scene="sim.envs.handover",
+        assets="benchmark/run/make_handover_assets.py",
+        manager_cfg="sim.manager_based.handover.env_cfg",
+    ),
+    "mug_on_hook": TaskEntry(
+        module="sim.tasks.mug_on_hook",
+        scene="sim.envs.mug_on_hook",
+        assets="benchmark/run/make_mug_on_hook_assets.py",
+        manager_cfg="sim.manager_based.mug_on_hook.env_cfg",
+    ),
+    "cap_unscrew": TaskEntry(
+        module="sim.tasks.cap_unscrew",
+        scene="sim.envs.cap_unscrew",
+        assets="benchmark/run/make_cap_unscrew_assets.py",
+        manager_cfg="sim.manager_based.cap_unscrew.env_cfg",
     ),
 }
 

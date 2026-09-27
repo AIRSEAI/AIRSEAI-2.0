@@ -3,6 +3,9 @@
 
 Preserve episode metadata and copy review videos outside policy features.
 
+Each stream is decoded a frame at a time and written straight out, so memory
+stays flat however long the recording is.
+
 Usually run through `scripts/run_convert.sh`; directly:
     python benchmark/policy/convert_dataset.py --src <raw_dataset_dir> \
         --dst-root <datasets_dir> --variant tacff
@@ -82,7 +85,6 @@ def fast_decode_mkv(path: Path, original_channels: int, frames: int, output: Pat
         st = c.streams.video[0]
         h, w = st.codec_context.height, st.codec_context.width
         single = st.codec_context.pix_fmt == "gray16le"
-
     fmt = "gray16le" if single else "gbrp16le"
     with output.open("xb") as raw:
         subprocess.run(
@@ -201,7 +203,7 @@ def main() -> int:
     task_text = dict(zip(tasks["task_index"].to_pylist(), tasks["task"].to_pylist(), strict=True))
 
     def stream(key: str) -> Path:
-        return src / "videos" / key / "chunk-000"
+        return src_root / "videos" / key / "chunk-000"
 
     variants = ("vision", "tacff") if args.variant == "both" else (args.variant,)
     n = len(state)
@@ -252,7 +254,8 @@ def main() -> int:
 
     keep_eps = sorted({int(e) for e, ok in zip(ep_idx, success, strict=True) if ok})
     dropped = sorted({int(e) for e in ep_idx} - set(keep_eps))
-    print(f"episodes: keep {len(keep_eps)}, drop (failed) {dropped}", flush=True)
+    print(f"frames {n}; episodes: keep {len(keep_eps)}, drop (failed) {dropped}",
+          flush=True)
 
     if not keep_eps:
         raise ValueError("No accepted episodes to convert")

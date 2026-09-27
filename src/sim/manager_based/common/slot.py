@@ -57,6 +57,9 @@ class SlotAsset:
             raise AttributeError(f"Slot asset does not expose {name}")
         return getattr(self._asset, name)
 
+    def select_target(self, name):
+        self._asset.select_target([self._slot], name)
+
     def set_joint_position_target(self, target, joint_ids=None):
         self._asset.set_joint_position_target(target, joint_ids=joint_ids, env_ids=[self._slot])
 
@@ -81,6 +84,7 @@ class SlotHarness(Harness):
 
     def __init__(self, env, slot, grid):
         self.env, self.slot = env, slot
+        self.env_path = f"/World/envs/env_{slot}"
         self.sim, self.device = env.sim, env.device
         self.rows, self.cols = grid
         self.scene = SlotScene(env.scene, slot)

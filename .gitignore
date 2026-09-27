@@ -222,8 +222,9 @@ datasets/
 logs/
 outputs/
 
-# doc
+# doc and tool
 doc/
+tool/
 
 # Robot and task USDs
 /assets/
@@ -239,3 +240,6 @@ CLAUDE.md
 *.mkv
 *.avi
 *.webm
+
+benchmark/dev/
+plans/

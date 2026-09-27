@@ -34,11 +34,11 @@ from lerobot_tactile_ext.codec import Mp4Stream
 from sim.manager_based import make_env
 from sim.manager_based.common.mdp import hold_action
 from sim.manager_based.common.metrics import GPUMemoryMonitor
-from sim.manager_based.common.preview import grid_frame
 from sim.manager_based.common.provenance import write_manifest
 from sim.runtime import install_error_handler
 from sim.tactile import apply_sdf_collision, apply_triangle_mesh_collision
 from sim.tasks.registry import TASKS, load_scene
+from sim.video import compose_grid_frame
 
 install_error_handler()
 
@@ -297,7 +297,15 @@ def manager_main(cleanup) -> int:
             physics_steps += env.cfg.decimation
             if writer is not None:
                 rgb = env.scene["review_camera"].data.output["rgb"].detach().cpu().numpy()
-                writer.add(grid_frame(rgb, physics_steps / PHYSICS_HZ))
+                writer.add(
+                    compose_grid_frame(
+                        list(rgb),
+                        [
+                            (f"env {slot}", f"sim {physics_steps / PHYSICS_HZ:.3f}s")
+                            for slot in range(env.num_envs)
+                        ],
+                    )
+                )
                 frames.append(
                     dict(frame=len(frames), sim_tick=physics_steps, env_ids=list(range(env.num_envs)))
                 )
@@ -309,7 +317,12 @@ def manager_main(cleanup) -> int:
         path = Path(args_cli.snapshot).expanduser()
         path.parent.mkdir(parents=True, exist_ok=True)
         rgb = env.scene["review_camera"].data.output["rgb"].detach().cpu().numpy()
-        Image.fromarray(grid_frame(rgb, physics_steps / PHYSICS_HZ)).save(path)
+        Image.fromarray(
+            compose_grid_frame(
+                list(rgb),
+                [(f"env {slot}", f"sim {physics_steps / PHYSICS_HZ:.3f}s") for slot in range(env.num_envs)],
+            )
+        ).save(path)
     report = dict(
         task=args_cli.env,
         num_envs=env.num_envs,

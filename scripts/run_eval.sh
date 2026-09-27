@@ -41,9 +41,7 @@ fi
 if [ "${VIDEO:-0}" = 1 ]; then
     COMMON+=(--video_dir "$OUT/visual_review")
 fi
-case "$TASK" in
-    texture_sort|stack_cube) INPROCESS=1 ;;
-esac
+INPROCESS="${INPROCESS:-1}"
 if [ "$CKPT" = hold ] || [ "${INPROCESS:-0}" = 1 ]; then
     exec "$PY" benchmark/eval/evaluate.py "${COMMON[@]}" --policy "$CKPT"
 fi

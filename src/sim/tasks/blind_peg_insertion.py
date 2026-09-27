@@ -9,6 +9,7 @@ Phases::
 
 from __future__ import annotations
 
+import copy
 import math as _math
 
 import numpy as _np
@@ -203,20 +204,73 @@ class BlindPegInsertionTask(Task):
         self._light = cfg.set_light_scale(float(knobs["light_scale"]))
         return cfg
 
-    def apply_collision(self, h) -> None:
-        apply_ccd("/World/envs/env_0/peg")          # dropped-peg tunnelling guard
-        n_sdf = len(apply_sdf_collision("/World/envs/env_0/peg"))
-        n_tri = len(apply_triangle_mesh_collision("/World/envs/env_0/board"))
+    def apply_collision(self, h, *, env_path="/World/envs/env_0") -> dict:
+        apply_ccd(f"{env_path}/peg")          # dropped-peg tunnelling guard
+        sdf = apply_sdf_collision(f"{env_path}/peg")
+        tri = apply_triangle_mesh_collision(f"{env_path}/board")
         print(f"STEP hole diameter {self._hole_d * 1000:.2f} mm, light_scale "
-              f"{self._light:g}; sdf on peg: {n_sdf} mesh(es); board triangles: "
-              f"{n_tri}", flush=True)
+              f"{self._light:g}; sdf on peg: {len(sdf)} mesh(es); board triangles: "
+              f"{len(tri)}", flush=True)
+        return {"peg": sdf, "board": tri}
 
     def task_id(self, knobs: dict) -> str:
         # The id follows the knob, not the file: at any scale but 1.0 this is
-        # `blind_peg_dim` and must not be pooled with lit runs.
-        return "blind_peg_insertion" if float(knobs["light_scale"]) == 1.0 else "blind_peg_dim"
+        # a run in the dark, which must not be pooled with lit ones.
+        return ("blind_peg_insertion" if float(knobs["light_scale"]) == 1.0
+                else "blind_peg_insertion_dim")
 
     # -- episode --------------------------------------------------------------
+
+    settle_seconds = 0.5
+
+    def sample_init_state(self, robot, rng, state_id, knobs):
+        g = self._geom(knobs)
+        side = ("right", "left")[state_id % 2]
+        sign = -1.0 if side == "right" else 1.0
+        jitter = float(knobs["hole_jitter"])
+        hole = _np.asarray(g["hole"]) + [0.0, sign * float(knobs["hole_side_offset"])]
+        hole += rng.uniform(-jitter, jitter, 2) if jitter else 0.0
+        xy = _np.asarray(PEG_SPAWN_XY[side]) + rng.uniform(-SPAWN_JITTER, SPAWN_JITTER, 2)
+        minimum, maximum = float(knobs["pose_err_min"]), float(knobs["pose_err"])
+        if not 0 <= minimum <= maximum:
+            raise ValueError("Require 0 <= pose_err_min <= pose_err")
+        if minimum:
+            radius = _math.sqrt(rng.uniform(minimum ** 2, maximum ** 2))
+            angle = rng.uniform(0.0, 2.0 * _math.pi)
+            error = radius * _np.array([_math.cos(angle), _math.sin(angle)])
+        else:
+            error = rng.uniform(-maximum, maximum, 2)
+        return dict(id=state_id, robot=copy.deepcopy(robot), objects={
+            "board": [*hole.tolist(), g["board_top"] - BOARD_THICKNESS / 2, 1., 0., 0., 0.],
+            "peg": [*xy.tolist(), g["table_top"] + PEG_LENGTH / 2 + 0.002, 1., 0., 0., 0.],
+        }, task_vars={"side": side, "pose_err": error.tolist()})
+
+    def validate_init_state(self, state):
+        variables = state["task_vars"]
+        if variables.get("side") not in ("left", "right"):
+            raise ValueError("Invalid peg arm")
+        error = _np.asarray(variables.get("pose_err"), dtype=float)
+        if error.shape != (2,) or not _np.isfinite(error).all():
+            raise ValueError("pose_err must contain two finite offsets")
+
+    def begin_restored_episode(self, h, state, knobs):
+        self.validate_init_state(state)
+        side = state["task_vars"]["side"]
+        h.select_arm(side)
+        board = h.scene["board"].data.root_pos_w[0].detach().cpu().numpy()
+        g = dict(self._geom(knobs), hole=tuple(board[:2]))
+        return self._new_ctx(h, side, _np.asarray(state["task_vars"]["pose_err"]), g, knobs)
+
+    def init_state_objects(self):
+        return ("board", "peg")
+
+    def snapshot_init_state(self, h, ctx):
+        return {"side": ctx["side"], "pose_err": _np.asarray(ctx["pose_err"]).tolist()}
+
+    def restore_init_state(self, h, state, knobs):
+        h.hold_default(30)
+        return self.begin_restored_episode(h, state, knobs)
+
     def reset(self, h, rng, ep, knobs) -> dict:
         g = self._geom(knobs)
         # Alternate sides: balanced by construction, reproducible, and the
@@ -259,6 +313,10 @@ class BlindPegInsertionTask(Task):
             raise RetryReset("peg would not stand")
         # Grasp where the peg actually is after settling, not where it was
         # dropped: a settle bounce can walk it a few millimetres.
+        p_xy = self._peg_pq(h)[0][:2].copy()
+        return self._new_ctx(h, side, err, g, knobs)
+
+    def _new_ctx(self, h, side, err, g, knobs):
         p_xy = self._peg_pq(h)[0][:2].copy()
         return {
             "side": side, "peg_xy": p_xy, "pose_err": err,
@@ -403,8 +461,7 @@ class BlindPegInsertionTask(Task):
                 ctx["approach_cmd"] = h.tcp_pos().astype(float)
             d = grasp - ctx["approach_cmd"]
             n = float(_np.linalg.norm(d))
-            from sim.harness import DT
-            step = APPROACH_SPEED * DT
+            step = APPROACH_SPEED * h.control_dt
             ctx["approach_cmd"] = ctx["approach_cmd"] + d * (step / n) if n > step else grasp
             ctx["pick_goal"] = grasp.tolist()
             tgt = ctx["approach_cmd"].tolist()
@@ -522,8 +579,7 @@ class BlindPegInsertionTask(Task):
         if name == "probe":
             return h.tcp_err(target) < 0.004
         if name == "search":
-            from sim.harness import DT
-            ctx["t_wp"] += DT
+            ctx["t_wp"] += h.control_dt
             hop_s = float(knobs["search_hop_s"])
             shear, axial = sig["shear"], sig["axial"]
             pressing = ctx["t_wp"] >= hop_s
@@ -648,10 +704,9 @@ class BlindPegInsertionTask(Task):
             # Stall: no depth progress for INSERT_STALL_S, so release. Past
             # capture depth the jam is the gripper holding the peg off-axis
             # and gravity finishes the insertion.
-            from sim.harness import DT
             hist = ctx.setdefault("insert_hist", [])
             hist.append(depth)
-            n = int(round(INSERT_STALL_S / DT))
+            n = int(round(INSERT_STALL_S / h.control_dt))
             # Progress is the window's best depth, not the latest sample.
             # insertion_depth is gated and returns 0 when a gate flickers.
             best = max(hist[-n:]) if len(hist) > n else depth

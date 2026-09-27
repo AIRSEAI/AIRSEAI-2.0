@@ -123,7 +123,7 @@ def run_prologue(h, ctx, sig) -> tuple[bool, dict]:
 
 
 def main() -> int:
-    if TASK_IDS[args_cli.task].manager_cfg and args_cli.policy != "hold":
+    if TASK_IDS[args_cli.task].manager_cfg and args_cli.policy and args_cli.policy != "hold":
         # The vector scheduler imports Isaac modules after Kit has started.
         from sim.evaluation import run_evaluation
 

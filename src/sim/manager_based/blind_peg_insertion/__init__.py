@@ -1,0 +1,1 @@
+"""Native batched task configuration."""
