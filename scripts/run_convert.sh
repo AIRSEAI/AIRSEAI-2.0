@@ -1,57 +1,29 @@
-#!/bin/bash
-# Stage 3 — dataset conversion (airseai env, lerobot from $AIRSEAI_LEROBOT_DIR).
-#
-# Raw recording (LeRobot-v3 style, ffv1/mkv tactile streams) -> the standard
-# LeRobot datasets the trainer reads, one per input variant.
-#
-#   bash scripts/run_convert.sh <raw_dataset_dir>
-#   VARIANTS="tacff" bash scripts/run_convert.sh <raw_dataset_dir>
-#   FORCE=1 bash scripts/run_convert.sh <raw_dataset_dir>
-#
-# Inputs
-#   $1          raw dataset dir (what run_collect.sh wrote); required
-#   VARIANTS    space-separated subset of: vision tacff tacrgb   default: all
-#   FORCE=1     reconvert a variant that already exists
-#   BENCH_ROOT  work root       default $HOME/airseai-benchmark
-#   BASE        default $BENCH_ROOT/datasets
-#
-# Output: $BASE/<name>_<variant> for each variant, where <name> is the raw
-# dataset's directory name, so the converted sets carry the recording's name.
-set -eu
-RAW="${1:?usage: run_convert.sh <raw_dataset_dir>}"
-RAW="${RAW%/}"
-NAME="$(basename "$RAW")"
-VARIANTS="${VARIANTS:-vision tacff tacrgb}"
-BENCH_ROOT="${BENCH_ROOT:-$HOME/airseai-benchmark}"
-BASE="${BASE:-$BENCH_ROOT/datasets}"
-
-for v in $VARIANTS; do
-  case "$v" in vision|tacff|tacrgb) ;; *) echo "unknown variant: $v"; exit 64 ;; esac
+#!/usr/bin/env bash
+# Convert one or more compatible recordings into LeRobot input variants.
+set -euo pipefail
+[ "$#" -gt 0 ] || { echo "usage: run_convert.sh <raw_dataset_dir> [...]" >&2; exit 64; }
+RAW=()
+for input in "$@"; do
+    [ -d "$input" ] || { echo "raw dataset not found: $input" >&2; exit 1; }
+    RAW+=("$(cd "$input" && pwd -P)")
 done
-
+if [ "$#" -gt 1 ] && [ -z "${DATASET:-}" ]; then
+    echo "set DATASET for multiple input recordings" >&2; exit 64
+fi
+NAME="${DATASET:-$(basename "${RAW[0]}")}"
 cd "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-# lerobot is a source checkout on PYTHONPATH, as install_benchmark.sh sets it up.
-LEROBOT_DIR="${AIRSEAI_LEROBOT_DIR:-$HOME/lerobot}"
-export PYTHONPATH="$PWD/src:$LEROBOT_DIR/src"
+OUTPUT_ROOT="${OUTPUT_ROOT:-$PWD/outputs}"
+BASE="${BASE:-$OUTPUT_ROOT/datasets}"
+export PYTHONPATH="$PWD/src${AIRSEAI_LEROBOT_DIR:+:$AIRSEAI_LEROBOT_DIR/src}${PYTHONPATH:+:$PYTHONPATH}"
 export HF_HUB_OFFLINE=1
-CONDA_ENVS="${CONDA_ENVS:-$HOME/miniconda3/envs}"
-PY="${SIM_PY:-$CONDA_ENVS/airseai/bin/python}"
-
-[ -d "$RAW" ] || { echo "raw dataset not found: $RAW"; exit 1; }
-
-todo=()
-for v in $VARIANTS; do
-    if [ -d "$BASE/${NAME}_$v" ] && [ "${FORCE:-0}" != "1" ]; then
-        echo "exists, skipping: $BASE/${NAME}_$v  (FORCE=1 to redo)"
-    else
-        todo+=("$v")
-    fi
+PY="${DEFAULT_PY:-python}"
+VARIANTS="${VARIANTS:-vision tacff tacrgb}"
+for variant in $VARIANTS; do
+    case "$variant" in vision|tacff|tacrgb) ;; *) echo "unknown variant: $variant" >&2; exit 64 ;; esac
 done
-[ ${#todo[@]} -eq 0 ] && { echo "nothing to convert"; exit 0; }
-
-echo "converting ${todo[*]} from $RAW -> $BASE/${NAME}_<variant>"
-for v in "${todo[@]}"; do
-    "$PY" benchmark/policy/convert_dataset.py \
-        --src "$RAW" --dst-root "$BASE" --name "$NAME" --variant "$v" --overwrite
+ARGS=()
+[ "${FORCE:-0}" != 1 ] || ARGS+=(--overwrite)
+for variant in $VARIANTS; do
+    "$PY" benchmark/policy/convert_dataset.py --src "${RAW[@]}" \
+        --dst-root "$BASE" --name "$NAME" --variant "$variant" ${ARGS[@]+"${ARGS[@]}"}
 done
-echo "done:"; ls -d "$BASE/${NAME}_"* 

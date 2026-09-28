@@ -1,14 +1,8 @@
 #!/usr/bin/env python3
-"""Generate cap_unscrew's USDs: the bottle, its cap, and the tray.
+"""Generate cap_unscrew USD assets: bottle, cap and tray.
 
-All three are solids of revolution about z, base at z = 0. The bottle is a
-body and a narrower neck; the cap an inverted cup whose bore takes the neck;
-the tray a shallow dish, its floor and rim sampled densely because it keeps
-its triangles. Dimensions come from `sim.dims.cap_unscrew`; the files land in
-`assets/usds/cap_unscrew/`.
-
-    python benchmark/run/make_cap_unscrew_assets.py --headless
-    python benchmark/run/make_cap_unscrew_assets.py --headless --keep_obj
+python benchmark/run/make_cap_unscrew_assets.py --headless
+python benchmark/run/make_cap_unscrew_assets.py --headless --keep_obj
 """
 
 from __future__ import annotations
@@ -43,10 +37,10 @@ from sim.dims.cap_unscrew import (
 
 parser = argparse.ArgumentParser(description="Generate cap_unscrew's bottle, cap and tray.")
 parser.add_argument("--out", default=str(task_asset_dir("cap_unscrew")))
-parser.add_argument("--sections", type=int, default=128,
-                    help="mesh segments around each solid of revolution")
-parser.add_argument("--keep_obj", action="store_true",
-                    help="also write an OBJ beside each USD, for a mesh viewer")
+parser.add_argument("--sections", type=int, default=128, help="mesh segments around each solid of revolution")
+parser.add_argument(
+    "--keep_obj", action="store_true", help="also write an OBJ beside each USD, for a mesh viewer"
+)
 AppLauncher.add_app_launcher_args(parser)
 args_cli = parser.parse_args()
 args_cli.headless = True
@@ -111,14 +105,26 @@ def revolved_volume(prof) -> float:
 
 def bottle_profile() -> list:
     """Base centre, round the body and neck, to the neck's top centre."""
-    return [(0.0, 0.0), (BOTTLE_R, 0.0), (BOTTLE_R, BOTTLE_BODY_H),
-            (NECK_R, BOTTLE_BODY_H), (NECK_R, BOTTLE_H), (0.0, BOTTLE_H)]
+    return [
+        (0.0, 0.0),
+        (BOTTLE_R, 0.0),
+        (BOTTLE_R, BOTTLE_BODY_H),
+        (NECK_R, BOTTLE_BODY_H),
+        (NECK_R, BOTTLE_H),
+        (0.0, BOTTLE_H),
+    ]
 
 
 def cap_profile() -> list:
     """Roof's underside, down the bore, up the skirt, to the top centre."""
-    return [(0.0, CAP_BORE_DEPTH), (CAP_BORE_R, CAP_BORE_DEPTH), (CAP_BORE_R, 0.0),
-            (CAP_R, 0.0), (CAP_R, CAP_H), (0.0, CAP_H)]
+    return [
+        (0.0, CAP_BORE_DEPTH),
+        (CAP_BORE_R, CAP_BORE_DEPTH),
+        (CAP_BORE_R, 0.0),
+        (CAP_R, 0.0),
+        (CAP_R, CAP_H),
+        (0.0, CAP_H),
+    ]
 
 
 def tray_profile() -> list:
@@ -136,12 +142,10 @@ def main() -> int:
     rc = 0
     # (name, profile, colour, root, friction, approximation, sections)
     parts = [
-        ("bottle", bottle_profile(), BOTTLE_COLOR, "bottle", GRIP_FRICTION, None,
-         args_cli.sections),
+        ("bottle", bottle_profile(), BOTTLE_COLOR, "bottle", GRIP_FRICTION, None, args_cli.sections),
         ("cap", cap_profile(), CAP_COLOR, "cap", GRIP_FRICTION, None, args_cli.sections),
         # Static fixture: triangles kept, so the dish is not filled in.
-        ("tray", tray_profile(), TRAY_COLOR, "tray", TRAY_FRICTION, "none",
-         2 * args_cli.sections),
+        ("tray", tray_profile(), TRAY_COLOR, "tray", TRAY_FRICTION, "none", 2 * args_cli.sections),
     ]
     for name, prof, colour, root, friction, approx, sections in parts:
         pts, tris = revolve(prof, sections)
@@ -152,19 +156,20 @@ def main() -> int:
         flag = "ok" if err < 0.01 else "MISMATCH"
         rc |= flag != "ok"
         usd = out / f"{name}.usd"
-        write_usd(usd, pts, tris, colour, rigid=True, root_name=root,
-                  friction=friction, approximation=approx)
+        write_usd(usd, pts, tris, colour, rigid=True, root_name=root, friction=friction, approximation=approx)
         if args_cli.keep_obj:
             write_obj(usd.with_suffix(".obj"), pts, tris)
-        print(f"[{name}] {len(pts)} verts, volume {vol * 1e6:.2f} cm3 vs "
-              f"{want * 1e6:.2f} ({err * 100:.2f} %) {flag} -> {usd.name}", flush=True)
+        print(
+            f"[{name}] {len(pts)} verts, volume {vol * 1e6:.2f} cm3 vs "
+            f"{want * 1e6:.2f} ({err * 100:.2f} %) {flag} -> {usd.name}",
+            flush=True,
+        )
 
-    print("CAP_UNSCREW_ASSETS_COMPLETE" if rc == 0 else "CAP_UNSCREW_ASSETS_FAILED",
-          flush=True)
+    print("CAP_UNSCREW_ASSETS_COMPLETE" if rc == 0 else "CAP_UNSCREW_ASSETS_FAILED", flush=True)
     return rc
 
 
 if __name__ == "__main__":
     rc = main()
     sys.stdout.flush()
-    os._exit(rc)       # skip Kit's own shutdown, which can hang
+    os._exit(rc)  # skip Kit's own shutdown, which can hang

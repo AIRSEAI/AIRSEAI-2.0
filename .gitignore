@@ -222,7 +222,7 @@ datasets/
 logs/
 outputs/
 
-# doc and internal tooling
+# doc and tool
 doc/
 tool/
 
@@ -240,3 +240,6 @@ CLAUDE.md
 *.mkv
 *.avi
 *.webm
+
+benchmark/dev/
+plans/

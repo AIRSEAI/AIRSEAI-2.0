@@ -1,26 +1,7 @@
 #!/usr/bin/env bash
-# ============================================================================
-# install_benchmark.sh — one-click installer for the Tactile Manipulation
-# Benchmark (README.md section 2, automated).
-#
-# Interactive: asks for the conda env name at start (Enter = "airseai").
-# Non-interactive (no TTY, or AIRSEAI_USE_DEFAULT=1): uses defaults / env vars.
-#
-#   AIRSEAI_ENV_NAME   env name              (default: airseai)
-#   AIRSEAI_CONDA_ROOT conda install         (default: `conda info --base`, else $HOME/miniconda3)
-#   AIRSEAI_REPO_DIR   AIRSEAI-2.0 repo      (default: parent of this script)
-#   AIRSEAI_OUT_BASE   work base             (default: $HOME/airseai-benchmark)
-#   AIRSEAI_GIT_MIRROR clone mirror prefix (default: https://gitclone.com/github.com/)
-#   AIRSEAI_FORCE_SDPA=1 use sdpa attention even where flash-attn is available
-#   AIRSEAI_RECREATE=1 wipe + recreate an existing env
-#
-# OUT_BASE is the scratch/work root this benchmark writes to — install and
-# rollout logs ($OUT_BASE/output), policy checkpoints ($OUT_BASE/ckpt) and
-# evaluation reports/videos ($OUT_BASE/eval). It is deliberately outside the
-# repo: on a training server it should point at the large data volume.
-#
-# Log: $AIRSEAI_OUT_BASE/output/install_<timestamp>.log  (everything, tee'd)
-# ============================================================================
+# Install AIRSEAI and save its output root in the selected conda environment.
+# AIRSEAI_USE_DEFAULT=1 accepts defaults without prompting.
+# OUTPUT_ROOT overrides the default <repo dir>/outputs.
 set -u
 
 # ---------------- defaults ----------------
@@ -39,7 +20,6 @@ default_conda_root() {
 CONDA_ROOT="${AIRSEAI_CONDA_ROOT:-$(default_conda_root)}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="${AIRSEAI_REPO_DIR:-$(dirname "$SCRIPT_DIR")}"
-OUT_BASE="${AIRSEAI_OUT_BASE:-$HOME/airseai-benchmark}"
 LEROBOT_DIR="${AIRSEAI_LEROBOT_DIR:-$HOME/lerobot}"
 ISAACLAB_DIR="${AIRSEAI_ISAACLAB_DIR:-$HOME/IsaacLab}"
 # Clone sources: github.com first, the regional mirror only after the clone
@@ -52,6 +32,28 @@ OPENARM_URL="${AIRSEAI_OPENARM_URL:-https://github.com/enactic/openarm_isaac_lab
 GIT_MIRROR="${AIRSEAI_GIT_MIRROR:-https://gitclone.com/github.com/}"
 GIT_TRIES="${AIRSEAI_GIT_TRIES:-2}"
 
+configure_output_root() {
+    case "$REPO_DIR" in
+        '~') REPO_DIR="$HOME" ;;
+        '~/'*) REPO_DIR="$HOME/${REPO_DIR#\~/}" ;;
+    esac
+    OUTPUT_ROOT="${OUTPUT_ROOT:-${REPO_DIR%/}/outputs}"
+    if [ -t 0 ] && [ "${AIRSEAI_USE_DEFAULT:-0}" != "1" ]; then
+        read -r -p "output root   [${OUTPUT_ROOT}]: " ans && [ -n "$ans" ] && OUTPUT_ROOT="$ans"
+    fi
+    case "$OUTPUT_ROOT" in
+        '~') OUTPUT_ROOT="$HOME" ;;
+        '~/'*) OUTPUT_ROOT="$HOME/${OUTPUT_ROOT#\~/}" ;;
+    esac
+    mkdir -p "$OUTPUT_ROOT" || return 1
+    OUTPUT_ROOT="$(cd "$OUTPUT_ROOT" && pwd -P)" || return 1
+}
+
+save_output_root() {
+    conda env config vars set --prefix "$CONDA_PREFIX" "OUTPUT_ROOT=$1" || return 1
+    export OUTPUT_ROOT="$1"
+}
+
 # ---------------- interactive parameters ----------------
 if [ -t 0 ] && [ "${AIRSEAI_USE_DEFAULT:-0}" != "1" ]; then
     read -r -p "conda env name [${ENV_NAME}]: " ans && [ -n "$ans" ] && ENV_NAME="$ans"
@@ -59,10 +61,11 @@ if [ -t 0 ] && [ "${AIRSEAI_USE_DEFAULT:-0}" != "1" ]; then
     read -r -p "repo dir      [${REPO_DIR}]: " ans && [ -n "$ans" ] && REPO_DIR="$ans"
 fi
 
-mkdir -p "$OUT_BASE/output"
-LOG="$OUT_BASE/output/install_$(date +%Y%m%d_%H%M%S).log"
+configure_output_root || exit 1
+mkdir -p "$OUTPUT_ROOT/output" || exit 1
+LOG="$OUTPUT_ROOT/output/install_$(date +%Y%m%d_%H%M%S).log"
 exec > >(tee -a "$LOG") 2>&1
-echo "### install_benchmark.sh $(date '+%F %T')"
+echo "### install_airseai.sh $(date '+%F %T')"
 echo "### env=$ENV_NAME conda=$CONDA_ROOT repo=$REPO_DIR log=$LOG"
 
 # ---------------- step machinery ----------------
@@ -102,7 +105,7 @@ PIP_RETRIES="${AIRSEAI_PIP_RETRIES:-3}"
 reachable() {   # reachable <url> — $PROBE_RETRIES attempts, 15s each
     local url="$1" i
     for i in $(seq 1 "$PROBE_RETRIES"); do
-        curl -fsS --max-time 15 -o /dev/null "$url" && return 0
+        curl -fsSI --max-time 15 -o /dev/null "$url" && return 0
         # stderr: pick_source captures stdout, where this would corrupt the URL
         echo "  probe $i/$PROBE_RETRIES failed: $url" >&2
         sleep 2
@@ -162,6 +165,7 @@ preflight() {
 }
 
 make_env() {
+    local selected_output_root="$OUTPUT_ROOT"
     source "$CONDA_ROOT/etc/profile.d/conda.sh"
     if conda env list | awk '{print $1}' | grep -qx "$ENV_NAME"; then
         if [ "${AIRSEAI_RECREATE:-0}" = "1" ]; then
@@ -177,6 +181,7 @@ make_env() {
         || conda create -n "$ENV_NAME" python=3.11 -y \
                         -c conda-forge --override-channels || return 1
     conda activate "$ENV_NAME" || return 1
+    save_output_root "$selected_output_root" || return 1
     python -V | grep -q "3\.11" || { echo "env python is not 3.11"; return 1; }
     # stdout is a pipe (everything is tee'd), so pip hides its progress bar.
     # "raw" prints byte counts, which survive a pipe. Older pip rejects the
@@ -186,12 +191,35 @@ make_env() {
     fi
 }
 
+configure_runtime() {
+    local library="$CONDA_PREFIX/lib/libstdc++.so.6"
+    if [ -f "$library" ]; then
+        local preload saved_vars
+        saved_vars=$(conda env config vars list --prefix "$CONDA_PREFIX" --json) || return 1
+        preload=$(AIRSEAI_SAVED_VARS="$saved_vars" python - "$library" <<'PYEOF'
+import json
+import os
+import re
+import sys
+
+saved = json.loads(os.environ["AIRSEAI_SAVED_VARS"])
+entries = [sys.argv[1]]
+for value in (saved.get("LD_PRELOAD", ""), os.environ.get("LD_PRELOAD", "")):
+    entries.extend(item for item in re.split(r"[:\s]+", value) if item)
+print(":".join(dict.fromkeys(entries)))
+PYEOF
+) || return 1
+        conda env config vars set --prefix "$CONDA_PREFIX" "LD_PRELOAD=$preload" || return 1
+        export LD_PRELOAD="$preload"
+    fi
+}
+
 install_torch() {
     if python -c "import torch,sys; sys.exit(0 if torch.__version__.startswith('2.7.0') else 1)" 2>/dev/null; then
         echo "torch 2.7.0 already present — skip"; return 0
     fi
     pip install --retries "$PIP_RETRIES" \
-        "torch==2.7.0+cu128" "torchvision==0.22.0+cu128" -f "$TORCH_WHEELS" && return 0
+        "torch==2.7.0+cu128" "torchvision==0.22.0+cu128" --index-url "$TORCH_WHEELS" && return 0
     [ "${AIRSEAI_NO_MIRROR_FALLBACK:-0}" != "1" ] && [ "$TORCH_WHEELS" != "$TORCH_WHEELS_CN" ] || return 1
     echo "!! torch wheels failed on $TORCH_WHEELS — retrying via $TORCH_WHEELS_CN"
     pip install --retries "$PIP_RETRIES" \
@@ -289,11 +317,9 @@ install_lerobot() {
         echo "lerobot dir exists: $(git -C "$LEROBOT_DIR" describe --tags --always 2>/dev/null)"
     fi
     pip_install datasets pandas huggingface_hub
-    # make PYTHONPATH stick to the env
-    local hook="$CONDA_ROOT/envs/$ENV_NAME/etc/conda/activate.d"
-    mkdir -p "$hook"
-    printf 'export PYTHONPATH="%s/src:${PYTHONPATH:-}"\n' "$LEROBOT_DIR" > "$hook/lerobot_pythonpath.sh"
-    export PYTHONPATH="$LEROBOT_DIR/src:${PYTHONPATH:-}"
+    conda env config vars set --prefix "$CONDA_PREFIX" "PYTHONPATH=$LEROBOT_DIR/src" || return 1
+    rm -f "$CONDA_PREFIX/etc/conda/activate.d/lerobot_pythonpath.sh"
+    export PYTHONPATH="$LEROBOT_DIR/src"
     python -c "import lerobot; print('lerobot', lerobot.__version__)"
 }
 
@@ -371,58 +397,20 @@ PY
         echo "!! lerobot does not compile under python 3.11 — see the error above"
         return 1
     fi
-    # The GR00T policy's vendored Eagle backbone asserts on flash_attention_2;
-    # repoint it at sdpa where flash-attn is not importable, or everywhere with
-    # AIRSEAI_FORCE_SDPA=1. Idempotent; affects stages 4-5 only.
-    local eagle="$LEROBOT_DIR/src/lerobot/policies/groot/eagle2_hg_model"
-    if [ ! -d "$eagle" ]; then
-        echo "no vendored Eagle model at $eagle — nothing to repoint"
-    elif [ "${AIRSEAI_FORCE_SDPA:-0}" != "1" ] && python -c "import flash_attn" 2>/dev/null; then
-        echo "attention: flash-attn $(python -c "import flash_attn; print(flash_attn.__version__)" \
-              2>/dev/null) importable — leaving the Eagle model on flash_attention_2"
-    else
-        if [ "${AIRSEAI_FORCE_SDPA:-0}" = "1" ]; then
-            echo "attention: AIRSEAI_FORCE_SDPA=1 — pinning the Eagle model to sdpa"
-        else
-            echo "attention: flash-attn not importable — switching the Eagle model to sdpa"
-        fi
-        for f in "$eagle"/*.py; do
-            [ -f "$f" ] || continue
-            grep -q flash_attention_2 "$f" \
-                && sed -i "s/flash_attention_2/sdpa/g" "$f" \
-                && echo "  sdpa: ${f#"$LEROBOT_DIR/src/lerobot/"}"
-        done
-        find "$LEROBOT_DIR/src/lerobot/policies/groot" -name __pycache__ -type d \
-             -exec rm -rf {} + 2>/dev/null
-    fi
     return 0
 }
 
-install_groot_deps() {
-    # GR00T N1.5 policy deps; the probe below reports what is still missing.
-    # lerobot sits on PYTHONPATH and is never pip-installed, so its own pins do
-    # not apply here. draccus is pinned because a newer one writes policy
-    # configs without the "type" key stage 5 reads back; transformers follows
-    # Isaac Lab's pin, taken from its setup.py so only one file carries it.
+install_policy_deps() {
     local tf
     tf=$(grep -o 'transformers[=<>~!]*[0-9.]*' \
               "$ISAACLAB_DIR/source/isaaclab/setup.py" 2>/dev/null | head -1)
     [ -n "$tf" ] || tf="transformers"
     pip_install "draccus==0.10.0" "$tf" accelerate einops diffusers peft \
-                pyserial deepdiff jsonlines termcolor wandb imageio || true
-    python - <<'PY'
-import importlib, traceback
-try:
-    from lerobot.policies.factory import get_policy_class
-except Exception:
-    traceback.print_exc(); raise SystemExit(1)
-for name in ("groot", "gr00t", "gr00t_n1_5"):
-    try:
-        print("policy type", name, "->", get_policy_class(name))
-        break
-    except Exception as e:
-        print("policy type", name, "not loadable:", type(e).__name__, e)
-PY
+                pyserial deepdiff jsonlines termcolor wandb
+}
+
+install_video_deps() {
+    pip_install imageio imageio-ffmpeg "opencv-python-headless==4.11.0.86"
 }
 
 verify_policy_io() {
@@ -455,29 +443,38 @@ fetch_robot_asset() {
     # Only the bimanual USD directory is needed: sparse-fetch that path, with a
     # full clone as the fallback.
     local usds=source/openarm/openarm/tasks/manager_based/openarm_manipulation/usds
-    rm -rf /tmp/openarm_isaac_lab
-    git_clone_retry "$OPENARM_URL" /tmp/openarm_isaac_lab "" "$usds/openarm_bimanual" || {
+    local asset_source
+    asset_source=$(mktemp -d "$OUTPUT_ROOT/openarm-assets.XXXXXX") || return 1
+    git_clone_retry "$OPENARM_URL" "$asset_source" "" "$usds/openarm_bimanual" || {
         echo "!! sparse fetch failed — retrying as a full clone" >&2
-        rm -rf /tmp/openarm_isaac_lab
-        git_clone_retry "$OPENARM_URL" /tmp/openarm_isaac_lab || return 1
+        rm -rf "$asset_source"
+        git_clone_retry "$OPENARM_URL" "$asset_source" || return 1
     }
-    [ -d "/tmp/openarm_isaac_lab/$usds/openarm_bimanual" ] || {
+    [ -d "${asset_source}/$usds/openarm_bimanual" ] || {
         echo "openarm_bimanual not found in the clone — upstream layout changed?"; return 1
     }
     mkdir -p "$REPO_DIR/assets/usds"
-    cp -r "/tmp/openarm_isaac_lab/$usds/openarm_bimanual" "$REPO_DIR/assets/usds/"
+    cp -r "${asset_source}/$usds/openarm_bimanual" "$REPO_DIR/assets/usds/"
 }
 
 make_task_assets() {
     # Regenerate every task's USDs under assets/usds/ from its generator,
-    # overwriting whatever is there.
+    # overwriting whatever is there. The task list comes from the registry,
+    # so a new task needs no edit here.
     export OMNI_KIT_ACCEPT_EULA=YES ACCEPT_EULA=Y
     cd "$REPO_DIR" || return 1
-    local t
-    for t in blind_peg_insertion texture_sort handover sleeve_on_shaft cap_unscrew; do
-        rm -rf "assets/usds/$t"
-        python "benchmark/run/make_${t}_assets.py" --headless || return 1
-    done
+    local list name script
+    list=$(PYTHONPATH="$REPO_DIR/src" python - <<'PYEOF'
+from sim.tasks.registry import TASKS
+for name, script in sorted({(e.name, e.assets) for e in TASKS.values() if e.assets}):
+    print(name, script)
+PYEOF
+) || return 1
+    while read -r name script; do
+        [ -n "$name" ] || continue
+        rm -rf "assets/usds/$name"
+        python "$script" --headless || return 1
+    done <<< "$list"
     ls assets/usds/
 }
 
@@ -498,27 +495,84 @@ install_ffmpeg() {
 
 verify() {
     export OMNI_KIT_ACCEPT_EULA=YES ACCEPT_EULA=Y
-    ( cd "$REPO_DIR" && python -c "import sim, tactile_codec, lerobot_tactile_ext; print('repo imports ok')" ) || return 1
-    ( cd "$REPO_DIR" && python benchmark/run/verify_codec.py --out /tmp/codec ) || return 1
-    python -c "import isaaclab, isaaclab_contrib; print('isaac ok')" || return 1
-    python -c "from lerobot.datasets.lerobot_dataset import LeRobotDatasetMetadata; print('lerobot loader ok')"
+    python - "$REPO_DIR" <<'PYEOF'
+import importlib
+import sys
+import tempfile
+from pathlib import Path
+
+import av
+import cv2
+import gymnasium as gym
+import imageio_ffmpeg
+import numpy as np
+
+root = (Path(sys.argv[1]) / "src").resolve()
+for name in ("sim", "tactile_codec", "lerobot_tactile_ext", "gym_airseai", "lerobot_airseai"):
+    module = importlib.import_module(name)
+    path = Path(module.__file__).resolve()
+    if root not in path.parents:
+        raise RuntimeError(f"{name} loaded from unexpected path: {path}")
+    print(f"ok {name}: {path}")
+
+from gym_airseai import TASK_IDS
+from lerobot_airseai import AirseaiEnvConfig
+
+from sim.video import Mp4Writer
+
+dataset = importlib.import_module("lerobot.datasets.lerobot_dataset")
+for name in ("LeRobotDataset", "LeRobotDatasetMetadata"):
+    getattr(dataset, name)
+if not Path(imageio_ffmpeg.get_ffmpeg_exe()).is_file():
+    raise RuntimeError("Recording ffmpeg executable is missing")
+
+for task in TASK_IDS:
+    gym.spec(f"gym_airseai/{task}")
+    for variant in ("vision", "tacrgb", "tacff"):
+        AirseaiEnvConfig(task=task, variant=variant)
+print("Gym registration, LeRobot configurations and dataset imports ok")
+
+with tempfile.TemporaryDirectory(prefix="airseai-video-") as folder:
+    path = Path(folder) / "recording.mp4"
+    writer = Mp4Writer(path, fps=20)
+    try:
+        for value in (0, 64, 128, 255):
+            frame = np.full((64, 96, 3), value, dtype=np.uint8)
+            cv2.putText(frame, "test", (4, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 255, 0))
+            writer.add(frame)
+    finally:
+        writer.close()
+    with av.open(str(path)) as container:
+        stream = container.streams.video[0]
+        if stream.average_rate != 20:
+            raise RuntimeError("Recording frame rate mismatch")
+        frames = list(container.decode(video=0))
+    if len(frames) != 4 or any((frame.width, frame.height) != (96, 64) for frame in frames):
+        raise RuntimeError("Recording frame count or dimensions mismatch")
+print("Video encode/decode ok")
+PYEOF
+    [ "$?" -eq 0 ] || return 1
+    ( cd "$REPO_DIR" && python benchmark/run/verify_codec.py --out "$OUTPUT_ROOT/verify/stage0/codec" ) || return 1
+    python -c "import isaaclab, isaaclab_contrib; print('isaac ok')"
 }
 
 step critical "package sources"      select_sources
 step critical "preflight"            preflight
 step critical "ffmpeg (apt)"         install_ffmpeg
 step critical "conda env ($ENV_NAME, py3.11)" make_env
+step critical "C++ runtime"          configure_runtime
 step critical "torch 2.7.0 cu128"    install_torch
 step critical "isaacsim 5.1.0.0"     install_isaacsim
 step critical "IsaacLab v2.3.2"      install_isaaclab
 step critical "repo -e .[codec,dataset,dev]" install_repo
 step critical "lerobot 0.5.1 (source, py3.11)" install_lerobot
 step critical "lerobot py3.11 compat patches" patch_lerobot_py311
-step soft     "gr00t policy deps"    install_groot_deps
+step critical "policy dependencies"  install_policy_deps
+step critical "video dependencies"   install_video_deps
 step critical "policy save/load"     verify_policy_io
 step critical "OpenArm robot asset"  fetch_robot_asset
 step critical "task assets (boards, balls, cans)" make_task_assets
-step soft     "verify"               verify
+step critical "verify"               verify
 
 summary
 echo "DONE $(date '+%F %T')"

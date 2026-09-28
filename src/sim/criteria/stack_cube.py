@@ -1,38 +1,31 @@
-"""stack_cube criterion: cube A ends stacked on cube B.
-
-Reads::
-
-    object_pos["cube_a"], object_pos["cube_b"]
-"""
+"""Sustained stack completion. Reads object_pos cube_a and cube_b."""
 
 from __future__ import annotations
 
 import numpy as np
 
-from sim.criteria.detectors import detect_grasp_failure
-from sim.criteria.trace import EpisodeTrace, FailureMode, Verdict
+from sim.criteria.completion import SUCCESS_HOLD_S, sustained_completion
+from sim.criteria.trace import EpisodeTrace, Verdict
 from sim.dims.stack_cube import CUBE_SIZE
 
 __all__ = ["verdict"]
 
 
-def verdict(trace: EpisodeTrace, *, cube_size: float = CUBE_SIZE,
-            area_mm2: float = 5.0, pads: tuple[str, ...]) -> Verdict:
-    """Cube A stacked on cube B.
-
-    A must end within half a cube of B in xy and one cube up, and the pads
-    must have held a load-bearing contact during the carry.
-    """
-    a = np.asarray(trace.object_pos["cube_a"], dtype=float)[-1]
-    b = np.asarray(trace.object_pos["cube_b"], dtype=float)[-1]
-    xy_err = float(np.linalg.norm(a[:2] - b[:2]))
-    z_err = float(abs(a[2] - (b[2] + cube_size)))
-    stacked = xy_err < cube_size / 2 and z_err < cube_size / 2
-    dropped, m_grasp = detect_grasp_failure(trace, pads, area_mm2=area_mm2)
-    metrics = {"xy_err_m": xy_err, "z_err_m": z_err, "cube_size_m": cube_size,
-               **m_grasp}
-    if dropped:
-        return Verdict(False, FailureMode.GRASP_FAILURE, metrics)
-    if not stacked:
-        return Verdict(False, FailureMode.UNFINISHED, metrics)
-    return Verdict(True, metrics=metrics)
+def verdict(
+    trace: EpisodeTrace,
+    *,
+    cube_size: float = CUBE_SIZE,
+    pads: tuple[str, ...],
+    stack_hold_s: float = SUCCESS_HOLD_S,
+) -> Verdict:
+    """Latch sustained stacking; prior grasp is required before completion."""
+    a = np.asarray(trace.object_pos["cube_a"], dtype=float)
+    b = np.asarray(trace.object_pos["cube_b"], dtype=float)
+    xy = np.linalg.norm(a[:, :2] - b[:, :2], axis=1)
+    z = np.abs(a[:, 2] - b[:, 2] - cube_size)
+    result = sustained_completion(
+        trace, (xy < cube_size / 2) & (z < cube_size / 2), pads=pads, hold_s=stack_hold_s
+    )
+    if len(a):
+        result.metrics.update(xy_err_m=float(xy[-1]), z_err_m=float(z[-1]), cube_size_m=cube_size)
+    return result

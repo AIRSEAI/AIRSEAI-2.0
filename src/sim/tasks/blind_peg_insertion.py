@@ -9,6 +9,7 @@ Phases::
 
 from __future__ import annotations
 
+import copy
 import math as _math
 
 import numpy as _np
@@ -49,58 +50,58 @@ __all__ = ["BlindPegInsertionTask", "TASK"]
 
 
 # --- insertion ------------------------------------------------------------
-TARGET_DEPTH = 0.027          # m, commanded depth: 2 mm past the success bar
-INSERT_STALL_S = 0.75         # s of no progress that counts as a jam
+TARGET_DEPTH = 0.027  # m, commanded depth: 2 mm past the success bar
+INSERT_STALL_S = 0.75  # s of no progress that counts as a jam
 INSERT_STALL_PROGRESS = 0.0005  # m; less than this over INSERT_STALL_S is a stall
 INSERT_CAPTURE_DEPTH = 0.010  # m; past one peg diameter the hole guides it home
 
 # --- search lattice (both are knobs) --------------------------------------
 # Pitch must be <= clearance * sqrt(2) for some waypoint to put the tip over
 # the hole; the radius only has to cover the injected pose error.
-SEARCH_SPACING = 0.0015       # m between lattice points
-SEARCH_R_MAX = 0.006          # m, radius of the search disc
+SEARCH_SPACING = 0.0015  # m between lattice points
+SEARCH_R_MAX = 0.006  # m, radius of the search disc
 
 # --- press at one waypoint -------------------------------------------------
 # Each press descends from the hop height and ends on felt contact, not on a
 # commanded height. Reaching the floor with nothing felt means the hole.
-HOP_CLEAR = 0.003             # m the tip clears the board between presses
-SEARCH_LEVEL_TOL = 2.0        # deg of tilt that triggers a re-level during a hop
-PRESS_RATE = 0.020            # m/s descent speed
-PRESS_FLOOR = 0.003           # m below the board top the descent may reach
-PRESS_DWELL = 0.30            # s held after contact before lifting
-FOLLOW_MM = 0.002             # m the TCP follows through after contact
-FOLLOW_RATE = 0.008           # m/s of that follow-through
-WP_TIMEOUT = 0.6              # s after the hop; advance regardless
-UNREACH_WPS = 6               # blocked waypoints in a row before abandoning
-GRASP_CREEP_MAX = 0.012       # m the peg may walk up the gel before abandoning
+HOP_CLEAR = 0.003  # m the tip clears the board between presses
+SEARCH_LEVEL_TOL = 2.0  # deg of tilt that triggers a re-level during a hop
+PRESS_RATE = 0.020  # m/s descent speed
+PRESS_FLOOR = 0.003  # m below the board top the descent may reach
+PRESS_DWELL = 0.30  # s held after contact before lifting
+FOLLOW_MM = 0.002  # m the TCP follows through after contact
+FOLLOW_RATE = 0.008  # m/s of that follow-through
+WP_TIMEOUT = 0.6  # s after the hop; advance regardless
+UNREACH_WPS = 6  # blocked waypoints in a row before abandoning
+GRASP_CREEP_MAX = 0.012  # m the peg may walk up the gel before abandoning
 
 # --- contact detection -----------------------------------------------------
 # Two tactile signatures, either one decides: a shear SPIKE (impact) or an
 # axial UNLOAD (the peg's weight leaving the gel). A proprioceptive fallback
 # catches what neither does.
-PRESS_SHEAR_RATIO = 1.5       # contact: mean shear >= this x the hop median
+PRESS_SHEAR_RATIO = 1.5  # contact: mean shear >= this x the hop median
 PRESS_SHEAR_MIN_RISE = 15000.0  # ...and at least this much, x1e3 units summed
-PRESS_MEAN_N = 3              # frames the rise must hold
-PRESS_AXIAL_FRAC = 0.4        # unload: vertical support <= this fraction of the hop's
-PRESS_AXIAL_N = 4             # frames the unload must hold
-PRESS_AXIAL_MIN = 2000.0      # x1e3; below this the hop carried nothing measurable
-PRESS_BLOCKED_ERR = 0.0035    # m of TCP lag that means something is holding the peg
-PRESS_BLOCKED_N = 4           # frames the lag must hold
+PRESS_MEAN_N = 3  # frames the rise must hold
+PRESS_AXIAL_FRAC = 0.4  # unload: vertical support <= this fraction of the hop's
+PRESS_AXIAL_N = 4  # frames the unload must hold
+PRESS_AXIAL_MIN = 2000.0  # x1e3; below this the hop carried nothing measurable
+PRESS_BLOCKED_ERR = 0.0035  # m of TCP lag that means something is holding the peg
+PRESS_BLOCKED_N = 4  # frames the lag must hold
 
 # --- grasp watchdog --------------------------------------------------------
-LOST_N = 6                    # frames the pads must stay empty to call it lost
-LOST_AREA_FRAC = 0.25         # empty: contact area below this fraction of its median
+LOST_N = 6  # frames the pads must stay empty to call it lost
+LOST_AREA_FRAC = 0.25  # empty: contact area below this fraction of its median
 
 # --- entry and jaws --------------------------------------------------------
-ENTRY_DEPTH = 0.0015          # m below the mouth that counts as entered
-OPEN_WIDTH = 0.016            # m per jaw, approaching
-CLOSE_WIDTH = 0.0030          # m per jaw, gripping the peg
+ENTRY_DEPTH = 0.0015  # m below the mouth that counts as entered
+OPEN_WIDTH = 0.016  # m per jaw, approaching
+CLOSE_WIDTH = 0.0030  # m per jaw, gripping the peg
 
 # --- pick approach ----------------------------------------------------------
-APPROACH_BACKOFF = 0.060      # m back along the blade from the grasp to the pre-grasp point
-HOME_ABOVE_PREGRASP = 0.030   # m above the pre-grasp point where `home` ends
-APPROACH_SPEED = 0.10         # m/s, the command point's speed into the grasp
-ORIENT_TOL_DEG = 3.0          # wrist within this of its pick orientation
+APPROACH_BACKOFF = 0.060  # m back along the blade from the grasp to the pre-grasp point
+HOME_ABOVE_PREGRASP = 0.030  # m above the pre-grasp point where `home` ends
+APPROACH_SPEED = 0.10  # m/s, the command point's speed into the grasp
+ORIENT_TOL_DEG = 3.0  # wrist within this of its pick orientation
 # Measured gel gap, m, before the pick orientation is computed: the jaw axis
 # has no reliable sign while the gels overlap.
 LEVEL_MIN_GEL_GAP = 0.010
@@ -109,9 +110,12 @@ LEVEL_MIN_GEL_GAP = 0.010
 def _search_offsets(spacing: float, r_max: float) -> list[tuple[float, float]]:
     """Lattice points inside the search disc, ordered by distance from centre."""
     n = int(_math.ceil(r_max / spacing))
-    pts = [(i * spacing, j * spacing)
-           for i in range(-n, n + 1) for j in range(-n, n + 1)
-           if _math.hypot(i * spacing, j * spacing) <= r_max + 1e-9]
+    pts = [
+        (i * spacing, j * spacing)
+        for i in range(-n, n + 1)
+        for j in range(-n, n + 1)
+        if _math.hypot(i * spacing, j * spacing) <= r_max + 1e-9
+    ]
     return sorted(pts, key=lambda p: _math.hypot(*p))
 
 
@@ -120,28 +124,24 @@ class BlindPegInsertionTask(Task):
     instruction = "insert the peg into the hole"
     report_name = "blind_peg_insertion_scripted.json"
     knobs = {
-        "clearance": Knob(DEFAULT_CLEARANCE,
-                          "radial clearance; must be one of the authored boards"),
-        "pose_err": Knob(0.009,
-                         "upper bound on the injected visual pose error, metres"),
-        "light_scale": Knob(DEFAULT_LIGHT_SCALE,
-                            "multiplier on the dome and key lights"),
-        "hole_side_offset": Knob(0.06,
-                                 "hole offset toward the active arm's side, metres; "
-                                 "0 is the midline"),
-        "pose_err_min": Knob(0.006,
-                             "lower bound on the injected error's magnitude, metres"),
-        "hole_jitter": Knob(HOLE_JITTER,
-                            "per-episode board jitter on x and y, metres"),
-        "search_spacing": Knob(None,
-                               "tactile search pitch, metres; None derives it from the clearance",
-                               type=lambda v: None if v in (None, "", "None") else float(v)),
-        "search_r_max": Knob(None,
-                             "search disc radius, metres; None is pose_err + one pitch",
-                             type=lambda v: None if v in (None, "", "None") else float(v)),
+        "clearance": Knob(DEFAULT_CLEARANCE, "radial clearance; must be one of the authored boards"),
+        "pose_err": Knob(0.009, "upper bound on the injected visual pose error, metres"),
+        "light_scale": Knob(DEFAULT_LIGHT_SCALE, "multiplier on the dome and key lights"),
+        "hole_side_offset": Knob(0.06, "hole offset toward the active arm's side, metres; 0 is the midline"),
+        "pose_err_min": Knob(0.006, "lower bound on the injected error's magnitude, metres"),
+        "hole_jitter": Knob(HOLE_JITTER, "per-episode board jitter on x and y, metres"),
+        "search_spacing": Knob(
+            None,
+            "tactile search pitch, metres; None derives it from the clearance",
+            type=lambda v: None if v in (None, "", "None") else float(v),
+        ),
+        "search_r_max": Knob(
+            None,
+            "search disc radius, metres; None is pose_err + one pitch",
+            type=lambda v: None if v in (None, "", "None") else float(v),
+        ),
         "max_tilt_deg": Knob(20.0, "jam threshold handed to the criterion"),
-        "search_hop_s": Knob(0.30,
-                             "seconds lifted clear of the board between search waypoints"),
+        "search_hop_s": Knob(0.30, "seconds lifted clear of the board between search waypoints"),
         "hole_y": Knob(None, "probe: override the hole's y (metres)"),
         "table_raise": Knob(0.0, "probe: raise the whole scene rigidly (metres)"),
         # Shallower than the top-grasp tasks: a steeper blade puts the fingertips
@@ -151,15 +151,25 @@ class BlindPegInsertionTask(Task):
     }
     phases = [
         # The episode starts at HOME; the first move from there is long.
-        ("home", 3.0), ("above_peg", 2.5), ("orient", 2.5), ("descend", 3.0), ("close", 2.5),
-        ("lift", 2.0), ("measure", 0.4), ("level", 2.5), ("above_hole", 3.0),
+        ("home", 3.0),
+        ("above_peg", 2.5),
+        ("orient", 2.5),
+        ("descend", 3.0),
+        ("close", 2.5),
+        ("lift", 2.0),
+        ("measure", 0.4),
+        ("level", 2.5),
+        ("above_hole", 3.0),
         # search is long: the lattice grows as the clearance shrinks.
-        ("probe", 2.0), ("search", 300.0), ("insert", 6.0), ("release", 0.6),
+        ("probe", 2.0),
+        ("search", 300.0),
+        ("insert", 6.0),
+        ("release", 0.6),
         ("retreat", 1.5),
     ]
     # Record from t = 0, HOME included. The pick uses the peg's true pose.
     handover_phase = None
-    horizon_s = 30.0
+    horizon_s = 80.0
     scene_cam = ((0.68, -0.42, 0.26 + 0.10), (0.26, 0.0, TABLE_TOP_Z + 0.06))
 
     # -- search lattice, derived from the task's own knobs -------------------
@@ -184,10 +194,15 @@ class BlindPegInsertionTask(Task):
         hole = HOLE_XY if knobs.get("hole_y") is None else (HOLE_XY[0], float(knobs["hole_y"]))
         table = TABLE_TOP_Z + raise_
         board = BOARD_TOP_Z + raise_
-        return {"hole": hole, "raise": raise_, "table_top": table, "board_top": board,
-                "grasp_tcp": table + GRASP_HEIGHT,
-                "touch_tcp": board + GRASP_HEIGHT,
-                "hover_tcp": board + GRASP_HEIGHT + 0.030}
+        return {
+            "hole": hole,
+            "raise": raise_,
+            "table_top": table,
+            "board_top": board,
+            "grasp_tcp": table + GRASP_HEIGHT,
+            "touch_tcp": board + GRASP_HEIGHT,
+            "hover_tcp": board + GRASP_HEIGHT + 0.030,
+        }
 
     def make_scene_cfg(self, knobs: dict):
         g = self._geom(knobs)
@@ -203,21 +218,80 @@ class BlindPegInsertionTask(Task):
         self._light = cfg.set_light_scale(float(knobs["light_scale"]))
         return cfg
 
-    def apply_collision(self, h) -> None:
-        apply_ccd("/World/envs/env_0/peg")          # dropped-peg tunnelling guard
-        n_sdf = len(apply_sdf_collision("/World/envs/env_0/peg"))
-        n_tri = len(apply_triangle_mesh_collision("/World/envs/env_0/board"))
-        print(f"STEP hole diameter {self._hole_d * 1000:.2f} mm, light_scale "
-              f"{self._light:g}; sdf on peg: {n_sdf} mesh(es); board triangles: "
-              f"{n_tri}", flush=True)
+    def apply_collision(self, h, *, env_path="/World/envs/env_0") -> dict:
+        apply_ccd(f"{env_path}/peg")  # dropped-peg tunnelling guard
+        sdf = apply_sdf_collision(f"{env_path}/peg")
+        tri = apply_triangle_mesh_collision(f"{env_path}/board")
+        print(
+            f"STEP hole diameter {self._hole_d * 1000:.2f} mm, light_scale "
+            f"{self._light:g}; sdf on peg: {len(sdf)} mesh(es); board triangles: "
+            f"{len(tri)}",
+            flush=True,
+        )
+        return {"peg": sdf, "board": tri}
 
     def task_id(self, knobs: dict) -> str:
         # The id follows the knob, not the file: at any scale but 1.0 this is
         # a run in the dark, which must not be pooled with lit ones.
-        return ("blind_peg_insertion" if float(knobs["light_scale"]) == 1.0
-                else "blind_peg_insertion_dim")
+        return "blind_peg_insertion" if float(knobs["light_scale"]) == 1.0 else "blind_peg_insertion_dim"
 
     # -- episode --------------------------------------------------------------
+
+    settle_seconds = 0.5
+
+    def sample_init_state(self, robot, rng, state_id, knobs):
+        g = self._geom(knobs)
+        side = ("right", "left")[state_id % 2]
+        sign = -1.0 if side == "right" else 1.0
+        jitter = float(knobs["hole_jitter"])
+        hole = _np.asarray(g["hole"]) + [0.0, sign * float(knobs["hole_side_offset"])]
+        hole += rng.uniform(-jitter, jitter, 2) if jitter else 0.0
+        xy = _np.asarray(PEG_SPAWN_XY[side]) + rng.uniform(-SPAWN_JITTER, SPAWN_JITTER, 2)
+        minimum, maximum = float(knobs["pose_err_min"]), float(knobs["pose_err"])
+        if not 0 <= minimum <= maximum:
+            raise ValueError("Require 0 <= pose_err_min <= pose_err")
+        if minimum:
+            radius = _math.sqrt(rng.uniform(minimum**2, maximum**2))
+            angle = rng.uniform(0.0, 2.0 * _math.pi)
+            error = radius * _np.array([_math.cos(angle), _math.sin(angle)])
+        else:
+            error = rng.uniform(-maximum, maximum, 2)
+        return dict(
+            id=state_id,
+            robot=copy.deepcopy(robot),
+            objects={
+                "board": [*hole.tolist(), g["board_top"] - BOARD_THICKNESS / 2, 1.0, 0.0, 0.0, 0.0],
+                "peg": [*xy.tolist(), g["table_top"] + PEG_LENGTH / 2 + 0.002, 1.0, 0.0, 0.0, 0.0],
+            },
+            task_vars={"side": side, "pose_err": error.tolist()},
+        )
+
+    def validate_init_state(self, state):
+        variables = state["task_vars"]
+        if variables.get("side") not in ("left", "right"):
+            raise ValueError("Invalid peg arm")
+        error = _np.asarray(variables.get("pose_err"), dtype=float)
+        if error.shape != (2,) or not _np.isfinite(error).all():
+            raise ValueError("pose_err must contain two finite offsets")
+
+    def begin_restored_episode(self, h, state, knobs):
+        self.validate_init_state(state)
+        side = state["task_vars"]["side"]
+        h.select_arm(side)
+        board = h.scene["board"].data.root_pos_w[0].detach().cpu().numpy()
+        g = dict(self._geom(knobs), hole=tuple(board[:2]))
+        return self._new_ctx(h, side, _np.asarray(state["task_vars"]["pose_err"]), g, knobs)
+
+    def init_state_objects(self):
+        return ("board", "peg")
+
+    def snapshot_init_state(self, h, ctx):
+        return {"side": ctx["side"], "pose_err": _np.asarray(ctx["pose_err"]).tolist()}
+
+    def restore_init_state(self, h, state, knobs):
+        h.hold_default(30)
+        return self.begin_restored_episode(h, state, knobs)
+
     def reset(self, h, rng, ep, knobs) -> dict:
         g = self._geom(knobs)
         # Alternate sides: balanced by construction, reproducible, and the
@@ -231,13 +305,12 @@ class BlindPegInsertionTask(Task):
         hole = _np.array(g["hole"]) + _np.array([0.0, sgn * float(knobs["hole_side_offset"])])
         hole = hole + (rng.uniform(-jit, jit, 2) if jit else 0.0)
         g = dict(g, hole=(float(hole[0]), float(hole[1])))
-        h.place(h.scene["board"], hole,
-                g["board_top"] - BOARD_THICKNESS / 2)
+        h.place(h.scene["board"], hole, g["board_top"] - BOARD_THICKNESS / 2)
         p_xy = _np.array(PEG_SPAWN_XY[side]) + rng.uniform(-SPAWN_JITTER, SPAWN_JITTER, 2)
         e_max, e_min = float(knobs["pose_err"]), float(knobs["pose_err_min"])
         if e_min > 0.0:
             # Annulus, uniform in area: r = sqrt(U(rmin^2, rmax^2)), angle U(0, 2pi).
-            r = _math.sqrt(rng.uniform(e_min ** 2, e_max ** 2))
+            r = _math.sqrt(rng.uniform(e_min**2, e_max**2))
             a = rng.uniform(0.0, 2.0 * _math.pi)
             err = _np.array([r * _math.cos(a), r * _math.sin(a)])
         else:
@@ -254,36 +327,64 @@ class BlindPegInsertionTask(Task):
             # and past ~3 deg the top leans outside the open jaw.
             if self._tilt(h) < 3.0:
                 break
-            print(f"STEP ep{ep}: peg fell during settle (tilt {self._tilt(h):.0f} deg), "
-                  f"re-dropping (attempt {attempt + 1})", flush=True)
+            print(
+                f"STEP ep{ep}: peg fell during settle (tilt {self._tilt(h):.0f} deg), "
+                f"re-dropping (attempt {attempt + 1})",
+                flush=True,
+            )
         else:
             raise RetryReset("peg would not stand")
         # Grasp where the peg actually is after settling, not where it was
         # dropped: a settle bounce can walk it a few millimetres.
+        return self._new_ctx(h, side, err, g, knobs)
+
+    def _new_ctx(self, h, side, err, g, knobs):
         p_xy = self._peg_pq(h)[0][:2].copy()
         return {
-            "side": side, "peg_xy": p_xy, "pose_err": err,
+            "side": side,
+            "peg_xy": p_xy,
+            "pose_err": err,
             "hole_seen": (g["hole"][0] + err[0], g["hole"][1] + err[1]),
-            "geom": g, "hole_d": self._hole_d,
+            "geom": g,
+            "hole_d": self._hole_d,
             "heights": {"touch": g["touch_tcp"]},
             "offsets": _search_offsets(*self._lattice(knobs)),
-            "wp_idx": 0, "t_wp": 0.0, "support": [], "support_baseline": 0.0,
-            "wp_err_mm": [], "wp_settled": [], "wp_contacts": [], "wp_tip_mm": [],
-            "wp_no_contact": 0, "wp_contact_t": None, "wp_contact_z": None,
-            "wp_shear_free": None, "wp_shear_hop": [], "wp_shear_win": [],
-            "wp_axial_free": None, "wp_axial_hop": [], "wp_axial_win": [], "contact_kinds": {},
-            "wp_err_win": [], "area_support": [],
-            "entered": False, "depth_now": 0.0, "upright": None,
-            "pick_quat": None, "approach_cmd": None, "pick_goal": None,
-            "lat_by_phase": {}, "area_by_phase": {}, "depth_at_release_mm": 0.0,
+            "wp_idx": 0,
+            "t_wp": 0.0,
+            "support": [],
+            "support_baseline": 0.0,
+            "wp_err_mm": [],
+            "wp_settled": [],
+            "wp_contacts": [],
+            "wp_tip_mm": [],
+            "wp_no_contact": 0,
+            "wp_contact_t": None,
+            "wp_contact_z": None,
+            "wp_shear_free": None,
+            "wp_shear_hop": [],
+            "wp_shear_win": [],
+            "wp_axial_free": None,
+            "wp_axial_hop": [],
+            "wp_axial_win": [],
+            "contact_kinds": {},
+            "wp_err_win": [],
+            "area_support": [],
+            "entered": False,
+            "depth_now": 0.0,
+            "upright": None,
+            "pick_quat": None,
+            "approach_cmd": None,
+            "pick_goal": None,
+            "lat_by_phase": {},
+            "area_by_phase": {},
+            "depth_at_release_mm": 0.0,
         }
 
     # -- probes ---------------------------------------------------------------
     @staticmethod
     def _peg_pq(h):
         peg = h.scene["peg"]
-        return (peg.data.root_pos_w[0].detach().cpu().numpy(),
-                peg.data.root_quat_w[0].detach().cpu().numpy())
+        return (peg.data.root_pos_w[0].detach().cpu().numpy(), peg.data.root_quat_w[0].detach().cpu().numpy())
 
     def _tilt(self, h) -> float:
         return _tilt(self._peg_pq(h)[1])
@@ -294,8 +395,14 @@ class BlindPegInsertionTask(Task):
 
     def _depth(self, h, ctx) -> float:
         p, q = self._peg_pq(h)
-        return _depth(p, q, length=PEG_LENGTH, hole_xy=ctx["geom"]["hole"],
-                      mouth_z=ctx["geom"]["board_top"], hole_radius=ctx["hole_d"] / 2)
+        return _depth(
+            p,
+            q,
+            length=PEG_LENGTH,
+            hole_xy=ctx["geom"]["hole"],
+            mouth_z=ctx["geom"]["board_top"],
+            hole_radius=ctx["hole_d"] / 2,
+        )
 
     def _lat(self, h) -> float:
         """Controller-internal support signal: the active pads' world-
@@ -350,10 +457,16 @@ class BlindPegInsertionTask(Task):
         p, _ = self._peg_pq(h)
         d = self._depth(h, ctx)
         ctx["depth_now"] = d
-        return {"areas": h.pad_areas(), "depth": d, "tilt": self._tilt(h),
-                "lat": self._lat(h), "shear": self._shear(h), "axial": self._axial(h),
-                "tip_above_mm": self._tip_above_board(h, ctx) * 1e3,
-                "peg_pos": p.copy()}
+        return {
+            "areas": h.pad_areas(),
+            "depth": d,
+            "tilt": self._tilt(h),
+            "lat": self._lat(h),
+            "shear": self._shear(h),
+            "axial": self._axial(h),
+            "tip_above_mm": self._tip_above_board(h, ctx) * 1e3,
+            "peg_pos": p.copy(),
+        }
 
     # -- pick geometry ---------------------------------------------------------
     @staticmethod
@@ -366,8 +479,7 @@ class BlindPegInsertionTask(Task):
         """Unit blade direction at the pick, from the pitch and heading knobs."""
         th = _math.radians(float(knobs["grasp_pitch_deg"]))
         psi = _math.radians(self._pick_yaw_deg(ctx, knobs))
-        return _np.array([_math.cos(th) * _math.cos(psi), _math.cos(th) * _math.sin(psi),
-                          -_math.sin(th)])
+        return _np.array([_math.cos(th) * _math.cos(psi), _math.cos(th) * _math.sin(psi), -_math.sin(th)])
 
     @staticmethod
     def _wrist_err_deg(h, q_want) -> float:
@@ -392,11 +504,18 @@ class BlindPegInsertionTask(Task):
             tgt = [pregrasp[0], pregrasp[1], pregrasp[2] + HOME_ABOVE_PREGRASP]
         elif name in ("above_peg", "orient"):
             grip, tgt = OPEN_WIDTH, pregrasp.tolist()
-            if (name == "orient" and ctx["pick_quat"] is None
-                    and gel_gap(h.grip_measured()) >= LEVEL_MIN_GEL_GAP):
+            if (
+                name == "orient"
+                and ctx["pick_quat"] is None
+                and gel_gap(h.grip_measured()) >= LEVEL_MIN_GEL_GAP
+            ):
                 ctx["pick_quat"] = quat = oblique_grasp_quat(
-                    h.tcp_quat(), h.jaw_axis(), h.approach_axis(),
-                    float(knobs["grasp_pitch_deg"]), self._pick_yaw_deg(ctx, knobs))
+                    h.tcp_quat(),
+                    h.jaw_axis(),
+                    h.approach_axis(),
+                    float(knobs["grasp_pitch_deg"]),
+                    self._pick_yaw_deg(ctx, knobs),
+                )
         elif name == "descend":
             # In along the blade: the command point slides to the grasp point.
             grip = OPEN_WIDTH
@@ -404,8 +523,7 @@ class BlindPegInsertionTask(Task):
                 ctx["approach_cmd"] = h.tcp_pos().astype(float)
             d = grasp - ctx["approach_cmd"]
             n = float(_np.linalg.norm(d))
-            from sim.harness import DT
-            step = APPROACH_SPEED * DT
+            step = APPROACH_SPEED * h.control_dt
             ctx["approach_cmd"] = ctx["approach_cmd"] + d * (step / n) if n > step else grasp
             ctx["pick_goal"] = grasp.tolist()
             tgt = ctx["approach_cmd"].tolist()
@@ -441,7 +559,7 @@ class BlindPegInsertionTask(Task):
             # SEARCH_LEVEL_TOL: an off-axis press levers the peg in the jaws.
             lever = (float(tcp[0] - tip[0]), float(tcp[1] - tip[1]))
             if ctx["t_wp"] < hop_s:
-                tip_goal = HOP_CLEAR                       # clear of the board
+                tip_goal = HOP_CLEAR  # clear of the board
                 if ctx.get("wp_levelled") != ctx["wp_idx"] and sig["tilt"] > SEARCH_LEVEL_TOL:
                     ctx["upright"] = quat = h.level_wrist(h.scene["peg"])
                     ctx["wp_levelled"] = ctx["wp_idx"]
@@ -456,16 +574,14 @@ class BlindPegInsertionTask(Task):
             else:
                 # Descend at a fixed rate from the hop clearance; the floor is
                 # a safety, not a target -- the press ends on contact.
-                tip_goal = max(HOP_CLEAR - (ctx["t_wp"] - hop_s) * PRESS_RATE,
-                               -PRESS_FLOOR)
+                tip_goal = max(HOP_CLEAR - (ctx["t_wp"] - hop_s) * PRESS_RATE, -PRESS_FLOOR)
             if tip_goal is None:
                 # After contact, steer the TCP over the tip rather than the
                 # lattice point, so a tip on the chamfer can slide down the
                 # lead-in and the arm goes with it.
                 tgt = [float(tip[0]), float(tip[1]), ctx["wp_contact_z"] - follow]
             else:
-                tgt = [xy[0] + dx + lever[0], xy[1] + dy + lever[1],
-                       tcp_z + (tip_goal - tip_above)]
+                tgt = [xy[0] + dx + lever[0], xy[1] + dy + lever[1], tcp_z + (tip_goal - tip_above)]
         elif name in ("insert", "release") and not ctx.get("entered"):
             # Lattice exhausted, peg still on solid board. Do not insert
             # (would drive 27 mm into the face) and do not release (would
@@ -485,13 +601,12 @@ class BlindPegInsertionTask(Task):
             # a TCP descending beside the hole axis levers the peg about the
             # jaws and the tilt grows with every millimetre.
             tip = self._tip(h)
-            tgt = [float(tip[0]), float(tip[1]),
-                   max(ctx["insert_goal_z"], float(tp[2]) - 0.010)]
+            tgt = [float(tip[0]), float(tip[1]), max(ctx["insert_goal_z"], float(tp[2]) - 0.010)]
         elif name == "release":
             grip = OPEN_WIDTH
             tp = h.tcp_pos()
             tgt = [tp[0], tp[1], float(tp[2])]
-        else:                                          # retreat
+        else:  # retreat
             # Open only if the peg was placed. A peg that never entered is
             # still in the jaws; opening at hover would drop it onto the board.
             grip = OPEN_WIDTH if ctx.get("entered") else CLOSE_WIDTH
@@ -502,15 +617,17 @@ class BlindPegInsertionTask(Task):
     def phase_done(self, h, ctx, name, t_phase, sig, target, knobs) -> bool:
         areas, depth, lat = sig["areas"], sig["depth"], sig["lat"]
         ctx["lat_by_phase"][name] = max(ctx["lat_by_phase"].get(name, 0.0), lat)
-        ctx["area_by_phase"][name] = max(ctx["area_by_phase"].get(name, 0.0),
-                                         sum(areas.values()))
+        ctx["area_by_phase"][name] = max(ctx["area_by_phase"].get(name, 0.0), sum(areas.values()))
         if name == "insert":
             ctx["depth_at_release_mm"] = round(depth * 1e3, 2)
         if name in ("home", "above_peg", "lift", "above_hole", "retreat"):
             return h.tcp_err(target) < 0.015
         if name == "orient":
-            return (t_phase > 0.3 and self._wrist_err_deg(h, ctx["pick_quat"]) < ORIENT_TOL_DEG
-                    and h.tcp_err(target) < 0.015)
+            return (
+                t_phase > 0.3
+                and self._wrist_err_deg(h, ctx["pick_quat"]) < ORIENT_TOL_DEG
+                and h.tcp_err(target) < 0.015
+            )
         if name == "measure":
             return t_phase > 0.3
         if name == "level":
@@ -523,8 +640,7 @@ class BlindPegInsertionTask(Task):
         if name == "probe":
             return h.tcp_err(target) < 0.004
         if name == "search":
-            from sim.harness import DT
-            ctx["t_wp"] += DT
+            ctx["t_wp"] += h.control_dt
             hop_s = float(knobs["search_hop_s"])
             shear, axial = sig["shear"], sig["axial"]
             pressing = ctx["t_wp"] >= hop_s
@@ -550,10 +666,14 @@ class BlindPegInsertionTask(Task):
                 # spike: summed shear rises over the hop median (impact).
                 # unload: vertical resultant drops (the peg's weight leaves
                 # the gel). A soft landing misses the spike but still unloads.
-                spike = len(win) >= PRESS_MEAN_N and \
-                    mean >= max(free * PRESS_SHEAR_RATIO, free + PRESS_SHEAR_MIN_RISE)
-                unload = len(awin) >= PRESS_AXIAL_N and abs(afree) > PRESS_AXIAL_MIN and \
-                    amean / afree <= PRESS_AXIAL_FRAC
+                spike = len(win) >= PRESS_MEAN_N and mean >= max(
+                    free * PRESS_SHEAR_RATIO, free + PRESS_SHEAR_MIN_RISE
+                )
+                unload = (
+                    len(awin) >= PRESS_AXIAL_N
+                    and abs(afree) > PRESS_AXIAL_MIN
+                    and amean / afree <= PRESS_AXIAL_FRAC
+                )
                 # Proprioceptive fallback, counted separately: the TCP falling
                 # behind its command means something is holding the peg up.
                 ewin = ctx["wp_err_win"]
@@ -580,8 +700,12 @@ class BlindPegInsertionTask(Task):
             if pressing:
                 ctx["area_support"].append(area_sum)
             abase = float(_np.median(ctx["area_support"])) if ctx["area_support"] else 0.0
-            below = bool(pressing and len(ctx["area_support"]) >= 6 and abase > 1e-6
-                         and area_sum < LOST_AREA_FRAC * abase)
+            below = bool(
+                pressing
+                and len(ctx["area_support"]) >= 6
+                and abase > 1e-6
+                and area_sum < LOST_AREA_FRAC * abase
+            )
             ctx["lost_n"] = ctx.get("lost_n", 0) + 1 if below else 0
             lost = ctx["lost_n"] >= LOST_N
             # Entered: the tip is below the hole mouth.
@@ -594,7 +718,7 @@ class BlindPegInsertionTask(Task):
                 ctx["entered_with_contact"] = felt_now
                 return True
             if lost:
-                ctx["entered"] = True          # judged downstream as a lost grasp
+                ctx["entered"] = True  # judged downstream as a lost grasp
                 return True
             # Creep guard: each press walks the peg up the gel and the TCP
             # follows lower, toward a joint limit. Measured as the change in
@@ -649,19 +773,21 @@ class BlindPegInsertionTask(Task):
             # Stall: no depth progress for INSERT_STALL_S, so release. Past
             # capture depth the jam is the gripper holding the peg off-axis
             # and gravity finishes the insertion.
-            from sim.harness import DT
             hist = ctx.setdefault("insert_hist", [])
             hist.append(depth)
-            n = int(round(INSERT_STALL_S / DT))
+            n = int(round(INSERT_STALL_S / h.control_dt))
             # Progress is the window's best depth, not the latest sample.
             # insertion_depth is gated and returns 0 when a gate flickers.
             best = max(hist[-n:]) if len(hist) > n else depth
             if len(hist) > n and (best - hist[-n - 1]) < INSERT_STALL_PROGRESS:
                 ctx["insert_stalled"] = True
                 ctx["released_early"] = True
-                print(f"STEP insert stalled at {best * 1e3:.1f} mm "
-                      f"({'captured' if best >= INSERT_CAPTURE_DEPTH else 'not captured'}); "
-                      f"releasing", flush=True)
+                print(
+                    f"STEP insert stalled at {best * 1e3:.1f} mm "
+                    f"({'captured' if best >= INSERT_CAPTURE_DEPTH else 'not captured'}); "
+                    f"releasing",
+                    flush=True,
+                )
                 return True
             return False
         if name == "release":
@@ -677,6 +803,7 @@ class BlindPegInsertionTask(Task):
         # The criterion judges FINAL depth; once the peg has sat past the bar
         # for 3 s the verdict cannot change, so stop.
         from sim.harness import CTRL_FPS
+
         d = hist["depth"]
         n = 3 * CTRL_FPS
         return len(d) >= n and all(x >= 0.025 for x in d[-n:])
@@ -684,19 +811,22 @@ class BlindPegInsertionTask(Task):
     # -- scoring --------------------------------------------------------------
     def build_trace(self, h, ctx, hist) -> _Trace:
         from sim.envs.bimanual_tactile import TACTILE_SENSORS
+
         return _Trace(
             t=_np.asarray(hist["t"]),
             pad_area={p: _np.asarray([a[p] for a in hist["areas"]]) for p in TACTILE_SENSORS},
             object_pos={"peg": _np.asarray(hist["peg_pos"])},
-            extra={"insertion_depth_m": _np.asarray(hist["depth"]),
-                   "lateral_rel": _np.asarray(hist["lat"]),
-                   "peg_tilt_deg": _np.asarray(hist["tilt"])},
+            extra={
+                "insertion_depth_m": _np.asarray(hist["depth"]),
+                "lateral_rel": _np.asarray(hist["lat"]),
+                "peg_tilt_deg": _np.asarray(hist["tilt"]),
+            },
         )
 
     def verdict(self, trace, ctx, knobs):
         from sim.harness import ARM_PADS
-        return _verdict(trace, pads=ARM_PADS[ctx["side"]],
-                        max_tilt_deg=float(knobs["max_tilt_deg"]))
+
+        return _verdict(trace, pads=ARM_PADS[ctx["side"]], max_tilt_deg=float(knobs["max_tilt_deg"]))
 
     def episode_extra(self, ctx, hist) -> dict:
         return {
@@ -721,17 +851,21 @@ class BlindPegInsertionTask(Task):
             "waypoints_tried": ctx["wp_idx"] + 1,
             "lattice_n": len(ctx["offsets"]),
             # Fraction of completed waypoints where the board was felt.
-            "search_contact_frac": (round(sum(ctx["wp_contacts"]) / len(ctx["wp_contacts"]), 2)
-                                    if ctx["wp_contacts"] else None),
+            "search_contact_frac": (
+                round(sum(ctx["wp_contacts"]) / len(ctx["wp_contacts"]), 2) if ctx["wp_contacts"] else None
+            ),
             "search_no_contact_wps": ctx["wp_no_contact"],
             "search_exhausted": bool(ctx.get("search_exhausted", False)),
             "entered_with_contact": ctx.get("entered_with_contact"),
-            "search_tip_at_advance_mm": (round(float(_np.mean(ctx["wp_tip_mm"])), 2)
-                                         if ctx["wp_tip_mm"] else None),
-            "search_settled_frac": (round(sum(ctx["wp_settled"]) / len(ctx["wp_settled"]), 2)
-                                    if ctx["wp_settled"] else None),
-            "search_track_err_mm": (round(float(_np.mean(ctx["wp_err_mm"])), 2)
-                                    if ctx["wp_err_mm"] else None),
+            "search_tip_at_advance_mm": (
+                round(float(_np.mean(ctx["wp_tip_mm"])), 2) if ctx["wp_tip_mm"] else None
+            ),
+            "search_settled_frac": (
+                round(sum(ctx["wp_settled"]) / len(ctx["wp_settled"]), 2) if ctx["wp_settled"] else None
+            ),
+            "search_track_err_mm": (
+                round(float(_np.mean(ctx["wp_err_mm"])), 2) if ctx["wp_err_mm"] else None
+            ),
             "search_track_err_max_mm": (max(ctx["wp_err_mm"]) if ctx["wp_err_mm"] else None),
             "support_baseline": round(ctx["support_baseline"], 2),
             "grasp_height_mm": round(ctx["heights"].get("grasp", float("nan")) * 1e3, 2),
@@ -743,16 +877,21 @@ class BlindPegInsertionTask(Task):
         g = self._geom(knobs)
         # Nominal hole; each episode's redrawn hole is in its `hole_xy`.
         pitch, r = self._lattice(knobs)
-        return {"hole_xy_nominal_m": list(g["hole"]),
-                "search_spacing_m": pitch, "search_r_max_m": r,
-                "search_lattice_n": len(_search_offsets(pitch, r)),
-                "hole_jitter_m": float(knobs["hole_jitter"]),
-                "table_raise_m": g["raise"],
-                "board_top_z_m": g["board_top"], "clearance_m": float(knobs["clearance"]),
-                "hole_diameter_m": self._hole_d, "light_scale": self._light,
-                "pose_err_m": float(knobs["pose_err"]),
-                "grasp_pitch_deg": float(knobs["grasp_pitch_deg"]),
-                "grasp_yaw_inward_deg": float(knobs["grasp_yaw_inward_deg"])}
+        return {
+            "hole_xy_nominal_m": list(g["hole"]),
+            "search_spacing_m": pitch,
+            "search_r_max_m": r,
+            "search_lattice_n": len(_search_offsets(pitch, r)),
+            "hole_jitter_m": float(knobs["hole_jitter"]),
+            "table_raise_m": g["raise"],
+            "board_top_z_m": g["board_top"],
+            "clearance_m": float(knobs["clearance"]),
+            "hole_diameter_m": self._hole_d,
+            "light_scale": self._light,
+            "pose_err_m": float(knobs["pose_err"]),
+            "grasp_pitch_deg": float(knobs["grasp_pitch_deg"]),
+            "grasp_yaw_inward_deg": float(knobs["grasp_yaw_inward_deg"]),
+        }
 
 
 TASK = BlindPegInsertionTask()

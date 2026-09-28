@@ -1,69 +1,64 @@
-#!/bin/bash
-# Stage 4 — BC training (airseai env, lerobot from $AIRSEAI_LEROBOT_DIR).
-#
-# Trains only. Run stage 3 first:
-#
-#   bash scripts/run_convert.sh ~/blind_peg_insertion_dataset
-#   DATASET=blind_peg_insertion_dataset VARIANT=tacff bash scripts/run_train.sh
-#
-# The policy is ACT, with lerobot's ImageNet-pretrained ResNet18 as the
-# backbone for every image stream, tactile included.
-#
-# Inputs (env vars; DATASET and VARIANT are required)
-#   DATASET  the raw recording's directory name, as stage 3 named its outputs
-#   VARIANT  vision | tacff | tacrgb
-#            vision : observation.images.base + wrist cameras + state(16)
-#            tacff  : + tacff_{right,left}_{middle,index} (force field as 3ch image:
-#                     R=depth, G/B=shear x/y, fixed scales)
-#            tacrgb : + tacrgb_{right,left}_{middle,index} (raw Taxim tactile RGB)
-#            action : 16-dim joint targets (deg / gripper mm)
-#   POLICY   lerobot --policy.type, default act
-#   BASE     work root, default $BENCH_ROOT
-#   DS       converted dataset dir, default $BASE/datasets/${DATASET}_$VARIANT
-#   GPU      default: the GPU with the most free memory
-#   STEPS    default 50000        SEED  default 1000
-#
-# Output: $BASE/outputs/${DATASET}_${VARIANT}_${POLICY}_s${SEED}/checkpoints/...
-set -eu
+#!/usr/bin/env bash
+# Train a LeRobot policy on a converted dataset and save checkpoints and logs.
+set -euo pipefail
 DATASET="${DATASET:?set DATASET=<raw recording name, e.g. blind_peg_insertion_dataset>}"
 VARIANT="${VARIANT:?set VARIANT=vision|tacff|tacrgb}"
 POLICY="${POLICY:-act}"
+case "$VARIANT" in
+    vision|tacrgb|tacff) ;;
+    *) echo "VARIANT must be vision, tacrgb or tacff" >&2; exit 64 ;;
+esac
 
-BENCH_ROOT="${BENCH_ROOT:-$HOME/airseai-benchmark}"
-BASE="${BASE:-$BENCH_ROOT}"
+OUTPUT_ROOT="${OUTPUT_ROOT:-$HOME/airseai-benchmark}"
+BASE="${BASE:-$OUTPUT_ROOT}"
 DS="${DS:-$BASE/datasets/${DATASET}_${VARIANT}}"
 STEPS="${STEPS:-50000}"
 SEED="${SEED:-1000}"
+BATCH="${BATCH:-8}"
+WORKERS="${WORKERS:-8}"
+SAVE_FREQ="${SAVE_FREQ:-10000}"
+LOG_FREQ="${LOG_FREQ:-200}"
+for value in "$STEPS" "$BATCH" "$SAVE_FREQ" "$LOG_FREQ"; do
+    if ! [[ "$value" =~ ^[1-9][0-9]*$ ]]; then
+        echo "steps, batch and frequencies must be positive integers" >&2
+        exit 64
+    fi
+done
+for value in "$SEED" "$WORKERS"; do
+    if ! [[ "$value" =~ ^[0-9]+$ ]]; then
+        echo "seed and workers must be nonnegative integers" >&2
+        exit 64
+    fi
+done
 if [ -z "${GPU:-}" ]; then
-  GPU=$(nvidia-smi --query-gpu=index,memory.used --format=csv,noheader,nounits \
-        | sort -t, -k2 -n | head -1 | cut -d, -f1)
+    GPU=$(nvidia-smi --query-gpu=index,memory.free --format=csv,noheader,nounits \
+        | sort -t, -k2,2nr | awk -F, 'NR == 1 {gsub(/[[:space:]]/, "", $1); print $1}')
+    [ -n "$GPU" ] || { echo "no GPU available; set GPU explicitly" >&2; exit 1; }
 fi
 
+case "$BASE" in /*) ;; *) BASE="$PWD/$BASE" ;; esac
+case "$DS" in /*) ;; *) DS="$PWD/$DS" ;; esac
 cd "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-# lerobot is a source checkout on PYTHONPATH; its train module is run directly.
-LEROBOT_DIR="${AIRSEAI_LEROBOT_DIR:-$HOME/lerobot}"
-export PYTHONPATH="$PWD/src:$LEROBOT_DIR/src"
+export PYTHONPATH="$PWD/src${AIRSEAI_LEROBOT_DIR:+:$AIRSEAI_LEROBOT_DIR/src}${PYTHONPATH:+:$PYTHONPATH}"
 export HF_HUB_OFFLINE=1
-CONDA_ENVS="${CONDA_ENVS:-$HOME/miniconda3/envs}"
-PY="${SIM_PY:-$CONDA_ENVS/airseai/bin/python}"
+PY="${DEFAULT_PY:-python}"
 
-if [ ! -d "$DS" ]; then
-    echo "converted dataset not found: $DS"
-    echo "run stage 3 first:  VARIANTS=$VARIANT bash scripts/run_convert.sh <raw_dataset_dir>"
+if [ ! -f "$DS/meta/info.json" ]; then
+    echo "converted dataset not found: $DS/meta/info.json" >&2
     exit 1
 fi
 
-OUT="$BASE/outputs/${DATASET}_${VARIANT}_${POLICY}_s${SEED}"
-rm -rf "$OUT"          # lerobot-train refuses an existing dir
+OUT="$BASE/train/${DATASET}_${VARIANT}_${POLICY}_s${SEED}"
+[ ! -e "$OUT" ] || { echo "training output already exists: $OUT" >&2; exit 1; }
 mkdir -p "$BASE/logs"
 echo "training $POLICY on ${DATASET}_${VARIANT}, GPU $GPU"
 echo "  dataset: $DS"
 echo "  output : $OUT"
-CUDA_VISIBLE_DEVICES=$GPU "$PY" -m lerobot.scripts.lerobot_train \
+CUDA_VISIBLE_DEVICES="$GPU" "$PY" -m lerobot.scripts.lerobot_train \
   --policy.type="$POLICY" --policy.device=cuda --policy.push_to_hub=false \
   --dataset.repo_id="local/${DATASET}_${VARIANT}" \
   --dataset.root="$DS" \
-  --output_dir="$OUT" --batch_size="${BATCH:-8}" --steps="$STEPS" \
-  --save_freq=10000 --log_freq=200 --seed="$SEED" --num_workers=8 \
-  --wandb.enable=false \
+  --output_dir="$OUT" --batch_size="$BATCH" --steps="$STEPS" \
+  --save_freq="$SAVE_FREQ" --log_freq="$LOG_FREQ" --seed="$SEED" --num_workers="$WORKERS" \
+  --wandb.enable=false "$@" \
   2>&1 | tee "$BASE/logs/train_${DATASET}_${VARIANT}_${POLICY}_s${SEED}.log"

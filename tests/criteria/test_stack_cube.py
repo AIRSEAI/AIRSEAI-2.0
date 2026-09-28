@@ -1,8 +1,4 @@
-"""stack_cube: the final pose of cube A on cube B decides."""
-
-from __future__ import annotations
-
-import inspect
+"""Sustained stacking completion and interruption boundaries."""
 
 import numpy as np
 import pytest
@@ -14,39 +10,91 @@ from sim.dims.stack_cube import CUBE_SIZE
 
 @pytest.fixture
 def cube_trace(held_trace):
-    """-> make(dxy, dz): cube A ends `dxy` beside and `dz` above cube B."""
-    def make(dxy=0.0, dz=CUBE_SIZE, n=100, area=20.0):
-        tr = held_trace(n=n, area=area)
-        b = tr.object_pos.pop("manipuland")
-        a = b.copy()
-        a[-1, 0] += dxy
-        a[-1, 2] += dz
-        tr.object_pos["cube_a"] = a
-        tr.object_pos["cube_b"] = b
-        return tr
-    return make
+    tr = held_trace(n=80)
+    b = tr.object_pos.pop("manipuland")
+    a = b.copy()
+    a[:, 2] += CUBE_SIZE
+    tr.object_pos.update(cube_a=a, cube_b=b)
+    tr.extra["gripper_gap_m"] = np.full(80, CUBE_SIZE + 0.004)
+    for area in tr.pad_area.values():
+        area[20:] = 0
+    return tr
 
 
-def test_passes_when_stacked(cube_trace, right_pads):
-    v = verdict(cube_trace(), pads=right_pads)
-    assert v.success and v.metrics["z_err_m"] == pytest.approx(0.0)
+def test_stack_succeeds_and_latches(cube_trace, right_pads):
+    cube_trace.object_pos["cube_a"][60:, 0] += 1
+    result = verdict(cube_trace, pads=right_pads)
+    assert result.success
+    assert result.metrics["success_time_s"] == pytest.approx(1.0)
 
 
-def test_reports_unfinished_when_beside(cube_trace, right_pads):
-    v = verdict(cube_trace(dxy=CUBE_SIZE, dz=0.0), pads=right_pads)
-    assert v.failure is FailureMode.UNFINISHED
+@pytest.mark.parametrize("case", ["brief", "misaligned", "interrupted"])
+def test_incomplete_stack(cube_trace, right_pads, case):
+    if case == "brief":
+        cube_trace.object_pos["cube_a"][19:, 0] += 1
+    elif case == "interrupted":
+        cube_trace.object_pos["cube_a"][::10, 0] += 1
+    else:
+        cube_trace.object_pos["cube_a"][:, 0] += 1
+    assert not verdict(cube_trace, pads=right_pads).success
 
 
-def test_reports_unfinished_when_off_centre(cube_trace, right_pads):
-    v = verdict(cube_trace(dxy=0.6 * CUBE_SIZE), pads=right_pads)
-    assert v.failure is FailureMode.UNFINISHED
+def test_no_grasp_fails(cube_trace, right_pads):
+    for area in cube_trace.pad_area.values():
+        area[:] = 0
+    assert verdict(cube_trace, pads=right_pads).failure is FailureMode.GRASP_FAILURE
 
 
-def test_never_held_is_a_grasp_failure(cube_trace, right_pads):
-    assert verdict(cube_trace(area=0.0), pads=right_pads).failure is FailureMode.GRASP_FAILURE
+@pytest.mark.parametrize("gap", [None, 0.0, np.nan])
+def test_gripper_state_does_not_gate_success(cube_trace, right_pads, gap):
+    cube_trace.extra.clear()
+    if gap is not None:
+        cube_trace.extra["gripper_gap_m"] = np.full(len(cube_trace.t), gap)
+    for area in cube_trace.pad_area.values():
+        area[:] = 20
+    assert verdict(cube_trace, pads=right_pads).success
 
 
-def test_threshold_defaults():
-    defaults = {k: p.default for k, p in inspect.signature(verdict).parameters.items()}
-    assert defaults["cube_size"] == CUBE_SIZE
-    assert np.isclose(defaults["area_mm2"], 5.0)
+def test_prefix_matches_full_trace(cube_trace, right_pads):
+    from sim.criteria.trace import EpisodeTrace
+
+    first = None
+    for n in range(2, len(cube_trace.t) + 1):
+        prefix = EpisodeTrace(
+            cube_trace.t[:n],
+            {k: v[:n] for k, v in cube_trace.pad_area.items()},
+            {k: v[:n] for k, v in cube_trace.object_pos.items()},
+            extra={k: v[:n] for k, v in cube_trace.extra.items()},
+        )
+        result = verdict(prefix, pads=right_pads)
+        if result.success:
+            first = result.metrics["success_time_s"]
+            break
+    assert first == verdict(cube_trace, pads=right_pads).metrics["success_time_s"]
+
+
+def test_bad_clock_rejected(cube_trace, right_pads):
+    cube_trace.t[2] = cube_trace.t[1]
+    with pytest.raises(ValueError, match="timestamps"):
+        verdict(cube_trace, pads=right_pads)
+
+
+def test_policy_hook_keeps_episodes_independent():
+    from sim.criteria.trace import Verdict
+    from sim.tasks.spec import Task
+
+    class CompletionTask(Task):
+        completion_on_success = True
+
+        def build_trace(self, h, ctx, hist):
+            assert h == "handle"
+            return ctx["success"]
+
+        def verdict(self, trace, ctx, knobs):
+            assert knobs == {"threshold": 1}
+            return Verdict(True) if trace else Verdict(False, FailureMode.UNFINISHED)
+
+    task = CompletionTask()
+    hist = {"t": [0.0, 0.05]}
+    for success in (True, False, True, False):
+        assert task.policy_should_terminate("handle", {"success": success}, hist, {"threshold": 1}) is success

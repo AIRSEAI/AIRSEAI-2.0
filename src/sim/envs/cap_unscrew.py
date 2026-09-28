@@ -24,10 +24,10 @@ from sim.envs.bimanual_tactile import (
     REAL_HOME_JOINT_POS,
     TABLE_TOP_Z,
     BimanualTactileSceneCfg,
-    park_default_manipuland,
     point_pads_at,
     start_joint_pos,
 )
+from sim.envs.preview import PreviewSpec
 
 __all__ = [
     "ASSETS_DIR",
@@ -42,7 +42,6 @@ __all__ = [
     "CAP_MASS",
     "CAP_SPAWN_Z",
     "PAD_TARGET",
-    "PARKED_POS",
     "SPINDLE_Z",
     "START_JAW_WIDTH",
     "START_JOINT_POS",
@@ -77,7 +76,8 @@ def ensure_assets() -> None:
     if missing:
         raise FileNotFoundError(
             f"cap_unscrew geometry missing from {ASSETS_DIR}: {', '.join(missing)}\n"
-            f"    python benchmark/run/make_cap_unscrew_assets.py --headless")
+            f"    python benchmark/run/make_cap_unscrew_assets.py --headless"
+        )
 
 
 # ----- objects ---------------------------------------------------------------
@@ -97,15 +97,12 @@ BOTTLE_SPIN_DAMPING = 0.02
 # The thread: a joint freeing only the cap's turn about the bottle's axis,
 # damped (N m s/rad) and released once the turn reaches the thread angle.
 # The angle, degrees, is the task's knob and is not visible.
-THREAD_DAMPING = 0.1                 # N m s/rad
+THREAD_DAMPING = 0.1  # N m s/rad
 THREAD_ANGLE_SWEEP = (90.0, 120.0, 150.0)
 
 # Height the thread holds the cap above resting on the neck, metres: over the
 # contact offset, so the pair carries no force until the cap is freed.
 CAP_LIFT = 0.001
-
-# Where the placeholder sphere waits: below the ground plane.
-PARKED_POS = (0.0, 0.0, -5.0)
 
 
 # ----- layout ----------------------------------------------------------------
@@ -121,12 +118,12 @@ BOTTLE_JITTER = 0.005
 TRAY_JITTER = 0.010
 
 
-def sample_layout(rng, bottle_jitter: float = BOTTLE_JITTER,
-                  tray_jitter: float = TRAY_JITTER) -> dict[str, tuple[float, float]]:
+def sample_layout(
+    rng, bottle_jitter: float = BOTTLE_JITTER, tray_jitter: float = TRAY_JITTER
+) -> dict[str, tuple[float, float]]:
     """Draw xy for the bottle and the tray, each jittered about its stand."""
     out = {}
-    for key, (x, y), j in (("bottle", BOTTLE_XY, bottle_jitter),
-                           ("tray", TRAY_XY, tray_jitter)):
+    for key, (x, y), j in (("bottle", BOTTLE_XY, bottle_jitter), ("tray", TRAY_XY, tray_jitter)):
         dx, dy = rng.uniform(-j, j, 2) if j else (0.0, 0.0)
         out[key] = (float(x + dx), float(y + dy))
     return out
@@ -147,10 +144,12 @@ START_JAW_WIDTH = {"right": 0.0, "left": 0.0}
 START_JOINT_POS = REAL_HOME_JOINT_POS
 # The prim each tactile pad senses: the right hand turns the cap, the left
 # holds the bottle.
-PAD_TARGET = {"right_left_finger_tactile": "{ENV_REGEX_NS}/cap",
-              "right_right_finger_tactile": "{ENV_REGEX_NS}/cap",
-              "left_left_finger_tactile": "{ENV_REGEX_NS}/bottle",
-              "left_right_finger_tactile": "{ENV_REGEX_NS}/bottle"}
+PAD_TARGET = {
+    "right_left_finger_tactile": "{ENV_REGEX_NS}/cap",
+    "right_right_finger_tactile": "{ENV_REGEX_NS}/cap",
+    "left_left_finger_tactile": "{ENV_REGEX_NS}/bottle",
+    "left_right_finger_tactile": "{ENV_REGEX_NS}/bottle",
+}
 
 
 # ----- spawn helpers ---------------------------------------------------------
@@ -163,14 +162,15 @@ def _spawn_part(prim: str, mesh: str, mass: float, z: float) -> RigidObjectCfg:
             rigid_props=sim_utils.RigidBodyPropertiesCfg(
                 # Depenetration well under the default metre per second,
                 # which throws a part this light.
-                disable_gravity=False, max_depenetration_velocity=0.2,
+                disable_gravity=False,
+                max_depenetration_velocity=0.2,
                 solver_position_iteration_count=16,
-                solver_velocity_iteration_count=1),
+                solver_velocity_iteration_count=1,
+            ),
             mass_props=sim_utils.MassPropertiesCfg(mass=mass),
             # Contact generated before the gels or the tray are deep in,
             # and under the bore's clearance on the neck.
-            collision_props=sim_utils.CollisionPropertiesCfg(
-                contact_offset=0.0015, rest_offset=0.0),
+            collision_props=sim_utils.CollisionPropertiesCfg(contact_offset=0.0015, rest_offset=0.0),
         ),
         init_state=RigidObjectCfg.InitialStateCfg(pos=(*BOTTLE_XY, z)),
     )
@@ -182,7 +182,9 @@ def _spawn_spindle(prim: str) -> RigidObjectCfg:
     return RigidObjectCfg(
         prim_path=prim,
         spawn=sim_utils.MeshCylinderCfg(
-            radius=0.004, height=0.004, axis="Z",
+            radius=0.004,
+            height=0.004,
+            axis="Z",
             rigid_props=sim_utils.RigidBodyPropertiesCfg(kinematic_enabled=True),
             collision_props=sim_utils.CollisionPropertiesCfg(collision_enabled=False),
         ),
@@ -197,8 +199,7 @@ def _spawn_tray(prim: str) -> RigidObjectCfg:
         spawn=sim_utils.UsdFileCfg(
             usd_path=str(_usd("tray")),
             rigid_props=sim_utils.RigidBodyPropertiesCfg(kinematic_enabled=True),
-            collision_props=sim_utils.CollisionPropertiesCfg(
-                contact_offset=0.002, rest_offset=0.0),
+            collision_props=sim_utils.CollisionPropertiesCfg(contact_offset=0.002, rest_offset=0.0),
         ),
         init_state=RigidObjectCfg.InitialStateCfg(pos=(*TRAY_XY, TABLE_TOP_Z)),
     )
@@ -215,18 +216,17 @@ class CapUnscrewSceneCfg(BimanualTactileSceneCfg):
     constructing, as with the parent class.
     """
 
+    manipuland = None
+
     table = AssetBaseCfg(
         prim_path="{ENV_REGEX_NS}/table",
         spawn=sim_utils.CuboidCfg(
             size=(0.55, 0.75, 0.04),
             collision_props=sim_utils.CollisionPropertiesCfg(),
-            physics_material=sim_utils.RigidBodyMaterialCfg(
-                static_friction=0.9, dynamic_friction=0.8),
-            visual_material=sim_utils.PreviewSurfaceCfg(
-                diffuse_color=(0.72, 0.66, 0.55)),
+            physics_material=sim_utils.RigidBodyMaterialCfg(static_friction=0.9, dynamic_friction=0.8),
+            visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.72, 0.66, 0.55)),
         ),
-        init_state=AssetBaseCfg.InitialStateCfg(
-            pos=(0.32, 0.0, TABLE_TOP_Z - 0.02)),
+        init_state=AssetBaseCfg.InitialStateCfg(pos=(0.32, 0.0, TABLE_TOP_Z - 0.02)),
     )
 
     spindle = _spawn_spindle("{ENV_REGEX_NS}/spindle")
@@ -237,14 +237,24 @@ class CapUnscrewSceneCfg(BimanualTactileSceneCfg):
 
     key_light = AssetBaseCfg(
         prim_path="/World/KeyLight",
-        spawn=sim_utils.SphereLightCfg(
-            intensity=3000.0, radius=0.05, color=(1.0, 0.98, 0.95)),
+        spawn=sim_utils.SphereLightCfg(intensity=3000.0, radius=0.05, color=(1.0, 0.98, 0.95)),
         init_state=AssetBaseCfg.InitialStateCfg(pos=(0.51, -0.02, 0.70)),
     )
 
     def __post_init__(self):
         ensure_assets()
         self.robot.init_state.joint_pos = start_joint_pos(START_JOINT_POS, START_JAW_WIDTH)
-        park_default_manipuland(self, PARKED_POS)
-        self.manipuland.spawn.rigid_props.kinematic_enabled = True
         point_pads_at(self, PAD_TARGET)
+
+
+PREVIEW = PreviewSpec(
+    sdf_prims=("bottle", "cap"),
+    tri_prims=("tray",),
+    work_target=(0.22, 0.0, TABLE_TOP_Z + 0.08),
+    sdf_resolution=128,
+)
+
+
+def make_preview_cfg() -> CapUnscrewSceneCfg:
+    """Build the task scene for preview."""
+    return CapUnscrewSceneCfg(num_envs=1, env_spacing=3.0)

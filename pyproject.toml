@@ -41,7 +41,7 @@ dev = [
 
 [tool.setuptools.packages.find]
 where = ["src"]
-include = ["sim*", "tactile_codec*", "lerobot_tactile_ext*"]
+include = ["sim*", "tactile_codec*", "lerobot_tactile_ext*", "gym_airseai*", "lerobot_airseai*"]
 
 [tool.ruff]
 line-length = 110

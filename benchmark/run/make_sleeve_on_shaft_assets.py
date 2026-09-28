@@ -1,15 +1,8 @@
 #!/usr/bin/env python3
-"""Generate sleeve_on_shaft's USDs: the two sleeve half-shells and the shafts.
+"""Generate sleeve_on_shaft USD assets: sleeve half-shells and shafts.
 
-Each shell is half of a tube (outer SLEEVE_OUTER_R, inner SLEEVE_INNER_R,
-height SLEEVE_HEIGHT) with its cut faces on the xz plane; the scene spawns the
-pair SPLIT_GAP apart and joins them with a spring. Each shaft is a round base
-with a chamfered shaft on top, one mesh per radial clearance, kept as a
-triangle mesh. Dimensions come from `sim.dims.sleeve_on_shaft`; the files land
-in `assets/usds/sleeve_on_shaft/`.
-
-    python benchmark/run/make_sleeve_on_shaft_assets.py --headless
-    python benchmark/run/make_sleeve_on_shaft_assets.py --headless --keep_obj
+python benchmark/run/make_sleeve_on_shaft_assets.py --headless
+python benchmark/run/make_sleeve_on_shaft_assets.py --headless --keep_obj
 """
 
 from __future__ import annotations
@@ -42,10 +35,10 @@ from sim.dims.sleeve_on_shaft import (
 
 parser = argparse.ArgumentParser(description="Generate sleeve_on_shaft's shells and shafts.")
 parser.add_argument("--out", default=str(task_asset_dir("sleeve_on_shaft")))
-parser.add_argument("--sectors", type=int, default=96,
-                    help="mesh segments over each shell's half circle")
-parser.add_argument("--keep_obj", action="store_true",
-                    help="also write an OBJ beside each USD, for a mesh viewer")
+parser.add_argument("--sectors", type=int, default=96, help="mesh segments over each shell's half circle")
+parser.add_argument(
+    "--keep_obj", action="store_true", help="also write an OBJ beside each USD, for a mesh viewer"
+)
 AppLauncher.add_app_launcher_args(parser)
 args_cli = parser.parse_args()
 args_cli.headless = True
@@ -74,8 +67,7 @@ def build_half_shell(sectors: int, sign: float):
     for j in range(n):
         a = math.pi * j / sectors
         c, s = math.cos(a), sign * math.sin(a)
-        pts += [(ro * c, ro * s, -h), (ro * c, ro * s, h),
-                (ri * c, ri * s, -h), (ri * c, ri * s, h)]
+        pts += [(ro * c, ro * s, -h), (ro * c, ro * s, h), (ri * c, ri * s, -h), (ri * c, ri * s, h)]
 
     def v(j: int, ring: int) -> int:
         return j * 4 + ring
@@ -83,11 +75,11 @@ def build_half_shell(sectors: int, sign: float):
     tris = []
     for j in range(sectors):
         k = j + 1
-        tris += [(v(j, 0), v(k, 0), v(k, 1)), (v(j, 0), v(k, 1), v(j, 1))]   # outer wall
-        tris += [(v(j, 2), v(j, 3), v(k, 3)), (v(j, 2), v(k, 3), v(k, 2))]   # inner wall
-        tris += [(v(j, 1), v(k, 1), v(k, 3)), (v(j, 1), v(k, 3), v(j, 3))]   # top rim
-        tris += [(v(j, 0), v(j, 2), v(k, 2)), (v(j, 0), v(k, 2), v(k, 0))]   # bottom rim
-    for j in (0, sectors):                                                  # cut faces
+        tris += [(v(j, 0), v(k, 0), v(k, 1)), (v(j, 0), v(k, 1), v(j, 1))]  # outer wall
+        tris += [(v(j, 2), v(j, 3), v(k, 3)), (v(j, 2), v(k, 3), v(k, 2))]  # inner wall
+        tris += [(v(j, 1), v(k, 1), v(k, 3)), (v(j, 1), v(k, 3), v(j, 3))]  # top rim
+        tris += [(v(j, 0), v(j, 2), v(k, 2)), (v(j, 0), v(k, 2), v(k, 0))]  # bottom rim
+    for j in (0, sectors):  # cut faces
         tris += [(v(j, 0), v(j, 1), v(j, 3)), (v(j, 0), v(j, 3), v(j, 2))]
     # The two cut faces close the half-tube; their winding is fixed below by
     # `orient_outward` only if the whole mesh came out inverted, so make the
@@ -111,11 +103,13 @@ def build_shaft(sections: int, radius: float):
     for i in range(n):
         t = 2 * math.pi * i / n
         c, s = math.cos(t), math.sin(t)
-        pts += [(BASE_RADIUS * c, BASE_RADIUS * s, 0.0),
-                (BASE_RADIUS * c, BASE_RADIUS * s, zb),
-                (radius * c, radius * s, zb),
-                (radius * c, radius * s, zs - SHAFT_CHAMFER),
-                (rt * c, rt * s, zs)]
+        pts += [
+            (BASE_RADIUS * c, BASE_RADIUS * s, 0.0),
+            (BASE_RADIUS * c, BASE_RADIUS * s, zb),
+            (radius * c, radius * s, zb),
+            (radius * c, radius * s, zs - SHAFT_CHAMFER),
+            (rt * c, rt * s, zs),
+        ]
     bottom_apex = len(pts)
     pts.append((0.0, 0.0, 0.0))
     top_apex = len(pts)
@@ -127,12 +121,12 @@ def build_shaft(sections: int, radius: float):
     tris = []
     for i in range(n):
         k = i + 1
-        tris += [(bottom_apex, v(k, 0), v(i, 0))]                               # base bottom
-        tris += [(v(i, 0), v(k, 0), v(k, 1)), (v(i, 0), v(k, 1), v(i, 1))]     # base side
-        tris += [(v(i, 1), v(k, 1), v(k, 2)), (v(i, 1), v(k, 2), v(i, 2))]     # base top annulus
-        tris += [(v(i, 2), v(k, 2), v(k, 3)), (v(i, 2), v(k, 3), v(i, 3))]     # shaft side
-        tris += [(v(i, 3), v(k, 3), v(k, 4)), (v(i, 3), v(k, 4), v(i, 4))]     # chamfer
-        tris += [(top_apex, v(i, 4), v(k, 4))]                                  # shaft top
+        tris += [(bottom_apex, v(k, 0), v(i, 0))]  # base bottom
+        tris += [(v(i, 0), v(k, 0), v(k, 1)), (v(i, 0), v(k, 1), v(i, 1))]  # base side
+        tris += [(v(i, 1), v(k, 1), v(k, 2)), (v(i, 1), v(k, 2), v(i, 2))]  # base top annulus
+        tris += [(v(i, 2), v(k, 2), v(k, 3)), (v(i, 2), v(k, 3), v(i, 3))]  # shaft side
+        tris += [(v(i, 3), v(k, 3), v(k, 4)), (v(i, 3), v(k, 4), v(i, 4))]  # chamfer
+        tris += [(top_apex, v(i, 4), v(k, 4))]  # shaft top
     return pts, tris
 
 
@@ -141,7 +135,7 @@ def main() -> int:
     out.mkdir(parents=True, exist_ok=True)
     rc = 0
 
-    want = 0.5 * math.pi * (SLEEVE_OUTER_R ** 2 - SLEEVE_INNER_R ** 2) * SLEEVE_HEIGHT
+    want = 0.5 * math.pi * (SLEEVE_OUTER_R**2 - SLEEVE_INNER_R**2) * SLEEVE_HEIGHT
     for name, sign in zip(SHELL_MESH_NAMES, (+1.0, -1.0), strict=True):
         pts, tris = build_half_shell(args_cli.sectors, sign)
         tris, vol = orient_outward(pts, tris, name)
@@ -150,34 +144,48 @@ def main() -> int:
         flag = "ok" if err < 0.01 else "MISMATCH"
         rc |= flag != "ok"
         usd = out / f"{name}.usd"
-        write_usd(usd, pts, tris, SLEEVE_COLOR, rigid=True, root_name="sleeve_half",
-                  friction=SHELL_FRICTION)
+        write_usd(usd, pts, tris, SLEEVE_COLOR, rigid=True, root_name="sleeve_half", friction=SHELL_FRICTION)
         if args_cli.keep_obj:
             write_obj(usd.with_suffix(".obj"), pts, tris)
-        print(f"[shells] {name}: {len(pts)} verts, {len(tris)} tris, volume "
-              f"{vol * 1e6:.3f} cm3 vs analytic {want * 1e6:.3f} ({err * 100:.2f} %) "
-              f"{flag} -> {usd.name}", flush=True)
+        print(
+            f"[shells] {name}: {len(pts)} verts, {len(tris)} tris, volume "
+            f"{vol * 1e6:.3f} cm3 vs analytic {want * 1e6:.3f} ({err * 100:.2f} %) "
+            f"{flag} -> {usd.name}",
+            flush=True,
+        )
 
     for clearance in CLEARANCE_SWEEP:
         r = shaft_radius(clearance)
         pts, tris = build_shaft(2 * args_cli.sectors, r)
         tris, vol = orient_outward(pts, tris, f"shaft {clearance}")
         check_closed(tris)
-        cone = (math.pi * SHAFT_CHAMFER / 3) * (r ** 2 + r * (r - SHAFT_CHAMFER) + (r - SHAFT_CHAMFER) ** 2)
-        want_s = (math.pi * BASE_RADIUS ** 2 * BASE_HEIGHT
-                  + math.pi * r ** 2 * (SHAFT_HEIGHT - SHAFT_CHAMFER) + cone)
+        cone = (math.pi * SHAFT_CHAMFER / 3) * (r**2 + r * (r - SHAFT_CHAMFER) + (r - SHAFT_CHAMFER) ** 2)
+        want_s = (
+            math.pi * BASE_RADIUS**2 * BASE_HEIGHT + math.pi * r**2 * (SHAFT_HEIGHT - SHAFT_CHAMFER) + cone
+        )
         err = abs(vol - want_s) / want_s
         flag = "ok" if err < 0.02 else "MISMATCH"
         rc |= flag != "ok"
         usd = out / f"{shaft_mesh_name(clearance)}.usd"
         # Static fixture: triangles kept, the scene makes the body kinematic.
-        write_usd(usd, pts, tris, SHAFT_COLOR, rigid=True, root_name="shaft",
-                  friction=SHAFT_FRICTION, approximation="none")
+        write_usd(
+            usd,
+            pts,
+            tris,
+            SHAFT_COLOR,
+            rigid=True,
+            root_name="shaft",
+            friction=SHAFT_FRICTION,
+            approximation="none",
+        )
         if args_cli.keep_obj:
             write_obj(usd.with_suffix(".obj"), pts, tris)
-        print(f"[shafts] clearance {clearance * 1e3:.2f} mm -> shaft d {2e3 * r:.2f} mm, "
-              f"{len(pts)} verts, volume {vol * 1e6:.2f} cm3 vs {want_s * 1e6:.2f} "
-              f"({err * 100:.2f} %) {flag} -> {usd.name}", flush=True)
+        print(
+            f"[shafts] clearance {clearance * 1e3:.2f} mm -> shaft d {2e3 * r:.2f} mm, "
+            f"{len(pts)} verts, volume {vol * 1e6:.2f} cm3 vs {want_s * 1e6:.2f} "
+            f"({err * 100:.2f} %) {flag} -> {usd.name}",
+            flush=True,
+        )
 
     print("SLEEVE_ASSETS_COMPLETE" if rc == 0 else "SLEEVE_ASSETS_FAILED", flush=True)
     return rc
@@ -186,4 +194,4 @@ def main() -> int:
 if __name__ == "__main__":
     rc = main()
     sys.stdout.flush()
-    os._exit(rc)       # skip Kit's own shutdown, which can hang
+    os._exit(rc)  # skip Kit's own shutdown, which can hang

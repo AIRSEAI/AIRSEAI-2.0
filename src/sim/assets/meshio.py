@@ -10,8 +10,15 @@ import math
 from collections import Counter
 from pathlib import Path
 
-__all__ = ["check_closed", "orient_outward", "signed_volume", "steps", "write_obj",
-           "write_usd"]
+__all__ = [
+    "check_closed",
+    "orient_outward",
+    "signed_volume",
+    "steps",
+    "write_obj",
+    "write_usd",
+    "write_usd_parts",
+]
 
 
 def check_closed(tris) -> None:
@@ -45,9 +52,7 @@ def signed_volume(pts, tris) -> float:
         ax, ay, az = pts[a]
         bx, by, bz = pts[b]
         cx, cy, cz = pts[c]
-        v += (ax * (by * cz - bz * cy)
-              - ay * (bx * cz - bz * cx)
-              + az * (bx * cy - by * cx))
+        v += ax * (by * cz - bz * cy) - ay * (bx * cz - bz * cx) + az * (bx * cy - by * cx)
     return v / 6.0
 
 
@@ -61,15 +66,20 @@ def orient_outward(pts, tris, label: str):
     vol = signed_volume(pts, tris)
     if vol < 0:
         tris = [(a, c, b) for a, b, c in tris]
-        print(f"[mesh] {label}: winding was inside-out "
-              f"(volume {vol * 1e6:+.1f} cm3), flipped", flush=True)
+        print(f"[mesh] {label}: winding was inside-out (volume {vol * 1e6:+.1f} cm3), flipped", flush=True)
     return tris, abs(vol)
 
 
-def write_usd(path: Path, pts, tris, colour, rigid: bool = False,
-              root_name: str = "mesh_root",
-              friction: tuple[float, float] | None = None,
-              approximation: str | None = None) -> None:
+def write_usd(
+    path: Path,
+    pts,
+    tris,
+    colour,
+    rigid: bool = False,
+    root_name: str = "mesh_root",
+    friction: tuple[float, float] | None = None,
+    approximation: str | None = None,
+) -> None:
     """Author one mesh as `/<root_name>/mesh` in a new USD at `path`.
 
     `rigid`: apply `RigidBodyAPI` to the root. Required on anything a tactile
@@ -85,6 +95,36 @@ def write_usd(path: Path, pts, tris, colour, rigid: bool = False,
     unset for sensed objects; `sim.tactile.apply_sdf_collision` sets "sdf"
     at runtime.
     """
+    write_usd_parts(
+        path,
+        [("mesh", pts, tris, colour, approximation)],
+        rigid=rigid,
+        root_name=root_name,
+        friction=friction,
+    )
+
+
+def write_usd_parts(
+    path: Path,
+    parts,
+    rigid: bool = False,
+    root_name: str = "mesh_root",
+    friction: tuple[float, float] | None = None,
+    friction_combine: str | None = None,
+) -> None:
+    """Author several meshes under one `/<root_name>` in a new USD at `path`.
+
+    `parts` is a sequence of `(name, pts, tris, colour, approximation)`, each
+    authored as `/<root_name>/<name>`. They become one rigid body with one
+    collider per mesh, which is how a shape that is not a single closed
+    surface reaches PhysX: a union of two watertight meshes is not itself
+    watertight, and the SDF cooker needs each mesh closed.
+
+    `friction_combine`: how PhysX mixes this material's friction with the
+    other body's -- "min", "max", "multiply" or "average". PhysX averages by
+    default, so a deliberately slippery surface is useless against a grippy
+    object unless this says otherwise. Arguments otherwise as `write_usd`.
+    """
     from pxr import Gf, Usd, UsdGeom, UsdPhysics, UsdShade
 
     path = Path(path)
@@ -96,29 +136,40 @@ def write_usd(path: Path, pts, tris, colour, rigid: bool = False,
 
     root = UsdGeom.Xform.Define(stage, f"/{root_name}")
     stage.SetDefaultPrim(root.GetPrim())
-    mesh = UsdGeom.Mesh.Define(stage, f"/{root_name}/mesh")
-    mesh.CreatePointsAttr([Gf.Vec3f(*p) for p in pts])
-    mesh.CreateFaceVertexCountsAttr([3] * len(tris))
-    mesh.CreateFaceVertexIndicesAttr([i for tri in tris for i in tri])
-    lo = [min(p[k] for p in pts) for k in range(3)]
-    hi = [max(p[k] for p in pts) for k in range(3)]
-    mesh.CreateExtentAttr([Gf.Vec3f(*lo), Gf.Vec3f(*hi)])
-    # Flat shading, so the render matches the collider.
-    mesh.CreateSubdivisionSchemeAttr(UsdGeom.Tokens.none)
-    mesh.CreateDisplayColorAttr([Gf.Vec3f(*colour)])
 
-    UsdPhysics.CollisionAPI.Apply(mesh.GetPrim())
-    mca = UsdPhysics.MeshCollisionAPI.Apply(mesh.GetPrim())
-    if approximation is not None:
-        mca.CreateApproximationAttr(getattr(UsdPhysics.Tokens, approximation))
+    mat = None
     if friction is not None:
         mat = UsdShade.Material.Define(stage, f"/{root_name}/physics_material")
         api = UsdPhysics.MaterialAPI.Apply(mat.GetPrim())
         api.CreateStaticFrictionAttr(float(friction[0]))
         api.CreateDynamicFrictionAttr(float(friction[1]))
         api.CreateRestitutionAttr(0.0)
-        UsdShade.MaterialBindingAPI.Apply(mesh.GetPrim()).Bind(
-            mat, UsdShade.Tokens.weakerThanDescendants, "physics")
+        if friction_combine is not None:
+            from pxr import PhysxSchema
+
+            PhysxSchema.PhysxMaterialAPI.Apply(mat.GetPrim()).CreateFrictionCombineModeAttr(friction_combine)
+
+    for name, pts, tris, colour, approximation in parts:
+        mesh = UsdGeom.Mesh.Define(stage, f"/{root_name}/{name}")
+        mesh.CreatePointsAttr([Gf.Vec3f(*p) for p in pts])
+        mesh.CreateFaceVertexCountsAttr([3] * len(tris))
+        mesh.CreateFaceVertexIndicesAttr([i for tri in tris for i in tri])
+        lo = [min(p[k] for p in pts) for k in range(3)]
+        hi = [max(p[k] for p in pts) for k in range(3)]
+        mesh.CreateExtentAttr([Gf.Vec3f(*lo), Gf.Vec3f(*hi)])
+        # Flat shading, so the render matches the collider.
+        mesh.CreateSubdivisionSchemeAttr(UsdGeom.Tokens.none)
+        mesh.CreateDisplayColorAttr([Gf.Vec3f(*colour)])
+
+        UsdPhysics.CollisionAPI.Apply(mesh.GetPrim())
+        mca = UsdPhysics.MeshCollisionAPI.Apply(mesh.GetPrim())
+        if approximation is not None:
+            mca.CreateApproximationAttr(getattr(UsdPhysics.Tokens, approximation))
+        if mat is not None:
+            UsdShade.MaterialBindingAPI.Apply(mesh.GetPrim()).Bind(
+                mat, UsdShade.Tokens.weakerThanDescendants, "physics"
+            )
+
     if rigid:
         UsdPhysics.RigidBodyAPI.Apply(root.GetPrim())
         UsdPhysics.MassAPI.Apply(root.GetPrim())

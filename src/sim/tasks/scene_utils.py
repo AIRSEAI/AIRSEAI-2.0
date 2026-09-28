@@ -12,9 +12,18 @@ from typing import Any
 
 import numpy as np
 
-__all__ = ["align_frame_quat", "enable_cross_arm_collision", "jaw_tilt_deg",
-           "join_spin", "join_split_shells", "look_at", "oblique_grasp_quat",
-           "retarget_pads", "set_joint_enabled", "top_down_grasp_quat"]
+__all__ = [
+    "align_frame_quat",
+    "enable_cross_arm_collision",
+    "jaw_tilt_deg",
+    "join_spin",
+    "join_split_shells",
+    "look_at",
+    "oblique_grasp_quat",
+    "retarget_pads",
+    "set_joint_enabled",
+    "top_down_grasp_quat",
+]
 
 
 def look_at(eye, target, up=(0.0, 0.0, 1.0)) -> tuple[float, float, float, float]:
@@ -28,29 +37,25 @@ def look_at(eye, target, up=(0.0, 0.0, 1.0)) -> tuple[float, float, float, float
     fwd = fwd / np.linalg.norm(fwd)
     z = -fwd
     x = np.cross(up, z)
-    if np.linalg.norm(x) < 1e-8:                 # camera looking straight down
+    if np.linalg.norm(x) < 1e-8:  # camera looking straight down
         x = np.cross(np.array([0.0, 1.0, 0.0]), z)
     x /= np.linalg.norm(x)
     y = np.cross(z, x)
     R = np.stack([x, y, z], axis=1)
     w = max(math.sqrt(max(1.0 + R.trace(), 0.0)) / 2.0, 1e-8)
-    return (w, (R[2, 1] - R[1, 2]) / (4 * w),
-            (R[0, 2] - R[2, 0]) / (4 * w), (R[1, 0] - R[0, 1]) / (4 * w))
+    return (w, (R[2, 1] - R[1, 2]) / (4 * w), (R[0, 2] - R[2, 0]) / (4 * w), (R[1, 0] - R[0, 1]) / (4 * w))
 
 
-def retarget_pads(sensors: dict[str, Any], prim: str,
-                  env_pattern: str = "/World/envs/env_.*") -> str:
-    """Point every pad in `sensors` at `<env>/<prim>` and rebuild its views.
+def retarget_pads(sensors: dict[str, Any], prim: str, env_pattern: str = "/World/envs/env_.*") -> str:
+    """Select the sensed object for each pad before the first episode step.
 
-    TacSL resolves `contact_object_prim_path_expr` once, in
-    `VisuoTactileSensor._create_physx_views()`, so a task whose object changes
-    per episode must rebuild the views. This calls that private method again,
-    so a TacSL release can break it.
-
-    Call it after the new object is written to the simulation and before the
-    episode's first step. Returns the prim name.
+    Vector sensors update only their slot; legacy sensors rebuild their views.
+    Return the selected prim name.
     """
     for sensor in sensors.values():
+        if hasattr(sensor, "select_target"):
+            sensor.select_target(prim)
+            continue
         sensor.cfg.contact_object_prim_path_expr = f"{env_pattern}/{prim}"
         sensor._create_physx_views()
     return prim
@@ -59,11 +64,13 @@ def retarget_pads(sensors: dict[str, Any], prim: str,
 def _mat_from_quat(q) -> np.ndarray:
     """Rotation matrix from a (w, x, y, z) quaternion."""
     w, x, y, z = (float(v) for v in q)
-    return np.array([
-        [1 - 2 * (y * y + z * z), 2 * (x * y - z * w), 2 * (x * z + y * w)],
-        [2 * (x * y + z * w), 1 - 2 * (x * x + z * z), 2 * (y * z - x * w)],
-        [2 * (x * z - y * w), 2 * (y * z + x * w), 1 - 2 * (x * x + y * y)],
-    ])
+    return np.array(
+        [
+            [1 - 2 * (y * y + z * z), 2 * (x * y - z * w), 2 * (x * z + y * w)],
+            [2 * (x * y + z * w), 1 - 2 * (x * x + z * z), 2 * (y * z - x * w)],
+            [2 * (x * z - y * w), 2 * (y * z + x * w), 1 - 2 * (x * x + y * y)],
+        ]
+    )
 
 
 def _quat_from_mat(m: np.ndarray) -> np.ndarray:
@@ -76,20 +83,16 @@ def _quat_from_mat(m: np.ndarray) -> np.ndarray:
     t = m.trace()
     if t > 0:
         s = math.sqrt(t + 1.0) * 2
-        return np.array([0.25 * s, (m[2, 1] - m[1, 2]) / s,
-                         (m[0, 2] - m[2, 0]) / s, (m[1, 0] - m[0, 1]) / s])
+        return np.array([0.25 * s, (m[2, 1] - m[1, 2]) / s, (m[0, 2] - m[2, 0]) / s, (m[1, 0] - m[0, 1]) / s])
     i = int(np.argmax([m[0, 0], m[1, 1], m[2, 2]]))
     if i == 0:
         s = math.sqrt(1.0 + m[0, 0] - m[1, 1] - m[2, 2]) * 2
-        return np.array([(m[2, 1] - m[1, 2]) / s, 0.25 * s,
-                         (m[0, 1] + m[1, 0]) / s, (m[0, 2] + m[2, 0]) / s])
+        return np.array([(m[2, 1] - m[1, 2]) / s, 0.25 * s, (m[0, 1] + m[1, 0]) / s, (m[0, 2] + m[2, 0]) / s])
     if i == 1:
         s = math.sqrt(1.0 + m[1, 1] - m[0, 0] - m[2, 2]) * 2
-        return np.array([(m[0, 2] - m[2, 0]) / s, (m[0, 1] + m[1, 0]) / s,
-                         0.25 * s, (m[1, 2] + m[2, 1]) / s])
+        return np.array([(m[0, 2] - m[2, 0]) / s, (m[0, 1] + m[1, 0]) / s, 0.25 * s, (m[1, 2] + m[2, 1]) / s])
     s = math.sqrt(1.0 + m[2, 2] - m[0, 0] - m[1, 1]) * 2
-    return np.array([(m[1, 0] - m[0, 1]) / s, (m[0, 2] + m[2, 0]) / s,
-                     (m[1, 2] + m[2, 1]) / s, 0.25 * s])
+    return np.array([(m[1, 0] - m[0, 1]) / s, (m[0, 2] + m[2, 0]) / s, (m[1, 2] + m[2, 1]) / s, 0.25 * s])
 
 
 def _orthonormal_frame(primary, secondary) -> np.ndarray:
@@ -105,9 +108,9 @@ def _orthonormal_frame(primary, secondary) -> np.ndarray:
     return np.stack([p, s, np.cross(p, s)], axis=1)
 
 
-def top_down_grasp_quat(tcp_quat_w, jaw_axis_w, approach_w,
-                        jaw_target=(0.0, 1.0, 0.0),
-                        approach_target=(0.0, 0.0, -1.0)) -> np.ndarray:
+def top_down_grasp_quat(
+    tcp_quat_w, jaw_axis_w, approach_w, jaw_target=(0.0, 1.0, 0.0), approach_target=(0.0, 0.0, -1.0)
+) -> np.ndarray:
     """Wrist orientation that levels the jaws and points the blade down.
 
     Position-only IK leaves the jaw axis out of horizontal, which rolling
@@ -131,8 +134,7 @@ def top_down_grasp_quat(tcp_quat_w, jaw_axis_w, approach_w,
     return _quat_from_mat(B @ A.T)
 
 
-def align_frame_quat(tcp_quat_w, axis_a_w, axis_b_w,
-                     target_a, target_b) -> np.ndarray:
+def align_frame_quat(tcp_quat_w, axis_a_w, axis_b_w, target_a, target_b) -> np.ndarray:
     """Wrist orientation carrying two measured world axes onto two targets.
 
     The construction of `top_down_grasp_quat` with both axes chosen by the
@@ -156,8 +158,9 @@ def align_frame_quat(tcp_quat_w, axis_a_w, axis_b_w,
     return _quat_from_mat(B @ A.T)
 
 
-def oblique_grasp_quat(tcp_quat_w, jaw_axis_w, approach_w, pitch_deg: float,
-                       yaw_deg: float | None = None) -> np.ndarray:
+def oblique_grasp_quat(
+    tcp_quat_w, jaw_axis_w, approach_w, pitch_deg: float, yaw_deg: float | None = None
+) -> np.ndarray:
     """Wrist orientation for a grasp from the front and above, the way a hand
     reaches: jaws level, blade pitched `pitch_deg` below horizontal.
 
@@ -172,7 +175,7 @@ def oblique_grasp_quat(tcp_quat_w, jaw_axis_w, approach_w, pitch_deg: float,
     a = a / np.linalg.norm(a)
     if yaw_deg is None:
         h = a[:2]
-        if np.linalg.norm(h) < 1e-6:           # pointing straight down: use the jaw
+        if np.linalg.norm(h) < 1e-6:  # pointing straight down: use the jaw
             j = np.asarray(jaw_axis_w, dtype=float)
             h = np.array([j[1], -j[0]])
         psi = math.atan2(h[1], h[0])
@@ -195,30 +198,26 @@ def jaw_tilt_deg(jaw_axis_w) -> float:
     return float(math.degrees(math.asin(abs(v[2]))))
 
 
-def join_split_shells(half_a: str, half_b: str, *, stiffness: float,
-                      damping: float, break_force: float, travel: float,
-                      gap: float, axis: str = "Y",
-                      name: str = "split_joint", rest: float = 0.0,
-                      limits: tuple[float, float] | None = None) -> str:
-    """Author (or re-author) the D6 joint that holds a split object together.
+def join_split_shells(
+    half_a: str,
+    half_b: str,
+    *,
+    stiffness: float,
+    damping: float,
+    break_force: float,
+    travel: float,
+    gap: float,
+    axis: str = "Y",
+    name: str = "split_joint",
+    rest: float = 0.0,
+    limits: tuple[float, float] | None = None,
+) -> str:
+    """Join two rigid shells with a linear spring along the closing axis.
 
-    A hollow part modelled as two rigid half-shells gets its compliance from
-    this joint, since the tactile pads sense rigid SDF colliders only. The
-    joint locks five degrees of freedom, drives the sixth with a linear spring
-    of `stiffness` (N/m, along the gripper's closing axis), limits it to
-    `travel`, and carries `physics:breakForce` (`inf` for a part that only
-    deforms). The shells are collision-filtered against each other.
-
-    `rest` is where the spring is relaxed, as a change in separation from the
-    spawn `gap`: zero for a part at rest as spawned, positive for one that
-    spawns compressed and opens when let go. `limits` replaces the symmetric
-    `travel` with an explicit (low, high) change in separation.
-
-    A D6 joint, because a drive on a PhysX prismatic joint discards its
-    stiffness. `breakForce` is ignored on articulation joints, so the shells
-    must stay free rigid bodies; `travel` must stay wide enough that the
-    spring, not the limit, carries the load. Re-authored every reset: a broken
-    joint cannot be repaired in place.
+    Stiffness is in N/m. Rest and limits are separation offsets from the spawn
+    gap; travel supplies symmetric limits when no explicit limits are given.
+    The shells remain free rigid bodies and do not collide with each other.
+    Author before simulation starts and recreate the joint if it breaks.
     """
     import omni.usd
     from pxr import Gf, Sdf, UsdPhysics
@@ -230,7 +229,7 @@ def join_split_shells(half_a: str, half_b: str, *, stiffness: float,
         stage.RemovePrim(path)
 
     free = {"X": "transX", "Y": "transY", "Z": "transZ"}[axis]
-    joint = UsdPhysics.Joint.Define(stage, path)          # generic == D6
+    joint = UsdPhysics.Joint.Define(stage, path)  # generic == D6
     prim = joint.GetPrim()
     joint.CreateBody0Rel().SetTargets([Sdf.Path(half_a)])
     joint.CreateBody1Rel().SetTargets([Sdf.Path(half_b)])
@@ -281,30 +280,32 @@ def join_split_shells(half_a: str, half_b: str, *, stiffness: float,
         prim = stage.GetPrimAtPath(own)
         if not prim.IsValid():
             continue
-        filt = (UsdPhysics.FilteredPairsAPI(prim)
-                if prim.HasAPI(UsdPhysics.FilteredPairsAPI)
-                else UsdPhysics.FilteredPairsAPI.Apply(prim))
+        filt = (
+            UsdPhysics.FilteredPairsAPI(prim)
+            if prim.HasAPI(UsdPhysics.FilteredPairsAPI)
+            else UsdPhysics.FilteredPairsAPI.Apply(prim)
+        )
         rel = filt.CreateFilteredPairsRel()
         if Sdf.Path(other) not in (rel.GetTargets() or []):
             rel.AddTarget(Sdf.Path(other))
     return path
 
 
-def join_spin(body0: str, body1: str, *, local_pos0, local_pos1=(0.0, 0.0, 0.0),
-              damping: float, limits_deg: tuple[float, float] | None = None,
-              name: str = "spin_joint") -> str:
-    """Author (or re-author) a D6 joint that leaves `body1` only a turn about
-    `body0`'s local z, and return its path.
+def join_spin(
+    body0: str,
+    body1: str,
+    *,
+    local_pos0,
+    local_pos1=(0.0, 0.0, 0.0),
+    damping: float,
+    limits_deg: tuple[float, float] | None = None,
+    name: str = "spin_joint",
+) -> str:
+    """Create a D6 joint allowing damped rotation about the local z axis.
 
-    The joint frames sit at `local_pos0` in `body0` and `local_pos1` in
-    `body1`, both unrotated, so the two bodies keep the relative pose they
-    are spawned in. The free turn is resisted by a damper of `damping`
-    (N m s/rad) and nothing else; `limits_deg` bounds it, None leaves it
-    free. `body0` empty joins `body1` to the world. Author it before
-    `sim.reset()`: a joint that first appears at a reset kicks its bodies.
-
-    A generic joint with no LimitAPI is free in all six degrees of freedom,
-    so every axis is named; `low > high` is USD's spelling of "locked".
+    Author before simulation starts. Positions are local joint-frame offsets;
+    damping is in N m s/rad. Optional degree limits bound rotation. An empty
+    body0 attaches body1 to the world. Return the joint path.
     """
     import omni.usd
     from pxr import Gf, Sdf, UsdPhysics
@@ -314,7 +315,7 @@ def join_spin(body0: str, body1: str, *, local_pos0, local_pos1=(0.0, 0.0, 0.0),
     path = f"{env}/{name}"
     if stage.GetPrimAtPath(path).IsValid():
         stage.RemovePrim(path)
-    joint = UsdPhysics.Joint.Define(stage, path)          # generic == D6
+    joint = UsdPhysics.Joint.Define(stage, path)  # generic == D6
     prim = joint.GetPrim()
     if body0:
         joint.CreateBody0Rel().SetTargets([Sdf.Path(body0)])
@@ -392,8 +393,11 @@ def enable_cross_arm_collision(robot_path: str, sides=("left", "right")) -> int:
 
     kept = 0
     for i, a in enumerate(links):
-        filt = (UsdPhysics.FilteredPairsAPI(a) if a.HasAPI(UsdPhysics.FilteredPairsAPI)
-                else UsdPhysics.FilteredPairsAPI.Apply(a))
+        filt = (
+            UsdPhysics.FilteredPairsAPI(a)
+            if a.HasAPI(UsdPhysics.FilteredPairsAPI)
+            else UsdPhysics.FilteredPairsAPI.Apply(a)
+        )
         rel = filt.CreateFilteredPairsRel()
         targets = set(rel.GetTargets() or [])
         for j, b in enumerate(links):
@@ -406,8 +410,10 @@ def enable_cross_arm_collision(robot_path: str, sides=("left", "right")) -> int:
             elif i < j:
                 kept += 1
     for prim in art:
-        api = (PhysxSchema.PhysxArticulationAPI(prim)
-               if prim.HasAPI(PhysxSchema.PhysxArticulationAPI)
-               else PhysxSchema.PhysxArticulationAPI.Apply(prim))
+        api = (
+            PhysxSchema.PhysxArticulationAPI(prim)
+            if prim.HasAPI(PhysxSchema.PhysxArticulationAPI)
+            else PhysxSchema.PhysxArticulationAPI.Apply(prim)
+        )
         api.CreateEnabledSelfCollisionsAttr(True)
     return kept

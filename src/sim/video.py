@@ -1,23 +1,20 @@
-"""Write an mp4 from a stream of RGB frames, through whatever is installed.
-
-The writer is chosen at runtime from what is actually present:
-
-    imageio-ffmpeg        preferred
-    cv2                   next
-    lerobot_tactile_ext   last, and only when PyAV is installed alongside it
-
-Not a general video library: 8-bit RGB, constant frame rate, one stream.
-"""
+"""Write RGB videos and compose fixed-camera review grids."""
 
 from __future__ import annotations
 
 import importlib
+import math
 import os
 from pathlib import Path
 
 import numpy as np
 
-__all__ = ["Mp4Writer", "compose_tactile_frame", "writer_backend"]
+__all__ = [
+    "Mp4Writer",
+    "compose_grid_frame",
+    "compose_tactile_frame",
+    "writer_backend",
+]
 
 
 def _backend() -> str:
@@ -45,7 +42,8 @@ def _backend() -> str:
         pass
     raise RuntimeError(
         "no mp4 writer available: install imageio-ffmpeg, or opencv-python, "
-        "or make lerobot_tactile_ext importable together with PyAV")
+        "or make lerobot_tactile_ext importable together with PyAV"
+    )
 
 
 def writer_backend() -> str:
@@ -67,8 +65,7 @@ class Mp4Writer:
         it. The default is high so millimetre-scale contact stays visible.
     """
 
-    def __init__(self, path: str | os.PathLike, fps: int = 30,
-                 quality: int = 8):
+    def __init__(self, path: str | os.PathLike, fps: int = 30, quality: int = 8):
         self.path = Path(os.path.expanduser(str(path)))
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.fps = int(fps)
@@ -83,21 +80,26 @@ class Mp4Writer:
         self._size = (h, w)
         if self._backend == "lerobot":
             from lerobot_tactile_ext.codec import Mp4Stream
+
             self._impl = Mp4Stream(self.path, self.fps)
         elif self._backend == "imageio":
             import imageio
+
             # `macro_block_size=1` stops imageio silently resizing frames to a
             # multiple of 16, which would move every pixel coordinate a reader
             # might measure against.
             self._impl = imageio.get_writer(
-                str(self.path), fps=self.fps, codec="libx264",
-                quality=self._quality, macro_block_size=1,
-                ffmpeg_params=["-pix_fmt", "yuv420p"])
+                str(self.path),
+                fps=self.fps,
+                codec="libx264",
+                quality=self._quality,
+                macro_block_size=1,
+                ffmpeg_params=["-pix_fmt", "yuv420p"],
+            )
         else:
             import cv2
-            self._impl = cv2.VideoWriter(
-                str(self.path), cv2.VideoWriter_fourcc(*"mp4v"),
-                self.fps, (w, h))
+
+            self._impl = cv2.VideoWriter(str(self.path), cv2.VideoWriter_fourcc(*"mp4v"), self.fps, (w, h))
 
     def add(self, frame) -> None:
         """One frame, (H, W, 3) uint8 RGB. Anything else is coerced."""
@@ -110,15 +112,14 @@ class Mp4Writer:
         if self._impl is None:
             self._open(h, w)
         elif self._size != (h, w):
-            raise ValueError(
-                f"frame size changed mid-video: {self._size} -> {(h, w)}")
+            raise ValueError(f"frame size changed mid-video: {self._size} -> {(h, w)}")
 
         if self._backend == "lerobot":
             self._impl.add(arr)
         elif self._backend == "imageio":
             self._impl.append_data(arr)
         else:
-            self._impl.write(arr[..., ::-1])      # cv2 wants BGR
+            self._impl.write(arr[..., ::-1])  # cv2 wants BGR
         self.frames += 1
 
     def close(self) -> dict:
@@ -129,32 +130,64 @@ class Mp4Writer:
                 self._impl.close()
             else:
                 self._impl.release()
-        return {"frames": self.frames, "path": str(self.path),
-                "backend": self._backend, "fps": self.fps}
+        return {"frames": self.frames, "path": str(self.path), "backend": self._backend, "fps": self.fps}
 
 
 # ---------------------------------------------------------------------------
 # Composite frame: third-person view + the four tactile streams, synchronised
 # ---------------------------------------------------------------------------
-def _put_text(img: np.ndarray, text: str, xy: tuple[int, int],
-              scale: float = 0.55, color=(255, 255, 255)) -> None:
+def _put_text(
+    img: np.ndarray, text: str, xy: tuple[int, int], scale: float = 0.55, color=(255, 255, 255)
+) -> None:
     """Best-effort label: cv2 if present, PIL if present, otherwise nothing."""
     try:
         import cv2
-        cv2.putText(img, text, xy, cv2.FONT_HERSHEY_SIMPLEX, scale, (0, 0, 0), 3,
-                    cv2.LINE_AA)
-        cv2.putText(img, text, xy, cv2.FONT_HERSHEY_SIMPLEX, scale, color, 1,
-                    cv2.LINE_AA)
+
+        cv2.putText(img, text, xy, cv2.FONT_HERSHEY_SIMPLEX, scale, (0, 0, 0), 3, cv2.LINE_AA)
+        cv2.putText(img, text, xy, cv2.FONT_HERSHEY_SIMPLEX, scale, color, 1, cv2.LINE_AA)
         return
     except Exception:
         pass
     try:
         from PIL import Image, ImageDraw
+
         im = Image.fromarray(img)
         ImageDraw.Draw(im).text((xy[0], xy[1] - 12), text, fill=tuple(color))
         img[:] = np.asarray(im)
     except Exception:
         pass
+
+
+def compose_grid_frame(
+    frames: list[np.ndarray], captions: list[tuple[str, str]], columns: int | None = None
+) -> np.ndarray:
+    """Tile same-sized RGB frames without cropping or rescaling their pixels.
+
+    A separate header is added above every tile so status text cannot change
+    or obscure the task camera's fixed view.
+    """
+    if not frames or len(frames) != len(captions):
+        raise ValueError("frames and captions must be non-empty and have equal length")
+    images = []
+    shape = np.asarray(frames[0]).shape[:2]
+    header = 48
+    for frame, (first, second) in zip(frames, captions, strict=True):
+        image = np.asarray(frame)[..., :3]
+        if image.shape[:2] != shape:
+            raise ValueError("grid frames must have the same dimensions")
+        image = np.ascontiguousarray(image).astype(np.uint8)
+        tile = np.zeros((shape[0] + header, shape[1], 3), np.uint8)
+        tile[header:] = image
+        tile[:header] = (28, 28, 28)
+        _put_text(tile, first, (10, 20), 0.50)
+        _put_text(tile, second, (10, 41), 0.46, (190, 220, 255))
+        images.append(tile)
+    columns = math.ceil(math.sqrt(len(images))) if columns is None else columns
+    if columns < 1:
+        raise ValueError("columns must be positive")
+    images += [np.zeros_like(images[0])] * ((-len(images)) % columns)
+    rows = [np.concatenate(images[i : i + columns], axis=1) for i in range(0, len(images), columns)]
+    return np.concatenate(rows, axis=0)
 
 
 def compose_tactile_frame(scene: np.ndarray, pads: list, caption: str = "") -> np.ndarray:
@@ -195,9 +228,9 @@ def compose_tactile_frame(scene: np.ndarray, pads: list, caption: str = "") -> n
         r, c = divmod(i, 2)
         x0 = sw + c * tile_w
         y0 = r * (tile_h + bar)
-        canvas[y0:y0 + tile_h, x0:x0 + tile_w] = fit(rgb)
+        canvas[y0 : y0 + tile_h, x0 : x0 + tile_w] = fit(rgb)
         # Header bar: dark, with the numbers that prove or disprove contact.
-        canvas[y0 + tile_h:y0 + tile_h + bar, x0:x0 + tile_w] = (30, 30, 30)
+        canvas[y0 + tile_h : y0 + tile_h + bar, x0 : x0 + tile_w] = (30, 30, 30)
         hot = depth_mm > 0.02
         # Fz is the pad's signed vertical resultant (x1e3), positive while the
         # gel carries the object's weight.
@@ -205,13 +238,12 @@ def compose_tactile_frame(scene: np.ndarray, pads: list, caption: str = "") -> n
         txt = f"{label} d {depth_mm:4.2f} A {area_mm2:5.1f} S {shear / 1e3:5.1f}k"
         if axial is not None:
             txt += f" Fz {axial / 1e3:+5.1f}k"
-        _put_text(canvas, txt, (x0 + 6, y0 + tile_h + 17), 0.46,
-                  (80, 255, 120) if hot else (180, 180, 180))
+        _put_text(canvas, txt, (x0 + 6, y0 + tile_h + 17), 0.46, (80, 255, 120) if hot else (180, 180, 180))
         if hot:
             # Thin green frame on a loaded pad, so contact is visible at a
             # glance even when the Taxim render itself is subtle.
-            canvas[y0:y0 + 3, x0:x0 + tile_w] = (80, 255, 120)
-            canvas[y0 + tile_h - 3:y0 + tile_h, x0:x0 + tile_w] = (80, 255, 120)
-            canvas[y0:y0 + tile_h, x0:x0 + 3] = (80, 255, 120)
-            canvas[y0:y0 + tile_h, x0 + tile_w - 3:x0 + tile_w] = (80, 255, 120)
+            canvas[y0 : y0 + 3, x0 : x0 + tile_w] = (80, 255, 120)
+            canvas[y0 + tile_h - 3 : y0 + tile_h, x0 : x0 + tile_w] = (80, 255, 120)
+            canvas[y0 : y0 + tile_h, x0 : x0 + 3] = (80, 255, 120)
+            canvas[y0 : y0 + tile_h, x0 + tile_w - 3 : x0 + tile_w] = (80, 255, 120)
     return canvas

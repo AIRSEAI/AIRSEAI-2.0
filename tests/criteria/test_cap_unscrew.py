@@ -22,8 +22,10 @@ IN_TRAY = (TRAY[0], TRAY[1], TRAY[2] + TRAY_FLOOR)
 def cap_trace(held_trace, right_pads, left_pads):
     """-> make(...): both hands hold, the cap is turned off and set in the tray,
     both hands let go."""
-    def make(n=100, dt=0.05, end_xyz=IN_TRAY, end_quat=UPRIGHT, release_step=90,
-             thread_deg=130.0, bottle_deg=3.0):
+
+    def make(
+        n=100, dt=0.05, end_xyz=IN_TRAY, end_quat=UPRIGHT, release_step=90, thread_deg=130.0, bottle_deg=3.0
+    ):
         tr = held_trace(n=n, dt=dt)
         tr.object_pos.pop("manipuland")
         for p in right_pads + left_pads:
@@ -38,15 +40,17 @@ def cap_trace(held_trace, right_pads, left_pads):
         tr.extra["thread_deg"] = np.linspace(0.0, thread_deg, n)
         tr.extra["bottle_deg"] = np.linspace(0.0, bottle_deg, n)
         return tr
+
     return make
 
 
 @pytest.fixture
 def judge(right_pads, left_pads):
     """-> judge(trace, **thresholds): the right hand turns, the left holds."""
+
     def call(trace, **kw):
-        return verdict(trace, tray_pos=TRAY, turner_pads=right_pads,
-                       holder_pads=left_pads, **kw)
+        return verdict(trace, tray_pos=TRAY, turner_pads=right_pads, holder_pads=left_pads, **kw)
+
     return call
 
 
@@ -68,7 +72,7 @@ def test_a_cap_in_the_tray_counts_while_still_held(cap_trace, judge):
 def test_a_cap_knocked_back_out_of_the_tray_still_counts(cap_trace, judge):
     tr = cap_trace()
     pos = tr.object_pos["cap"].copy()
-    pos[-5:] = (TRAY[0], TRAY[1] + TRAY_INNER_R + 0.02, TRAY[2])   # swept out at the end
+    pos[-5:] = (TRAY[0], TRAY[1] + TRAY_INNER_R + 0.02, TRAY[2])  # swept out at the end
     tr.object_pos["cap"] = pos
     v = judge(tr)
     assert v.success, v.metrics

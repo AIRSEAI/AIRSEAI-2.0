@@ -1,37 +1,31 @@
 #!/bin/bash
-# Stage 2 — collect demonstrations (Isaac Sim, airseai env).
-#
+# Collect expert attempts; accepted episodes are combined into one dataset.
 #   bash scripts/run_collect.sh <task> [episodes] [dataset_out]
-#
-# Inputs
-#   $1  task        one of the TASKS registry in benchmark/run/collect_dataset.py:
-#                   stack_cube | blind_peg_insertion | cap_unscrew |
-#                   texture_sort | sleeve_on_shaft | handover
-#   $2  episodes    how many demonstrations to record   (default 50)
-#   $3  dataset_out where to write the dataset          (default ~/<task>_dataset)
-#   RENDER=1        also write the verification video   (<out>_run/<task>.mp4)
-#   PREVIEWS=1      also derive the human-viewable tactile preview streams
-#
-# Output: a LeRobot-v3-style dataset (tactile RGB + native force field) at
-# dataset_out, and a run directory beside it (<dataset_out>_run) holding the
-# per-episode report and any video.
-#
-# Task knobs (light level, clearance, ...) are fixed by the task's registry
-# entry, not chosen here.
-set -eu
+# NUM_ENVS, GPUS, SEED, INIT_STATES, RENDER and PREVIEWS configure collection.
+# WRITE_MODE and WRITE_QUEUE_SIZE configure episode saving.
+set -euo pipefail
 TASK="${1:?usage: run_collect.sh <task> [episodes] [dataset_out]}"
 EP="${2:-50}"
-OUT="${3:-$HOME/${TASK}_dataset}"
+REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+OUT="${3:-${OUTPUT_ROOT:-$REPO_DIR/outputs}/raw/${TASK}_expert}"
+case "$OUT" in
+    /*) ;;
+    '~/'*) OUT="$HOME/${OUT#\~/}" ;;
+    *) OUT="$PWD/$OUT" ;;
+esac
 
-cd "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-export PYTHONPATH="$PWD/src"
+cd "$REPO_DIR"
+export PYTHONPATH="$PWD/src${PYTHONPATH:+:$PYTHONPATH}"
 export OMNI_KIT_ACCEPT_EULA=YES
-CONDA_ENVS="${CONDA_ENVS:-$HOME/miniconda3/envs}"
-PY="${SIM_PY:-$CONDA_ENVS/airseai/bin/python}"
+PY="${DEFAULT_PY:-python}"
 
-ARGS=(--task "$TASK" --episodes "$EP" --dataset "$OUT")
+ARGS=(--task "$TASK" --episodes "$EP" --dataset "$OUT"
+      --num_envs "${NUM_ENVS:-1}" --gpus "${GPUS:-0}" --seed "${SEED:-7}")
 [ "${RENDER:-0}"   = 1 ] && ARGS+=(--render)
 [ "${PREVIEWS:-0}" = 1 ] && ARGS+=(--previews)
+[ -n "${INIT_STATES:-}" ] && ARGS+=(--init_states "$INIT_STATES")
+[ -n "${WRITE_MODE:-}" ] && ARGS+=(--write_mode "$WRITE_MODE")
+ARGS+=(--write_queue_size "${WRITE_QUEUE_SIZE:-2}")
 
 echo "collect: task=$TASK episodes=$EP -> $OUT"
 exec "$PY" benchmark/run/collect_dataset.py "${ARGS[@]}"

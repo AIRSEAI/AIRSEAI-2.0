@@ -33,10 +33,10 @@ from sim.envs.bimanual_tactile import (
     REAL_HOME_JOINT_POS,
     TABLE_TOP_Z,
     BimanualTactileSceneCfg,
-    park_default_manipuland,
     point_pads_at,
     start_joint_pos,
 )
+from sim.envs.preview import PreviewSpec
 
 __all__ = [
     "ASSETS_DIR",
@@ -83,7 +83,8 @@ def ensure_assets() -> None:
     if missing:
         raise FileNotFoundError(
             f"sleeve_on_shaft geometry missing from {ASSETS_DIR}: {', '.join(missing)}\n"
-            f"    python benchmark/run/make_sleeve_on_shaft_assets.py --headless")
+            f"    python benchmark/run/make_sleeve_on_shaft_assets.py --headless"
+        )
 
 
 # ----- objects ---------------------------------------------------------------
@@ -96,8 +97,8 @@ def ring_stiffness(youngs_modulus: float) -> float:
     k = F / delta.
     """
     r_mean = SLEEVE_OUTER_R - SLEEVE_WALL / 2
-    inertia = SLEEVE_HEIGHT * SLEEVE_WALL ** 3 / 12.0
-    return youngs_modulus * inertia / (0.149 * r_mean ** 3)
+    inertia = SLEEVE_HEIGHT * SLEEVE_WALL**3 / 12.0
+    return youngs_modulus * inertia / (0.149 * r_mean**3)
 
 
 @dataclass(frozen=True)
@@ -105,9 +106,9 @@ class SleeveMaterial:
     """One hidden sleeve material. Nothing here is visible."""
 
     name: str
-    youngs_modulus: float   # Pa
-    half_mass: float        # kg per shell, so the sleeve weighs twice this
-    damping: float          # N s/m on the shell joint's linear drive
+    youngs_modulus: float  # Pa
+    half_mass: float  # kg per shell, so the sleeve weighs twice this
+    damping: float  # N s/m on the shell joint's linear drive
 
     @property
     def stiffness(self) -> float:
@@ -155,12 +156,13 @@ def sample_layout(rng, tries: int = 2000) -> dict[str, tuple[float, float]]:
     LAYOUT_MIN_SEP. Falls back to the nominal stands if `tries` is exhausted.
     """
     import numpy as np
+
     for _ in range(tries):
         pts = np.column_stack([rng.uniform(*LAYOUT_X, 2), rng.uniform(*LAYOUT_Y, 2)])
         if float(np.linalg.norm(pts[0] - pts[1])) >= LAYOUT_MIN_SEP:
-            return {n: (float(p[0]), float(p[1]))
-                    for n, p in zip(("pick", "shaft"), pts, strict=True)}
+            return {n: (float(p[0]), float(p[1])) for n, p in zip(("pick", "shaft"), pts, strict=True)}
     return {"pick": PICK_XY, "shaft": SHAFT_XY}
+
 
 # Sleeve centre height when standing on the table.
 SLEEVE_SPAWN_Z = TABLE_TOP_Z + SLEEVE_HEIGHT / 2 + 0.002
@@ -196,16 +198,16 @@ def _spawn_shell(prim: str, mesh: str, material: SleeveMaterial, pos) -> RigidOb
         spawn=sim_utils.UsdFileCfg(
             usd_path=str(_usd(mesh)),
             rigid_props=sim_utils.RigidBodyPropertiesCfg(
-                disable_gravity=False, max_depenetration_velocity=1.0,
+                disable_gravity=False,
+                max_depenetration_velocity=1.0,
                 solver_position_iteration_count=16,
-                solver_velocity_iteration_count=1),
+                solver_velocity_iteration_count=1,
+            ),
             mass_props=sim_utils.MassPropertiesCfg(mass=material.half_mass),
             # Contact offset well under SPLIT_GAP and the shaft clearance, so
             # neither the other shell nor a centred shaft generates contacts.
-            collision_props=sim_utils.CollisionPropertiesCfg(
-                contact_offset=0.0004, rest_offset=0.0),
-            visual_material=sim_utils.PreviewSurfaceCfg(
-                diffuse_color=SLEEVE_COLOR, roughness=0.5),
+            collision_props=sim_utils.CollisionPropertiesCfg(contact_offset=0.0004, rest_offset=0.0),
+            visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=SLEEVE_COLOR, roughness=0.5),
         ),
         init_state=RigidObjectCfg.InitialStateCfg(pos=pos),
     )
@@ -221,11 +223,9 @@ def _spawn_shaft(clearance: float) -> RigidObjectCfg:
             # A pair generates contacts inside the sum of its two offsets, so
             # this one is wide: the rim meets the base before it can sink in,
             # while the shells keep their narrow offset against each other.
-            collision_props=sim_utils.CollisionPropertiesCfg(
-                contact_offset=0.004, rest_offset=0.0),
+            collision_props=sim_utils.CollisionPropertiesCfg(contact_offset=0.004, rest_offset=0.0),
         ),
-        init_state=RigidObjectCfg.InitialStateCfg(
-            pos=(SHAFT_XY[0], SHAFT_XY[1], TABLE_TOP_Z)),
+        init_state=RigidObjectCfg.InitialStateCfg(pos=(SHAFT_XY[0], SHAFT_XY[1], TABLE_TOP_Z)),
     )
 
 
@@ -239,34 +239,40 @@ class SleeveOnShaftSceneCfg(BimanualTactileSceneCfg):
     for the episode is parked at PARKED_POS.
     """
 
+    manipuland = None
+
     table = AssetBaseCfg(
         prim_path="{ENV_REGEX_NS}/table",
         spawn=sim_utils.CuboidCfg(
             size=(0.55, 0.75, 0.04),
             collision_props=sim_utils.CollisionPropertiesCfg(),
-            physics_material=sim_utils.RigidBodyMaterialCfg(
-                static_friction=0.9, dynamic_friction=0.8),
-            visual_material=sim_utils.PreviewSurfaceCfg(
-                diffuse_color=(0.72, 0.66, 0.55)),
+            physics_material=sim_utils.RigidBodyMaterialCfg(static_friction=0.9, dynamic_friction=0.8),
+            visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.72, 0.66, 0.55)),
         ),
-        init_state=AssetBaseCfg.InitialStateCfg(
-            pos=(0.32, 0.0, TABLE_TOP_Z - 0.02)),
+        init_state=AssetBaseCfg.InitialStateCfg(pos=(0.32, 0.0, TABLE_TOP_Z - 0.02)),
     )
 
     shaft = _spawn_shaft(DEFAULT_CLEARANCE)
 
     # `_a` is the +y shell and `_b` the -y one, spawned SPLIT_GAP apart.
-    soft_a = _spawn_shell("{ENV_REGEX_NS}/soft_a", SHELL_MESH_NAMES[0], MATERIALS[0],
-                          (PICK_XY[0], PICK_XY[1] + _HALF_GAP, SLEEVE_SPAWN_Z))
-    soft_b = _spawn_shell("{ENV_REGEX_NS}/soft_b", SHELL_MESH_NAMES[1], MATERIALS[0],
-                          (PICK_XY[0], PICK_XY[1] - _HALF_GAP, SLEEVE_SPAWN_Z))
+    soft_a = _spawn_shell(
+        "{ENV_REGEX_NS}/soft_a",
+        SHELL_MESH_NAMES[0],
+        MATERIALS[0],
+        (PICK_XY[0], PICK_XY[1] + _HALF_GAP, SLEEVE_SPAWN_Z),
+    )
+    soft_b = _spawn_shell(
+        "{ENV_REGEX_NS}/soft_b",
+        SHELL_MESH_NAMES[1],
+        MATERIALS[0],
+        (PICK_XY[0], PICK_XY[1] - _HALF_GAP, SLEEVE_SPAWN_Z),
+    )
     stiff_a = _spawn_shell("{ENV_REGEX_NS}/stiff_a", SHELL_MESH_NAMES[0], MATERIALS[1], PARKED_POS)
     stiff_b = _spawn_shell("{ENV_REGEX_NS}/stiff_b", SHELL_MESH_NAMES[1], MATERIALS[1], PARKED_POS)
 
     def __post_init__(self):
         ensure_assets()
         self.robot.init_state.joint_pos = start_joint_pos(START_JOINT_POS, START_JAW_WIDTH)
-        park_default_manipuland(self, PARKED_POS)
         point_pads_at(self, PAD_TARGET)
 
     def set_material_mass(self, name: str, half_mass: float) -> float:
@@ -281,3 +287,18 @@ class SleeveOnShaftSceneCfg(BimanualTactileSceneCfg):
             raise ValueError(f"clearance {clearance} not generated; one of {CLEARANCE_SWEEP}")
         self.shaft.spawn.usd_path = str(_usd(shaft_mesh_name(clearance)))
         return clearance
+
+
+# -- preview -----------------------------------------------------------------
+
+PREVIEW = PreviewSpec(
+    sdf_prims=("soft_a", "soft_b", "stiff_a", "stiff_b"),
+    tri_prims=("shaft",),
+    work_target=(0.26, -0.085, 0.24),
+    sdf_resolution=128,
+)
+
+
+def make_preview_cfg() -> SleeveOnShaftSceneCfg:
+    """Build the scene for preview."""
+    return SleeveOnShaftSceneCfg(num_envs=1, env_spacing=3.0)
