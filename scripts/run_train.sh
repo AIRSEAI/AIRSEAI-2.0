@@ -48,7 +48,7 @@ if [ ! -f "$DS/meta/info.json" ]; then
     exit 1
 fi
 
-OUT="$BASE/outputs/${DATASET}_${VARIANT}_${POLICY}_s${SEED}"
+OUT="$BASE/train/${DATASET}_${VARIANT}_${POLICY}_s${SEED}"
 [ ! -e "$OUT" ] || { echo "training output already exists: $OUT" >&2; exit 1; }
 mkdir -p "$BASE/logs"
 echo "training $POLICY on ${DATASET}_${VARIANT}, GPU $GPU"

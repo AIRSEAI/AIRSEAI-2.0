@@ -114,7 +114,7 @@ Additional command-line arguments are passed to the LeRobot training entry.
 With the default dataset name, outputs are:
 
 ```text
-<BASE>/outputs/texture_sort_pairs_s41_p250_<variant>_act_s1000/checkpoints/
+<BASE>/train/texture_sort_pairs_s41_p250_<variant>_act_s1000/checkpoints/
 <BASE>/logs/train_texture_sort_pairs_s41_p250_<variant>_act_s1000.log
 ```
 

@@ -198,9 +198,9 @@ hands; the operator/device workflow has not yet been validated.
 Combine multiple demonstration datasets from stage 2:
 
 ```bash
-DATASET=merged_demonstrations bash scripts/run_convert.sh \
-    "$OUTPUT_ROOT/raw/stack_cube_1" \
-    "$OUTPUT_ROOT/raw/stack_cube_2"
+DATASET=stack_cube_merged bash scripts/run_convert.sh \
+    "$OUTPUT_ROOT/raw/stack_cube_{#1}" \
+    "$OUTPUT_ROOT/raw/stack_cube_{#2}"
 ```
 
 One or more input directories are accepted;
@@ -215,9 +215,9 @@ Inputs must have compatible task, action, and observation definitions.
 
 | Variant | Inputs | Combined output |
 | --- | --- | --- |
-| `vision` | Cameras and robot state | `$OUTPUT_ROOT/datasets/merged_demonstrations_vision/` |
-| `tacff` | Vision plus force-field images | `$OUTPUT_ROOT/datasets/merged_demonstrations_tacff/` |
-| `tacrgb` | Vision plus tactile RGB images | `$OUTPUT_ROOT/datasets/merged_demonstrations_tacrgb/` |
+| `vision` | Cameras and robot state | `$OUTPUT_ROOT/datasets/stack_cube_merged_vision/` |
+| `tacff` | Vision plus force-field images | `$OUTPUT_ROOT/datasets/stack_cube_merged_tacff/` |
+| `tacrgb` | Vision plus tactile RGB images | `$OUTPUT_ROOT/datasets/stack_cube_merged_tacrgb/` |
 
 All variants contain the same combined episodes and actions. Each output
 includes `meta/source_episodes.json` mapping episodes to their source
@@ -226,7 +226,7 @@ recording, and review videos under `review/third_person/`.
 ### Stage 4 — train a policy
 
 ```bash
-DATASET=merged_demonstrations VARIANT=tacff POLICY=act GPU=0 \
+DATASET=stack_cube_merged VARIANT=tacff POLICY=act GPU=0 \
     STEPS=50000 SEED=1000 bash scripts/run_train.sh
 ```
 
@@ -244,125 +244,44 @@ DATASET=merged_demonstrations VARIANT=tacff POLICY=act GPU=0 \
 | `BASE` | Training output root; defaults to `OUTPUT_ROOT` |
 | `DEFAULT_PY` | Python executable from the training environment |
 
-Pass additional LeRobot options as shell arguments, for example
-`bash scripts/run_train.sh --policy.chunk_size=100`.
-Set `GPU` explicitly on shared servers according to the available allocation.
-Relative `DS` and `BASE` paths are resolved from the calling directory.
-For the 500-episode stack-cube recording:
+Repeat with `VARIANT=tacrgb` or `tacff` and the matching `DS` path. ACT is the initial baseline. Other model families may require additional model configuration and dependencies.
 
-```bash
-DATASET=stack_cube_s51_n500 VARIANT=vision POLICY=act GPU=0 \
-    DS="<converted_dataset_root>/stack_cube_s51_n500_vision" \
-    BASE="<task_output_root>/stage4" STEPS=50000 SEED=1000 \
-    bash scripts/run_train.sh
-```
-
-Repeat with `VARIANT=tacrgb` or `tacff` and the matching `DS` path.
-Texture-sort training uses `example/texture_sort/train.sh`.
-Evaluation initial states are not training inputs. Only launch after conversion
-and dataset validation complete.
-
-ACT is the initial baseline. Other model families may require additional
-model configuration and dependencies.
-
-- Checkpoints: `$BASE/outputs/${DATASET}_${VARIANT}_${POLICY}_s${SEED}/checkpoints/`.
+- Checkpoints: `$BASE/train/${DATASET}_${VARIANT}_${POLICY}_s${SEED}/checkpoints/`.
 - Log: `$BASE/logs/train_${DATASET}_${VARIANT}_${POLICY}_s${SEED}.log`.
 
 ### Stage 5 — evaluate
 
-For a registered task, evaluate a completed ACT checkpoint with
-the same native vector scheduler at one or more environments. The initial-state
-file determines the episode count; every state is consumed once without retries
-or resampling. These tasks load ACT in the simulation process and require
-LeRobot in that Python environment. ACT must use one observation and no temporal
-ensembling. Each environment keeps its own action queue.
-Vector ACT evaluation executes 100 actions per inference by default. Set
-`N_ACTION_STEPS` to override it; the value must not exceed the checkpoint chunk size.
+`INIT_STATES` selects the saved initial states, including object poses, robot joint
+positions and task-specific settings. Each state is evaluated once, without
+retries or resampling; the file determines the episode count. Use the same file
+and checkpoint to compare single- and multi-environment evaluation.
 
 ```bash
-INIT_STATES=meta/init_states/texture_sort.json NUM_ENVS=1 \
-    OUT="$HOME/outputs/evaluation/texture_sort/vision/envs_1/run_01" \
-    bash scripts/run_eval.sh texture_sort "$CKPT"
+CKPT="$OUTPUT_ROOT/train/stack_cube_merged_tacff_act_s1000/checkpoints/last/pretrained_model"
 
-INIT_STATES=meta/init_states/texture_sort.json NUM_ENVS=4 \
-    OUT="$HOME/outputs/evaluation/texture_sort/vision/envs_4/run_01" \
-    bash scripts/run_eval.sh texture_sort "$CKPT"
-```
+# Evaluate the saved stack-cube states sequentially
+INIT_STATES=meta/init_states/stack_cube.json NUM_ENVS=1 \
+    OUT="$OUTPUT_ROOT/eval/stack_cube_merged_tacff_act_s1000_envs_1" \
+    bash scripts/run_eval.sh stack_cube "$CKPT"
 
-Use the complete final `060000/pretrained_model` directory for texture sort and
-`050000/pretrained_model` for stack cube. Repeat for vision, tacrgb and tacff.
-Run on an available simulation host with Isaac and LeRobot installed.
-Set `DEFAULT_PY` and `GPU` for that host.
-Run a model's single and vector evaluations sequentially on the same GPU.
-
-For both tasks, task position conditions must remain true
-continuously for one second, with a prior valid grasp lasting at least 0.5 seconds.
-Stack cube checks the relative horizontal position and height of the two cubes.
-Texture sort checks that the nearest cup is the correct one and the object's
-horizontal distance from its centre is less than 40 mm; height is not checked.
-Gripper opening and release are not required. Success is latched, and only the
-completed environment stops; other environments continue. Runs that reach the
-time limit without success fail. Expert collection uses the same criterion and
-may finish its remaining scripted phases after success.
-
-The default output is `$HOME/outputs/evaluation/<task>/run_01`. Set `OUT` to
-select a distinct directory for another checkpoint, variant or run.
-
-Each output directory contains `eval_report.json`, `configuration.json`,
-`checkpoint_sha256.json`, and per-episode starts, terminal states and results
-under `attempts/`. Reports include success rates, confidence intervals, state
-identities and timing. A failed or interrupted run has no final success rate.
-Use a new output directory for each run.
-
-For visual review, set `VIDEO=1` and a separate output directory. This writes
-`visual_review/mosaic.mp4` and frame metadata with slot and initial-state IDs.
-Use a fixed subset initial-state file for shorter review runs. Keep video disabled
-in performance comparisons, and retain all 100 published states for success rates.
-
-#### Evaluate with existing initial states
-
-Every evaluation uses a saved initial-state file. Start with the published
-initial-state set for the task (100 states for texture sort and stack cube):
-
-```bash
-CKPT="$OUTPUT_ROOT/outputs/merged_demonstrations_tacff_act_s1000/checkpoints/last/pretrained_model"
-INIT_STATES=meta/init_states/stack_cube.json VIDEO=1 \
-    OUT="$OUTPUT_ROOT/eval/merged_demonstrations_tacff_act_s1000" \
+# Evaluate the same states across four environments on one GPU
+INIT_STATES=meta/init_states/stack_cube.json NUM_ENVS=4 \
+    OUT="$OUTPUT_ROOT/eval/stack_cube_merged_tacff_act_s1000_envs_4" \
     bash scripts/run_eval.sh stack_cube "$CKPT"
 ```
-
-For four environments on two GPUs, use the same state file:
-
-```bash
-INIT_STATES=meta/init_states/stack_cube.json \
-    NUM_ENVS=4 GPUS=0,1 SEED=11 VIDEO=1 \
-    OUT="$OUTPUT_ROOT/eval/merged_demonstrations_tacff_act_s1000_parallel" \
-    bash scripts/run_eval.sh stack_cube "$CKPT"
-```
-
-Both commands evaluate every state once. `NUM_ENVS=4 GPUS=0` places all four
-environments on one GPU if memory permits. A missing state file stops the run.
 
 | Option | Meaning / default |
 | --- | --- |
-| `INIT_STATES` | Initial-state JSON file; required |
+| `INIT_STATES` | Initial-state JSON; defaults to `meta/init_states/<task>.json` |
 | `NUM_ENVS` | Concurrent environments; `1` |
-| `GPUS` | GPU IDs, distributed round-robin; `0` |
-| `SEED` | Policy evaluation seed; `11`; does not select the initial states |
-| `OUT` | Evaluation output directory |
-| `VIDEO=1` | Save rollout videos |
+| `GPU` | GPU to use; otherwise uses the current CUDA visibility |
+| `OUT` | A new output directory for each evaluation |
+| `VIDEO=1` | Save `visual_review/mosaic.mp4` and frame metadata under `OUT` |
+| `N_ACTION_STEPS` | Actions per inference; `100`, must not exceed checkpoint chunk size |
 
-For the parallel example:
-
-| Output | Path |
-| --- | --- |
-| Combined report | `$OUTPUT_ROOT/eval/merged_demonstrations_tacff_act_s1000_parallel/eval_report.json` |
-| Videos by state ID | `$OUTPUT_ROOT/eval/merged_demonstrations_tacff_act_s1000_parallel/videos/` |
-| Worker logs | `$OUTPUT_ROOT/eval/merged_demonstrations_tacff_act_s1000_parallel/workers/worker_<id>/` |
-
-The report includes success rate, per-state success and failure details,
-and the evaluation-set hash. Missing or duplicate states mark a run incomplete.
-Compare results using the same evaluation set and benchmark configuration.
+Results are saved to `$OUT/eval_report.json`; per-state records are under
+`$OUT/attempts/`. For timing comparisons, run both commands sequentially on the
+same GPU with video disabled.
 
 #### Generate new initial states
 
@@ -386,14 +305,8 @@ python benchmark/run/make_init_states.py --task stack_cube \
     --headless --enable_cameras
 ```
 
-Then evaluate using the new file:
-
-```bash
-INIT_STATES="$OUTPUT_ROOT/custom_states/stack_cube.json" \
-    NUM_ENVS=4 GPUS=0,1 VIDEO=1 \
-    OUT="$OUTPUT_ROOT/eval/stack_cube_custom" \
-    bash scripts/run_eval.sh stack_cube "$CKPT"
-```
+To evaluate the new set, replace `INIT_STATES` in the commands above with
+`"$OUTPUT_ROOT/custom_states/stack_cube.json"` and choose a new `OUT` directory.
 
 An incomplete run writes a `.partial.json` file and exits unsuccessfully.
 Use `--exclude <training_states.json>` to exclude exact training starts.
