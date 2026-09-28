@@ -27,6 +27,7 @@ from sim.envs.bimanual_tactile import (
     point_pads_at,
     start_joint_pos,
 )
+from sim.envs.preview import PreviewSpec
 
 __all__ = [
     "ASSETS_DIR",
@@ -244,3 +245,16 @@ class CapUnscrewSceneCfg(BimanualTactileSceneCfg):
         ensure_assets()
         self.robot.init_state.joint_pos = start_joint_pos(START_JOINT_POS, START_JAW_WIDTH)
         point_pads_at(self, PAD_TARGET)
+
+
+PREVIEW = PreviewSpec(
+    sdf_prims=("bottle", "cap"),
+    tri_prims=("tray",),
+    work_target=(0.22, 0.0, TABLE_TOP_Z + 0.08),
+    sdf_resolution=128,
+)
+
+
+def make_preview_cfg() -> CapUnscrewSceneCfg:
+    """Build the task scene for preview."""
+    return CapUnscrewSceneCfg(num_envs=1, env_spacing=3.0)

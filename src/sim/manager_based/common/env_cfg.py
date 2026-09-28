@@ -55,7 +55,15 @@ class VectorEnvCfg(ManagerBasedEnvCfg):
 
 
 def build_cfg(
-    scene_module, *, num_envs=1, device="cuda:0", robot_usd="", joint_deg="", scene_cfg=None, seed=0
+    scene_module,
+    *,
+    num_envs=1,
+    device="cuda:0",
+    robot_usd="",
+    joint_deg="",
+    scene_cfg=None,
+    seed=0,
+    review_size=(960, 720),
 ):
     if num_envs < 1:
         raise ValueError("num_envs must be positive")
@@ -72,8 +80,8 @@ def build_cfg(
     spec = scene_module.PREVIEW
     scene.review_camera = TiledCameraCfg(
         prim_path="{ENV_REGEX_NS}/review_camera",
-        width=960,
-        height=720,
+        width=review_size[0],
+        height=review_size[1],
         offset=TiledCameraCfg.OffsetCfg(
             pos=spec.eye, rot=look_at(spec.eye, spec.look_at), convention="opengl"
         ),

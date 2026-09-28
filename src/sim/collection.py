@@ -166,6 +166,7 @@ class Collector:
             robot_usd=args.robot_usd,
             scene_cfg=cfg,
             seed=args.seed,
+            review_size=getattr(args, "video_size", (960, 720)),
         )
         self.env.reset(seed=args.seed)
         default = self.env.scene["robot"].data.default_joint_pos[0].cpu().tolist()

@@ -2,6 +2,7 @@
 """Generate frozen starts in vector environments, optionally checked by an expert."""
 
 import argparse
+import traceback
 from pathlib import Path
 
 from isaaclab.app import AppLauncher
@@ -26,6 +27,9 @@ def main():
     parser.add_argument("--expert", action=argparse.BooleanOptionalAction, default=False)
     parser.add_argument("--exclude", nargs="*", default=[], help="Frozen state files that must not overlap")
     parser.add_argument("--video", default="", help="Fixed-camera mosaic of candidate attempts")
+    parser.add_argument(
+        "--video-size", type=int, nargs=2, default=None, help="Review video width and height in pixels"
+    )
     parser.add_argument("--robot_usd", default="")
     parser.add_argument("--grid", type=int, nargs=2, default=(288, 384))
     add_write_arguments(parser)
@@ -33,6 +37,11 @@ def main():
     known, _ = parser.parse_known_args()
     if min(known.count, known.num_envs, known.max_candidates) < 1 or known.seed < 0:
         parser.error("counts and num_envs must be positive; seed must be nonnegative")
+    if known.video_size is None:
+        known.video_size = (640, 480) if known.num_envs >= 8 else (960, 720)
+        parser.set_defaults(video_size=known.video_size)
+    if min(known.video_size) < 2 or any(value % 2 for value in known.video_size):
+        parser.error("video-size must contain positive even dimensions")
     if known.max_candidates < known.count:
         parser.error("max-candidates must be at least count")
     if known.write_queue_size < 1:
@@ -59,6 +68,9 @@ def main():
         args.record_dataset = ""
         args.allow_empty = True
         return generate_states(args, task, knobs, launcher.app)
+    except Exception:
+        traceback.print_exc()
+        raise
     finally:
         launcher.app.close()
 
