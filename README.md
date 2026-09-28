@@ -280,8 +280,7 @@ INIT_STATES=meta/init_states/stack_cube.json NUM_ENVS=4 \
 | `N_ACTION_STEPS` | Actions per inference; `100`, must not exceed checkpoint chunk size |
 
 Results are saved to `$OUT/eval_report.json`; per-state records are under
-`$OUT/attempts/`. For timing comparisons, run both commands sequentially on the
-same GPU with video disabled.
+`$OUT/attempts/`.
 
 #### Generate new initial states
 
@@ -291,7 +290,7 @@ keep 50 that the scripted expert completes:
 ```bash
 python benchmark/run/make_init_states.py --task stack_cube \
     --count 50 --max-candidates 80 --seed 0 --expert --num_envs 4 \
-    --headless --enable_cameras \
+    --headless \
     --out "$OUTPUT_ROOT/custom_states/stack_cube.json"
 ```
 
@@ -302,19 +301,11 @@ successful candidates enter the final set. To generate without an expert:
 python benchmark/run/make_init_states.py --task stack_cube \
     --count 50 --max-candidates 80 --seed 1 --no-expert --num_envs 4 \
     --out "$OUTPUT_ROOT/custom_states/stack_cube_unfiltered.json" \
-    --headless --enable_cameras
+    --headless
 ```
 
 To evaluate the new set, replace `INIT_STATES` in the commands above with
 `"$OUTPUT_ROOT/custom_states/stack_cube.json"` and choose a new `OUT` directory.
-
-An incomplete run writes a `.partial.json` file and exits unsuccessfully.
-Use `--exclude <training_states.json>` to exclude exact training starts.
-Texture-sort paired collection and independent evaluation sampling are described
-in [the task example](example/texture_sort/README.md).
-
-The new set is saved separately from the published set. Its scores are
-comparable only with evaluations using the same states and configuration.
 
 ## 5. What the dataset contains
 
