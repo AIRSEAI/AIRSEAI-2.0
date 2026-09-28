@@ -76,6 +76,7 @@ if not TASK_IDS[_known.task].manager_cfg and _known.write_mode == "background":
     parser.error("Background writing requires a native vector environment; use --write_mode sync")
 if _known.num_envs < 1:
     parser.error("num_envs must be positive")
+parser.set_defaults(video_size=(640, 480) if _known.num_envs >= 8 else (960, 720))
 if _known.num_envs > 1 and not TASK_IDS[_known.task].manager_cfg:
     parser.error("This task has no native vector environment")
 if TASK_IDS[_known.task].manager_cfg:

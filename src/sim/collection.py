@@ -396,8 +396,7 @@ class Collector:
                 attempt.phase_frame = 0
                 if attempt.phase >= len(task.phases):
                     attempt.terminal_reason = "finished"
-        horizon = getattr(self.args, "horizon_s", None) or task.horizon_s
-        if attempt.frame * CONTROL_DT >= horizon and not attempt.terminal_reason:
+        if attempt.frame * CONTROL_DT >= task.horizon_s and not attempt.terminal_reason:
             attempt.terminal_reason = "timeout"
 
     def finish(self, attempt):

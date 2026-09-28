@@ -169,7 +169,7 @@ class BlindPegInsertionTask(Task):
     ]
     # Record from t = 0, HOME included. The pick uses the peg's true pose.
     handover_phase = None
-    horizon_s = 30.0
+    horizon_s = 80.0
     scene_cam = ((0.68, -0.42, 0.26 + 0.10), (0.26, 0.0, TABLE_TOP_Z + 0.06))
 
     # -- search lattice, derived from the task's own knobs -------------------
