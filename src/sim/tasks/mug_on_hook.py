@@ -87,9 +87,9 @@ class MugOnHookTask(Task):
         "grasp_pitch_deg": Knob(45.0, "blade pitch below horizontal at the grasp, deg"),
         "grasp_bias_mm": Knob(6.0, "half-width of the hidden x offset of the mug in the jaws (mm)"),
         "align_err_x_mm": Knob(
-            1.5, "half-width of the hidden sideways offset of the aim inside the eye (mm)"
+            1.0, "half-width of the hidden sideways offset of the aim inside the eye (mm)"
         ),
-        "align_err_z_mm": Knob(7.5, "half-width of the hidden height offset of the aim inside the eye (mm)"),
+        "align_err_z_mm": Knob(0.0, "optional extra height error of the aim inside the eye (mm)"),
         "eye_gap_mm": Knob(EYE_X * 1e3, "clear width of the handle's eye (mm); the generated mug must match"),
         "seat_drop_mm": Knob(26.0, "how far the hand may descend looking for the transfer (mm)"),
         "drop_mm": Knob(
@@ -122,9 +122,7 @@ class MugOnHookTask(Task):
 
     def apply_collision(self, h, *, env_path="/World/envs/env_0") -> dict:
         meshes = {"mug": apply_sdf_collision(f"{env_path}/mug", sdf_resolution=128)}
-        meshes.update(
-            {prim: apply_triangle_mesh_collision(f"{env_path}/{prim}") for prim in ("hook", "coaster")}
-        )
+        meshes["hook"] = apply_triangle_mesh_collision(f"{env_path}/hook")
         return meshes
 
     # ---- episode -----------------------------------------------------------
@@ -135,8 +133,7 @@ class MugOnHookTask(Task):
         layout = sample_layout(rng)
         yaw = _np.radians(layout["mug_yaw"])
         objects = {
-            "hook": [*layout["rail"], TABLE_TOP_Z, 1.0, 0.0, 0.0, 0.0],
-            "coaster": [*layout["coaster"], TABLE_TOP_Z, 1.0, 0.0, 0.0, 0.0],
+            "hook": [*layout["rail"], layout["rail_z"], 1.0, 0.0, 0.0, 0.0],
             "mug": [*layout["mug"], MUG_SPAWN_Z, float(_np.cos(yaw / 2)), 0.0, 0.0, float(_np.sin(yaw / 2))],
         }
         variables = {"side": "right"}
@@ -161,10 +158,10 @@ class MugOnHookTask(Task):
         h.select_arm("right")
         rail, _ = self._pose(h, "hook")
         variables = state["task_vars"]
-        return self._new_ctx(h, rail[:2], variables["bias"], variables["aim_x"], variables["aim_z"], knobs)
+        return self._new_ctx(h, rail[:3], variables["bias"], variables["aim_x"], variables["aim_z"], knobs)
 
     def init_state_objects(self):
-        return ("hook", "coaster", "mug")
+        return ("hook", "mug")
 
     def snapshot_init_state(self, h, ctx):
         return {key: ctx[key] for key in ("side", "bias", "aim_x", "aim_z")}
@@ -177,8 +174,7 @@ class MugOnHookTask(Task):
         h.select_arm("right")
         layout = sample_layout(rng)
         yaw = _np.radians(layout["mug_yaw"])
-        h.place(h.scene["hook"], layout["rail"], TABLE_TOP_Z)
-        h.place(h.scene["coaster"], layout["coaster"], TABLE_TOP_Z)
+        h.place(h.scene["hook"], layout["rail"], layout["rail_z"])
         h.place(
             h.scene["mug"],
             layout["mug"],
@@ -190,25 +186,26 @@ class MugOnHookTask(Task):
 
         mug_pos, mug_quat = self._pose(h, "mug")
         if _tilt(mug_quat) > MAX_SPAWN_TILT_DEG:
-            raise RetryReset("the mug did not settle upright in the coaster")
+            raise RetryReset("the mug did not settle upright on the table")
 
         bias = float(rng.uniform(-1.0, 1.0) * float(knobs["grasp_bias_mm"]) * 1e-3)
         aim_x = float(rng.uniform(-1.0, 1.0) * float(knobs["align_err_x_mm"]) * 1e-3)
         aim_z = float(rng.uniform(-1.0, 1.0) * float(knobs["align_err_z_mm"]) * 1e-3)
-        return self._new_ctx(h, layout["rail"], bias, aim_x, aim_z, knobs)
+        return self._new_ctx(h, (*layout["rail"], layout["rail_z"]), bias, aim_x, aim_z, knobs)
 
-    def _new_ctx(self, h, rail_xy, bias, aim_x, aim_z, knobs):
+    def _new_ctx(self, h, rail_xyz, bias, aim_x, aim_z, knobs):
         mug_pos, _ = self._pose(h, "mug")
-        rail = _np.asarray(rail_xy, dtype=float)
+        rail = _np.asarray(rail_xyz, dtype=float)
         span = peg_span()
-        peg_root = _np.array([rail[0], rail[1], TABLE_TOP_Z + peg_axis_z(0.0)])
-        peg_tip = _np.array([rail[0], rail[1] + span, TABLE_TOP_Z + peg_axis_z(span)])
+        peg_root = _np.array([rail[0], rail[1], rail[2] + peg_axis_z(0.0)])
+        peg_tip = _np.array([rail[0], rail[1] + span, rail[2] + peg_axis_z(span)])
         # The height the eye is carried at: the peg's, midway along the travel,
         # so the tilt costs at most half of it either end.
         mid = 0.5 * (HANG_ALONG + span)
 
         return {
             "side": "right",
+            "rail_z_delta": float(rail[2] - TABLE_TOP_Z),
             "mug0": mug_pos,
             "bias": bias,
             "drop": float(knobs["drop_mm"]) * 1e-3,
@@ -416,9 +413,8 @@ class MugOnHookTask(Task):
         if name in ("home", "above_mug", "lift", "carry", "retreat"):
             return h.tcp_err(target) < 0.010
         if name == "align":
-            # Tight: the eye clears the rod by 3.5 mm either side, so a gate
-            # wider than that would pass a pose that cannot thread.
-            return h.tcp_err(target) < 0.003
+            # The stop ball leaves only 2.5 mm sideways clearance.
+            return h.tcp_err(target) < 0.0015
         if name == "orient":
             return (
                 t_phase > 0.3 and self._wrist_err_deg(h, ctx) < ORIENT_TOL_DEG and h.tcp_err(target) < 0.015
@@ -475,6 +471,7 @@ class MugOnHookTask(Task):
             "grasp_bias_mm": round(ctx["bias"] * 1e3, 2),
             "aim_x_mm": round(ctx["aim_x"] * 1e3, 2),
             "aim_z_mm": round(ctx["aim_z"] * 1e3, 2),
+            "rail_z_delta_mm": round(ctx["rail_z_delta"] * 1e3, 2),
             # What the episode is really about: how far the hand came down
             # before the weight went onto the peg.
             "seat_travel_mm": round(ctx["seat_travel"] * 1e3, 2),

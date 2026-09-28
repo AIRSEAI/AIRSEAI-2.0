@@ -1,14 +1,13 @@
-"""mug_on_hook scene: a mug standing on a coaster, and a wall rail with one peg.
+"""mug_on_hook scene: a mug on the table and a wall rail with one peg.
 
 Layering::
 
     envs.bimanual_tactile       robot + tactile pads, nothing else
-    envs.mug_on_hook            + table + rail + coaster + mug      (this file)
+    envs.mug_on_hook            + table + rail + mug      (this file)
 """
 
 from __future__ import annotations
 
-import math
 from pathlib import Path
 
 import isaaclab.sim as sim_utils
@@ -16,14 +15,7 @@ from isaaclab.assets import AssetBaseCfg, RigidObjectCfg
 from isaaclab.utils import configclass
 
 from sim.assets.provision import task_asset_dir
-from sim.dims.mug_on_hook import (
-    COASTER_FLOOR,
-    COASTER_INNER_R,
-    HANDLE_SECTION,
-    MUG_OUTER_R,
-    STOP_BALL_R,
-    peg_span,
-)
+from sim.dims.mug_on_hook import HANDLE_SECTION, STOP_BALL_R, peg_span
 from sim.envs.bimanual_tactile import (
     REAL_HOME_JOINT_POS,
     TABLE_TOP_Z,
@@ -31,24 +23,27 @@ from sim.envs.bimanual_tactile import (
     point_pads_at,
     start_joint_pos,
 )
+from sim.envs.preview import PreviewSpec
 
 __all__ = [
     "ASSETS_DIR",
     "ASSET_NAMES",
-    "COASTER_JITTER",
-    "COASTER_XY",
     "HANG_ALONG",
     "MUG_JITTER",
     "MUG_MASS",
     "MUG_SPAWN_Z",
+    "MUG_XY",
     "MUG_YAW_JITTER_DEG",
     "PAD_TARGET",
+    "PREVIEW",
     "RAIL_JITTER",
+    "RAIL_Z_JITTER",
     "RAIL_XY",
     "START_JAW_WIDTH",
     "START_JOINT_POS",
     "MugOnHookSceneCfg",
     "ensure_assets",
+    "make_preview_cfg",
     "sample_layout",
 ]
 
@@ -60,7 +55,7 @@ __all__ = [
 # (the installer does this for every task).
 ASSETS_DIR = task_asset_dir("mug_on_hook")
 
-ASSET_NAMES = ("mug", "hook", "coaster")
+ASSET_NAMES = ("mug", "hook")
 
 
 def _usd(name: str) -> Path:
@@ -95,7 +90,7 @@ RAIL_XY = (0.265, -0.240)
 # How far along the peg, from the board's face, the eye is threaded to, metres.
 # The mug does not stay there: the rod falls, so it runs down to the stop ball
 # and comes to rest against it. This is only where the hand lets go of it.
-HANG_ALONG = 0.045
+HANG_ALONG = 0.053
 
 
 def rest_along() -> float:
@@ -103,45 +98,36 @@ def rest_along() -> float:
     return peg_span() - STOP_BALL_R - HANDLE_SECTION / 2.0
 
 
-# The coaster's centre, metres: well inside the right arm's top-grasp region
-# and clear of the rail.
-COASTER_XY = (0.245, -0.090)
+# Mug start centre, metres: inside the right arm's top-grasp region.
+MUG_XY = (0.245, -0.090)
 
-# Metres, uniform +/- on x and y, per episode. The mug's own jitter is bounded
-# by the coaster's dish, which clears it by 7 mm.
+# Metres, uniform +/- on x and y, per episode.
 RAIL_JITTER = 0.005
-COASTER_JITTER = 0.008
-MUG_JITTER = 0.004
+# The fixture's height is unknown to the scripted controller. Its vertical
+# contact point is found while seating the mug.
+RAIL_Z_JITTER = 0.006
+MUG_JITTER = 0.012
 # The handle's heading varies a little about +x, degrees.
 MUG_YAW_JITTER_DEG = 6.0
 
-# The mug's base at spawn: standing on the coaster's floor.
-MUG_SPAWN_Z = TABLE_TOP_Z + COASTER_FLOOR
+# The mug's base at spawn: standing on the table.
+MUG_SPAWN_Z = TABLE_TOP_Z
 
 
 def sample_layout(
     rng,
     rail_jitter: float = RAIL_JITTER,
-    coaster_jitter: float = COASTER_JITTER,
     mug_jitter: float = MUG_JITTER,
     yaw_jitter_deg: float = MUG_YAW_JITTER_DEG,
+    rail_z_jitter: float = RAIL_Z_JITTER,
 ) -> dict:
-    """Draw xy for the rail and the coaster, and the mug's pose in the dish.
-
-    The mug's offset is capped to what the dish allows, so it always starts
-    upright on the floor rather than riding up the inner wall.
-    """
+    """Draw the rail's xyz and the mug's pose on the table."""
     out: dict = {}
-    for key, (x, y), j in (("rail", RAIL_XY, rail_jitter), ("coaster", COASTER_XY, coaster_jitter)):
-        dx, dy = rng.uniform(-j, j, 2) if j else (0.0, 0.0)
-        out[key] = (float(x + dx), float(y + dy))
-    room = COASTER_INNER_R - MUG_OUTER_R
+    dx, dy = rng.uniform(-rail_jitter, rail_jitter, 2) if rail_jitter else (0.0, 0.0)
+    out["rail"] = (float(RAIL_XY[0] + dx), float(RAIL_XY[1] + dy))
+    out["rail_z"] = float(TABLE_TOP_Z + rng.uniform(-rail_z_jitter, rail_z_jitter))
     dx, dy = rng.uniform(-mug_jitter, mug_jitter, 2) if mug_jitter else (0.0, 0.0)
-    r = math.hypot(dx, dy)
-    if r > room:
-        dx, dy = dx * room / r, dy * room / r
-    cx, cy = out["coaster"]
-    out["mug"] = (float(cx + dx), float(cy + dy))
+    out["mug"] = (float(MUG_XY[0] + dx), float(MUG_XY[1] + dy))
     out["mug_yaw"] = float(rng.uniform(-yaw_jitter_deg, yaw_jitter_deg))
     return out
 
@@ -159,7 +145,7 @@ PAD_TARGET = "{ENV_REGEX_NS}/mug"
 
 # ----- spawn helpers ---------------------------------------------------------
 def _spawn_mug(prim: str) -> RigidObjectCfg:
-    """The mug, standing on the coaster."""
+    """The mug, standing on the table."""
     return RigidObjectCfg(
         prim_path=prim,
         spawn=sim_utils.UsdFileCfg(
@@ -174,16 +160,16 @@ def _spawn_mug(prim: str) -> RigidObjectCfg:
             ),
             mass_props=sim_utils.MassPropertiesCfg(mass=MUG_MASS),
             # Contact generated a millimetre and a half out, so the solver
-            # answers the gels, the coaster and the peg before any is deep in;
-            # well under the 3.5 mm the eye clears the peg by.
+            # answers the gels, the table and the peg before any is deep in;
+            # well under the stop ball's 2.5 mm sideways clearance.
             collision_props=sim_utils.CollisionPropertiesCfg(contact_offset=0.0015, rest_offset=0.0),
         ),
-        init_state=RigidObjectCfg.InitialStateCfg(pos=(*COASTER_XY, MUG_SPAWN_Z)),
+        init_state=RigidObjectCfg.InitialStateCfg(pos=(*MUG_XY, MUG_SPAWN_Z)),
     )
 
 
 def _spawn_fixture(prim: str, mesh: str, xy, z: float) -> RigidObjectCfg:
-    """The rail or the coaster: kinematic, so `reset` can re-pose it."""
+    """The rail: kinematic, so `reset` can re-pose it."""
     return RigidObjectCfg(
         prim_path=prim,
         spawn=sim_utils.UsdFileCfg(
@@ -198,7 +184,7 @@ def _spawn_fixture(prim: str, mesh: str, xy, z: float) -> RigidObjectCfg:
 # ----- scene -----------------------------------------------------------------
 @configclass
 class MugOnHookSceneCfg(BimanualTactileSceneCfg):
-    """Robot, tactile pads, table, mug, rail and coaster."""
+    """Robot, tactile pads, table, mug and rail."""
 
     manipuland = None
 
@@ -214,7 +200,6 @@ class MugOnHookSceneCfg(BimanualTactileSceneCfg):
     )
 
     hook = _spawn_fixture("{ENV_REGEX_NS}/hook", "hook", RAIL_XY, TABLE_TOP_Z)
-    coaster = _spawn_fixture("{ENV_REGEX_NS}/coaster", "coaster", COASTER_XY, TABLE_TOP_Z)
     mug = _spawn_mug("{ENV_REGEX_NS}/mug")
 
     key_light = AssetBaseCfg(
@@ -233,3 +218,15 @@ class MugOnHookSceneCfg(BimanualTactileSceneCfg):
         ensure_assets()
         self.robot.init_state.joint_pos = start_joint_pos(START_JOINT_POS, START_JAW_WIDTH)
         point_pads_at(self, PAD_TARGET)
+
+
+PREVIEW = PreviewSpec(
+    sdf_prims=("mug",),
+    tri_prims=("hook",),
+    work_target=(0.265, -0.170, TABLE_TOP_Z + 0.07),
+    sdf_resolution=128,
+)
+
+
+def make_preview_cfg() -> MugOnHookSceneCfg:
+    return MugOnHookSceneCfg(num_envs=1, env_spacing=3.0)

@@ -1,4 +1,4 @@
-"""mug_on_hook dimensions: the mug and its handle, the rail's peg, and the coaster.
+"""mug_on_hook dimensions: the mug and its handle, and the rail's peg.
 
 After editing, regenerate the assets::
 
@@ -10,11 +10,6 @@ from __future__ import annotations
 import math
 
 __all__ = [
-    "COASTER_COLOR",
-    "COASTER_FLOOR",
-    "COASTER_HEIGHT",
-    "COASTER_INNER_R",
-    "COASTER_OUTER_R",
     "EYE_FLOOR_Z",
     "EYE_HEIGHT",
     "EYE_X",
@@ -70,7 +65,7 @@ HANDLE_ROOT_R = 0.017  # where the path's ends sit, inside the wall
 # The eye: the hole between the body's wall and the handle's inner face. EYE_X
 # is its clear width, EYE_HEIGHT its clear height. Both the rod and the stop
 # ball on its end have to thread it; `ball_window()` is the tighter of the two.
-EYE_X = 0.015
+EYE_X = 0.019
 EYE_HEIGHT = 0.026
 
 # The eye's floor above the mug's base, metres; the rest of the handle follows
@@ -126,7 +121,7 @@ RAIL_COLOR = (0.34, 0.24, 0.16)  # stained wood
 # arriving with enough speed rides over that step and off the end.
 PEG_R = 0.0025
 PEG_LENGTH = 0.070
-STOP_BALL_R = 0.0040
+STOP_BALL_R = 0.0070
 # Fall towards the free end, degrees, and the friction of the rod it works
 # against. Steep with the friction nearly cancelling it: the run down the rod
 # then stays slow, while a mug dropped onto the rod turns a large part of its
@@ -163,13 +158,3 @@ def ball_window(eye_x: float = EYE_X) -> float:
     pass over the ball on its way onto the rod.
     """
     return (eye_x - 2.0 * STOP_BALL_R) / 2.0
-
-
-# ----- the coaster -----------------------------------------------------------
-# The shallow dish the mug starts in, metres. It keeps the mug upright and
-# bounds where it can stand, so the jitter stays inside the dish.
-COASTER_OUTER_R = 0.032
-COASTER_INNER_R = 0.026
-COASTER_HEIGHT = 0.006
-COASTER_FLOOR = 0.003
-COASTER_COLOR = (0.24, 0.19, 0.14)  # cork

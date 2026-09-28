@@ -86,10 +86,10 @@ def verdict(
 
     if never_held:
         return Verdict(False, FailureMode.GRASP_FAILURE, metrics)
-    if margin > 0.0:
-        return Verdict(True, metrics=metrics)
     if still_held:
         return Verdict(False, FailureMode.UNFINISHED, metrics)
+    if margin > 0.0:
+        return Verdict(True, metrics=metrics)
     if slipped:
         return Verdict(False, FailureMode.SLIP, metrics)
     return Verdict(False, FailureMode.MISTIMING, metrics)
