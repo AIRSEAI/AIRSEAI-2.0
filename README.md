@@ -1,63 +1,64 @@
 # AIRSEAI 2.0
 
-An open-source embodied-AI platform: a dual-arm
-manipulator with vision-based tactile sensors, one data pipeline, and two
-places it runs — sim and the real robot.
+An open-source embodied-AI platform: a dual-arm manipulator with vision-based tactile sensors, one
+data pipeline, and two places it runs — sim and the real robot.
 
-**In simulation, this repository.** A bimanual OpenArm with four tactile
-fingers in Isaac Sim, a scripted expert per task, LeRobot v3 datasets
-carrying the tactile channels, ACT training on them, and policy rollout in
-the same scenes.
+**In simulation, this repository.** A bimanual OpenArm with four tactile fingers in Isaac Sim, a
+scripted expert per task, LeRobot v3 datasets carrying the tactile channels, ACT training on them,
+and policy rollout in the same scenes.
 
-**On the real robot.** The same arms, the same recorded keys, collected by leader-follower teleoperation. Sim and real do not line up everywhere, and quantifying where they part is why the benchmark exists.
+**On the real robot.** The same arms, the same recorded keys, collected by leader-follower
+teleoperation. Sim and real do not line up everywhere, and quantifying where they part is why the
+benchmark exists.
 
 ## The tasks
 
-| | | |
-| :---: | :---: | :---: |
-| <img src="docs/media/stack_cube.webp" width="250" alt="stack_cube"> | <img src="docs/media/blind_peg_insertion.webp" width="250" alt="blind_peg_insertion"> | <img src="docs/media/sleeve_on_shaft.webp" width="250" alt="sleeve_on_shaft"> |
-| `stack_cube` — stack one cube on another | `blind_peg_insertion` — insert a peg into a hole that is not where the robot is told | `sleeve_on_shaft` — slide a squeezable sleeve onto a shaft |
-| <img src="docs/media/texture_sort.webp" width="250" alt="texture_sort"> | <img src="docs/media/handover.webp" width="250" alt="handover"> | <img src="docs/media/cap_unscrew.webp" width="250" alt="cap_unscrew"> |
-| `texture_sort` — sort two balls that differ only in surface, in the dark | `handover` — hand a spring-loaded sleeve between the arms, from one cup to the other | `cap_unscrew` — hold a bottle, unscrew its cap and place it in a tray |
+|                                                                          |                                                                                       |                                                                               |
+| :---:                                                                    | :---:                                                                                 | :---:                                                                         |
+| <img src="docs/media/stack_cube.webp" width="250" alt="stack_cube">      | <img src="docs/media/blind_peg_insertion.webp" width="250" alt="blind_peg_insertion"> | <img src="docs/media/sleeve_on_shaft.webp" width="250" alt="sleeve_on_shaft"> |
+| `stack_cube` — stack one cube on another                                 | `blind_peg_insertion` — insert a peg into a hole that is not where the robot is told  | `sleeve_on_shaft` — slide a squeezable sleeve onto a shaft                    |
+| <img src="docs/media/texture_sort.webp" width="250" alt="texture_sort">  | <img src="docs/media/handover.webp" width="250" alt="handover">                       | <img src="docs/media/cap_unscrew.webp" width="250" alt="cap_unscrew">         |
+| `texture_sort` — sort two balls that differ only in surface, in the dark | `handover` — hand a spring-loaded sleeve between the arms, from one cup to the other  | `cap_unscrew` — hold a bottle, unscrew its cap and place it in a tray         |
 
 ---
 
 ## 1. Requirements
 
-| | version |
-| --- | --- |
-| OS | Ubuntu 22.04 |
-| Isaac Sim | 5.1.0.0 |
-| Isaac Lab | v2.3.2 (`isaaclab` 0.54.2) + `isaaclab_contrib` (TacSL) |
-| Python | 3.11 |
-| PyTorch | 2.7.0+cu128 |
-| lerobot | 0.5.1, compatible source installed in `airseai` (dataset format v3.0) |
+|           | version                                                               |
+| ---       | ---                                                                   |
+| OS        | Ubuntu 22.04                                                          |
+| Isaac Sim | 5.1.0.0                                                               |
+| Isaac Lab | v2.3.2 (`isaaclab` 0.54.2) + `isaaclab_contrib` (TacSL)               |
+| Python    | 3.11                                                                  |
+| PyTorch   | 2.7.0+cu128                                                           |
+| lerobot   | 0.5.1, compatible source installed in `airseai` (dataset format v3.0) |
 
-See the [Isaac Sim 5.1 system requirements](https://docs.isaacsim.omniverse.nvidia.com/5.1.0/installation/requirements.html)
-for minimum hardware requirements and supported drivers.
+See the [Isaac Sim 5.1 system
+requirements](https://docs.isaacsim.omniverse.nvidia.com/5.1.0/installation/requirements.html) for
+minimum hardware requirements and supported drivers.
 
 ## 2. Robot asset
 
 The robot asset comes from enactic's
-[openarm_isaac_lab](https://github.com/enactic/openarm_isaac_lab). The
-installer prepares the bimanual robot with four GelSight fingers and
-wrist/head cameras at `assets/usds/openarm_bimanual/openarm_tactile.usd`.
+[openarm_isaac_lab](https://github.com/enactic/openarm_isaac_lab). The installer prepares the
+bimanual robot with four GelSight fingers and wrist/head cameras at
+`assets/usds/openarm_bimanual/openarm_tactile.usd`.
 
 ## 3. The environments
 
-The registered scenes include the task environments and `minimal`. The clips
-at the top of this file show demonstrations of the task scenes:
+The registered scenes include the task environments and `minimal`. The clips at the top of this file
+show demonstrations of the task scenes:
 
-| `--env` | what it is |
-| --- | --- |
-| `minimal` | the robot and its four tactile fingers, no furniture. The reference scene for anything that looks like a sensing bug |
-| `stack_cube` | pick up a cube and stack it on a second one. The template every task layer copies |
-| `blind_peg_insertion` | pick up a peg, find a close-fitting hole by touch under an injected pose error, insert it |
-| `sleeve_on_shaft` | slide a split sleeve onto a shaft, gripping hard enough to carry it but not so hard its bore closes |
-| `texture_sort` | tell two similar-looking balls apart by surface and sort them, in light too dim to see the texture |
-| `handover` | pinch a spring-loaded split sleeve out of the orange cup with the left arm, hand it to the right arm, and seat it over the key in the teal cup, holding it open just enough to fit |
-| `mug_on_hook` | carry a mug by its body and hang its handle on a peg |
-| `cap_unscrew` | hold a bottle, unscrew its cap with the other hand, and place it in a tray |
+| `--env`               | what it is                                                                                                                                                                         |
+| ---                   | ---                                                                                                                                                                                |
+| `minimal`             | the robot and its four tactile fingers, no furniture. The reference scene for anything that looks like a sensing bug                                                               |
+| `stack_cube`          | pick up a cube and stack it on a second one. The template every task layer copies                                                                                                  |
+| `blind_peg_insertion` | pick up a peg, find a close-fitting hole by touch under an injected pose error, insert it                                                                                          |
+| `sleeve_on_shaft`     | slide a split sleeve onto a shaft, gripping hard enough to carry it but not so hard its bore closes                                                                                |
+| `texture_sort`        | tell two similar-looking balls apart by surface and sort them, in light too dim to see the texture                                                                                 |
+| `handover`            | pinch a spring-loaded split sleeve out of the orange cup with the left arm, hand it to the right arm, and seat it over the key in the teal cup, holding it open just enough to fit |
+| `mug_on_hook`         | carry a mug by its body and hang its handle on a peg                                                                                                                               |
+| `cap_unscrew`         | hold a bottle, unscrew its cap with the other hand, and place it in a tray                                                                                                         |
 
 ## 4. The pipeline
 
@@ -69,9 +70,10 @@ at the top of this file show demonstrations of the task scenes:
 
 #### NVIDIA driver
 
-Install an NVIDIA driver compatible with your GPU model and the selected
-Isaac Sim release. Follow the [Isaac Sim driver requirements](https://docs.isaacsim.omniverse.nvidia.com/5.1.0/installation/requirements.html).
-Skip this step if a compatible driver is already installed.
+Install an NVIDIA driver compatible with your GPU model and the selected Isaac Sim release. Follow
+the [Isaac Sim driver
+requirements](https://docs.isaacsim.omniverse.nvidia.com/5.1.0/installation/requirements.html). Skip
+this step if a compatible driver is already installed.
 
 #### Conda
 
@@ -85,6 +87,8 @@ bash Miniconda3-latest-Linux-x86_64.sh -b -p "$HOME/miniconda3"
 
 #### Install the airseai-2.0
 
+The installer asks for four settings. Press Enter to accept the displayed default.
+
 ```bash
 sudo apt install -y git
 git clone git@github.com:AIRSEAI/AIRSEAI-2.0.git ~/AIRSEAI-2.0
@@ -92,41 +96,42 @@ cd ~/AIRSEAI-2.0
 bash scripts/install_airseai.sh
 ```
 
-The installer asks for four settings. Press Enter to accept the displayed default.
+**Options**
 
-| Prompt | Meaning | Default |
-| --- | --- | --- |
-| `conda env name` | Environment to create or reuse | `airseai` |
-| `conda root` | Conda installation directory | Detected installation, falling back to `~/miniconda3` |
-| `repo dir` | AIRSEAI repository directory | Repository containing the installer |
-| `output root` | Directory for generated files | `outputs/` under the selected `repo dir` |
+| Prompt           | Meaning                        | Default                                               |
+| ---              | ---                            | ---                                                   |
+| `conda env name` | Environment to create or reuse | `airseai`                                             |
+| `conda root`     | Conda installation directory   | Detected installation, falling back to `~/miniconda3` |
+| `repo dir`       | AIRSEAI repository directory   | Repository containing the installer                   |
+| `output root`    | Directory for generated files  | `outputs/` under the selected `repo dir`              |
 
 #### Activate the installed environment
 
-After installation completes successfully, activate the environment in the
-terminal used for the remaining stages:
+After installation completes successfully, activate the environment in the terminal used for the
+remaining stages:
 
 ```bash
 source ~/miniconda3/etc/profile.d/conda.sh
 conda activate airseai
 ```
 
-The selected output root is saved as `OUTPUT_ROOT` in this conda environment
-and loaded automatically on activation.
+The selected output root is saved as `OUTPUT_ROOT` in this conda environment and loaded
+automatically on activation.
 
 ### Stage 1 — preview an environment
 
-Task environments use the shared Isaac Lab ManagerBased environment.
-`--num_envs` defaults to 1. Larger values create independent copies of the
-selected task in one Isaac Sim scene and process, advancing together at each
-simulation step.
+Task environments use the shared Isaac Lab ManagerBased environment. `--num_envs` defaults to 1.
+Larger values create independent copies of the selected task in one Isaac Sim scene and process,
+advancing together at each simulation step.
 
 ```bash
 # Open an interactive view of four environments
 python benchmark/run/launch_env.py --env stack_cube --num_envs 4 --gui
+
 # Save a 30-second grid video of four environments
 python benchmark/run/launch_env.py --env stack_cube --num_envs 4 \
     --video "$OUTPUT_ROOT/preview/stack_cube.mp4" --steps 1800
+
 # Save a snapshot of four environments
 python benchmark/run/launch_env.py --env stack_cube --num_envs 4 \
     --snapshot "$OUTPUT_ROOT/preview/stack_cube.png"
@@ -136,35 +141,33 @@ python benchmark/run/launch_env.py --env stack_cube --num_envs 4 \
 
 #### Scripted expert
 
+Each task provides a state-machine-based scripted expert for collecting demonstrations. See the
+[texture_sort example](example/texture_sort/README.md) for a workflow exploring how demonstration
+diversity and dataset composition can affect task success rates.
+
 ```bash
 # Run 50 attempts in one environment, saving review and tactile preview videos
 RENDER=1 bash scripts/run_collect.sh stack_cube 50 \
     "$OUTPUT_ROOT/raw/stack_cube_expert"
+
 # Run 200 total attempts across four environments with the same video outputs
 NUM_ENVS=4 RENDER=1 \
     bash scripts/run_collect.sh stack_cube 200 \
     "$OUTPUT_ROOT/raw/stack_cube_expert_parallel"
 ```
 
-The requested count is the total number of attempts, not successful episodes,
-for both single- and multi-environment collection. By default, failed trajectories
-are excluded from the training dataset and are not replaced by extra attempts.
-For example, 50 attempts with 42 successes produce a dataset of 42 episodes.
-Failed-attempt diagnostics remain under `<dataset>/run/attempts/`.
+**Options**
 
-When `INIT_STATES` is supplied, each state is attempted once; the number of states
-overrides the requested episode count. Without it, each attempt draws a new state.
-The Python entry point's `--keep_unclean` option explicitly allows unsuccessful
-trajectories to be retained; it is disabled by default.
+| Option        | Meaning / default                                                     |
+| ---           | ---                                                                   |
+| `NUM_ENVS`    | Concurrent environments; `1`                                          |
+| `GPUS`        | One GPU ID for native vector tasks; `0`                               |
+| `SEED`        | Collection seed; `7`                                                  |
+| `INIT_STATES` | Optional initial-state JSON; absent means independent draws           |
+| `RENDER=1`    | Record review videos                                                  |
+| `PREVIEWS=1`  | Add depth heatmaps and shear-field arrow videos for visual inspection |
 
-| Option | Meaning / default |
-| --- | --- |
-| `NUM_ENVS` | Concurrent environments; `1` |
-| `GPUS` | One GPU ID for native vector tasks; `0` |
-| `SEED` | Collection seed; `7` |
-| `INIT_STATES` | Optional initial-state JSON; absent means independent draws |
-| `RENDER=1` | Record review videos |
-| `PREVIEWS=1` | Add depth heatmaps and shear-field arrow videos for visual inspection |
+The requested count is the total number of attempts, not successful episodes, for both single- and multi-environment collection. By default, failed trajectories are excluded from the training dataset and are not replaced by extra attempts. For example, 50 attempts with 42 successes produce a dataset of 42 episodes. Failed-attempt diagnostics remain under `<dataset>/run/attempts/`.
 
 #### Keyboard and VR teleoperation (Todo)
 
@@ -174,24 +177,13 @@ python benchmark/teleop/run_teleop.py --task stack_cube \
     --dataset "$OUTPUT_ROOT/raw/stack_cube_teleop"
 ```
 
-Omit `--dataset` to practise without recording. `--episodes` counts attempts;
-the report records manual success marks and task criterion results separately.
-Native teleoperation accepts `--num_envs 1` only and supports `--init_states`.
-Press SPACE to begin/pause, ENTER to mark success and save, BACKSPACE to discard,
-R to discard and reset to the next start, TAB to switch arms, and K to toggle jaws.
-Pausing freezes physics so no unrecorded interval enters a demonstration.
+**Outputs**
 
-Use `--teleop_device vr --xr` for Isaac Lab OpenXR hand tracking. The selected
-hand drives the selected arm with relative pose increments; keyboard controls
-manage the jaws and recording. Tracking loss freezes physics and reacquisition
-reanchors hand motion. This requires a compatible OpenXR runtime and tracked
-hands; the operator/device workflow has not yet been validated.
-
-| Output | Path |
-| --- | --- |
-| Raw dataset | `$OUTPUT_ROOT/raw/stack_cube_teleop/` |
+| Output         | Path                                                            |
+| ---            | ---                                                             |
+| Raw dataset    | `$OUTPUT_ROOT/raw/stack_cube_teleop/`                           |
 | Episode report | `$OUTPUT_ROOT/raw/stack_cube_teleop_run/stack_cube_teleop.json` |
-| Review videos | `$OUTPUT_ROOT/raw/stack_cube_teleop/review/third_person/` |
+| Review videos  | `$OUTPUT_ROOT/raw/stack_cube_teleop/review/third_person/`       |
 
 ### Stage 3 — convert and combine datasets
 
@@ -203,58 +195,63 @@ DATASET=stack_cube_merged bash scripts/run_convert.sh \
     "$OUTPUT_ROOT/raw/stack_cube_{#2}"
 ```
 
-One or more input directories are accepted;
-`DATASET` names the combined output. Source recordings remain unchanged.
-Inputs must have compatible task, action, and observation definitions.
+**Options**
 
-| Option | Meaning / default |
-| --- | --- |
-| `DATASET` | Output dataset name; required for multiple inputs, otherwise the input directory name |
-| `VARIANTS` | Space-separated variants; `vision tacff tacrgb` |
-| `FORCE=1` | Regenerate existing outputs; otherwise skip them |
+| Option     | Meaning / default                                                                     |
+| ---        | ---                                                                                   |
+| `DATASET`  | Output dataset name; required for multiple inputs, otherwise the input directory name |
+| `VARIANTS` | Space-separated variants; `vision tacff tacrgb`                                       |
+| `FORCE=1`  | Regenerate existing outputs; otherwise skip them                                      |
 
-| Variant | Inputs | Combined output |
-| --- | --- | --- |
-| `vision` | Cameras and robot state | `$OUTPUT_ROOT/datasets/stack_cube_merged_vision/` |
-| `tacff` | Vision plus force-field images | `$OUTPUT_ROOT/datasets/stack_cube_merged_tacff/` |
+**Outputs**
+
+| Variant  | Inputs                         | Combined output                                   |
+| ---      | ---                            | ---                                               |
+| `vision` | Cameras and robot state        | `$OUTPUT_ROOT/datasets/stack_cube_merged_vision/` |
+| `tacff`  | Vision plus force-field images | `$OUTPUT_ROOT/datasets/stack_cube_merged_tacff/`  |
 | `tacrgb` | Vision plus tactile RGB images | `$OUTPUT_ROOT/datasets/stack_cube_merged_tacrgb/` |
 
-All variants contain the same combined episodes and actions. Each output
-includes `meta/source_episodes.json` mapping episodes to their source
-recording, and review videos under `review/third_person/`.
+One or more input directories are accepted; `DATASET` names the combined output. Source recordings remain unchanged. Inputs must have compatible task, action, and observation definitions.
 
 ### Stage 4 — train a policy
+
+Train a policy on the converted dataset from stage 3.
 
 ```bash
 DATASET=stack_cube_merged VARIANT=tacff POLICY=act GPU=0 \
     STEPS=50000 SEED=1000 bash scripts/run_train.sh
 ```
 
-| Option | Meaning / default |
-| --- | --- |
-| `DATASET` | Dataset name from stage 3 |
-| `VARIANT` | `vision`, `tacff`, or `tacrgb` |
-| `POLICY` | LeRobot policy type; `act` |
-| `GPU` | Training GPU; defaults to the GPU with the most free memory |
-| `STEPS` | Training steps; `50000` |
-| `SEED` | Training seed; `1000` |
-| `BATCH` / `WORKERS` | Batch size / loader workers; `8` / `8` |
-| `SAVE_FREQ` / `LOG_FREQ` | Checkpoint / log interval; `10000` / `200` steps |
-| `DS` | Explicit converted dataset path |
-| `BASE` | Training output root; defaults to `OUTPUT_ROOT` |
-| `DEFAULT_PY` | Python executable from the training environment |
+**Options**
+
+| Option                   | Meaning / default                                           |
+| ---                      | ---                                                         |
+| `DATASET`                | Dataset name from stage 3                                   |
+| `VARIANT`                | `vision`, `tacff`, or `tacrgb`                              |
+| `POLICY`                 | LeRobot policy type; `act`                                  |
+| `GPU`                    | Training GPU; defaults to the GPU with the most free memory |
+| `STEPS`                  | Training steps; `50000`                                     |
+| `SEED`                   | Training seed; `1000`                                       |
+| `BATCH` / `WORKERS`      | Batch size / loader workers; `8` / `8`                      |
+| `SAVE_FREQ` / `LOG_FREQ` | Checkpoint / log interval; `10000` / `200` steps            |
+| `DS`                     | Explicit converted dataset path                             |
+| `BASE`                   | Training output root; defaults to `OUTPUT_ROOT`             |
+| `DEFAULT_PY`             | Python executable from the training environment             |
+
+**Outputs**
+
+| Output      | Path                                                                |
+| ---         | ---                                                                 |
+| Checkpoints | `$BASE/train/${DATASET}_${VARIANT}_${POLICY}_s${SEED}/checkpoints/` |
+| Log         | `$BASE/logs/train_${DATASET}_${VARIANT}_${POLICY}_s${SEED}.log`     |
 
 Repeat with `VARIANT=tacrgb` or `tacff` and the matching `DS` path. ACT is the initial baseline. Other model families may require additional model configuration and dependencies.
 
-- Checkpoints: `$BASE/train/${DATASET}_${VARIANT}_${POLICY}_s${SEED}/checkpoints/`.
-- Log: `$BASE/logs/train_${DATASET}_${VARIANT}_${POLICY}_s${SEED}.log`.
-
 ### Stage 5 — evaluate
 
-`INIT_STATES` selects the saved initial states, including object poses, robot joint
-positions and task-specific settings. Each state is evaluated once, without
-retries or resampling; the file determines the episode count. Use the same file
-and checkpoint to compare single- and multi-environment evaluation.
+`INIT_STATES` selects the saved initial states, including object poses, robot joint positions and
+task-specific settings. Each state is evaluated once, without retries or resampling; the file
+determines the episode count.
 
 ```bash
 CKPT="$OUTPUT_ROOT/train/stack_cube_merged_tacff_act_s1000/checkpoints/last/pretrained_model"
@@ -270,22 +267,28 @@ INIT_STATES=meta/init_states/stack_cube.json NUM_ENVS=4 \
     bash scripts/run_eval.sh stack_cube "$CKPT"
 ```
 
-| Option | Meaning / default |
-| --- | --- |
-| `INIT_STATES` | Initial-state JSON; defaults to `meta/init_states/<task>.json` |
-| `NUM_ENVS` | Concurrent environments; `1` |
-| `GPU` | GPU to use; otherwise uses the current CUDA visibility |
-| `OUT` | A new output directory for each evaluation |
-| `VIDEO=1` | Save `visual_review/mosaic.mp4` and frame metadata under `OUT` |
+**Options**
+
+| Option           | Meaning / default                                                   |
+| ---              | ---                                                                 |
+| `INIT_STATES`    | Initial-state JSON; defaults to `meta/init_states/<task>.json`      |
+| `NUM_ENVS`       | Concurrent environments; `1`                                        |
+| `GPU`            | GPU to use; otherwise uses the current CUDA visibility              |
+| `OUT`            | A new output directory for each evaluation                          |
+| `VIDEO=1`        | Save `visual_review/mosaic.mp4` and frame metadata under `OUT`      |
 | `N_ACTION_STEPS` | Actions per inference; `100`, must not exceed checkpoint chunk size |
 
-Results are saved to `$OUT/eval_report.json`; per-state records are under
-`$OUT/attempts/`.
+**Outputs**
+
+| Output            | Path                    |
+| ---               | ---                     |
+| Evaluation report | `$OUT/eval_report.json` |
+| Per-state records | `$OUT/attempts/`        |
 
 #### Generate new initial states
 
-To create a separate evaluation set, sample up to 80 candidate starts and
-keep 50 that the scripted expert completes:
+To create a separate evaluation set, sample up to 80 candidate starts and keep 50 that the scripted
+expert completes:
 
 ```bash
 python benchmark/run/make_init_states.py --task stack_cube \
@@ -294,8 +297,8 @@ python benchmark/run/make_init_states.py --task stack_cube \
     --out "$OUTPUT_ROOT/custom_states/stack_cube.json"
 ```
 
-Each candidate is settled, frozen and restored before the expert runs. Only
-successful candidates enter the final set. To generate without an expert:
+Each candidate is settled, frozen and restored before the expert runs. Only successful candidates
+enter the final set. To generate without an expert:
 
 ```bash
 python benchmark/run/make_init_states.py --task stack_cube \
@@ -309,49 +312,47 @@ To evaluate the new set, replace `INIT_STATES` in the commands above with
 
 ## 5. What the dataset contains
 
-LeRobot **v3.0**, readable by stock `LeRobotDatasetMetadata`; the tactile
-`data` features need `lerobot_tactile_ext` to decode.
+LeRobot **v3.0**, readable by stock `LeRobotDatasetMetadata`; the tactile `data` features need
+`lerobot_tactile_ext` to decode.
 
-| key | dtype | shape | what it is |
-| --- | --- | --- | --- |
-| `observation.images.base` / `.left_wrist` / `.right_wrist` | video | 480×640×3 | cameras |
-| `observation.images.{sensor}_tactile` ×4 | video | 288×384×3 | Taxim tactile RGB render |
-| `observation.depth.{sensor}_tactile` ×4 | data (uint16, ffv1) | 288×384×1 | gel penetration depth, mm |
-| `observation.ff_shear.{sensor}_tactile` ×4 | data (uint16, ffv1) | 288×384×2 | TacSL shear force field (x, y), ×1e3 |
-| `observation.state` / `action` | float32 | 16 | 7 joints (deg) + gripper (mm) per arm, right first |
-| `is_success` / `is_intervention` / `control_mode` | int64 | 1 | |
+| key                                                        | dtype               | shape     | what it is                                         |
+| ---                                                        | ---                 | ---       | ---                                                |
+| `observation.images.base` / `.left_wrist` / `.right_wrist` | video               | 480×640×3 | cameras                                            |
+| `observation.images.{sensor}_tactile` ×4                   | video               | 288×384×3 | Taxim tactile RGB render                           |
+| `observation.depth.{sensor}_tactile` ×4                    | data (uint16, ffv1) | 288×384×1 | gel penetration depth, mm                          |
+| `observation.ff_shear.{sensor}_tactile` ×4                 | data (uint16, ffv1) | 288×384×2 | TacSL shear force field (x, y), ×1e3               |
+| `observation.state` / `action`                             | float32             | 16        | 7 joints (deg) + gripper (mm) per arm, right first |
+| `is_success` / `is_intervention` / `control_mode`          | int64               | 1         |                                                    |
 
-`{sensor}` ∈ `{left,right}_hand_{index,middle}_finger`. The quantisation
-profile is recorded in each `data` feature's `info`, so no out-of-band
-constants are needed.
+`{sensor}` ∈ `{left,right}_hand_{index,middle}_finger`. The quantisation profile is recorded in each
+`data` feature's `info`, so no out-of-band constants are needed.
 
-Stage 3 turns a recording into three training datasets — each a new,
-separate dataset; the recording is never modified. Same columns as above;
-the last column says which recorded key each one comes from.
+Stage 3 turns a recording into three training datasets — each a new, separate dataset; the recording
+is never modified. Same columns as above; the last column says which recorded key each one comes
+from.
 
 **`vision`** — cameras and proprioception only:
 
-| key | dtype | shape | from |
-| --- | --- | --- | --- |
-| `observation.images.base` / `.left_wrist` / `.right_wrist` | video | 480×640×3 | as recorded |
-| `observation.state` / `action` | float32 | 16 | as recorded |
+| key                                                        | dtype   | shape     | from        |
+| ---                                                        | ---     | ---       | ---         |
+| `observation.images.base` / `.left_wrist` / `.right_wrist` | video   | 480×640×3 | as recorded |
+| `observation.state` / `action`                             | float32 | 16        | as recorded |
 
 **`tacrgb`** — `vision` plus the tactile camera images:
 
-| key | dtype | shape | from |
-| --- | --- | --- | --- |
+| key                                           | dtype | shape     | from                                                                            |
+| ---                                           | ---   | ---       | ---                                                                             |
 | `observation.images.tacrgb_{arm}_{finger}` ×4 | video | 288×384×3 | `observation.images.{sensor}_tactile`, decoded and re-encoded under the new key |
 
 **`tacff`** — `vision` plus the force field packed as an image:
 
-| key | dtype | shape | from |
-| --- | --- | --- | --- |
+| key                                          | dtype | shape     | from                                                                                                                        |
+| ---                                          | ---   | ---       | ---                                                                                                                         |
 | `observation.images.tacff_{arm}_{finger}` ×4 | video | 288×384×3 | R = `observation.depth` / 3 mm; G, B = `observation.ff_shear` x, y mapped from [−6, +6] onto [0, 1] (`tactile_codec.tacff`) |
 
 `{arm}_{finger}` ∈ `{right,left}_{middle,index}`.
 
-Reading the `data` streams back (sim and real use the same codec; only the
-key names differ):
+Reading the `data` streams back (sim and real use the same codec; only the key names differ):
 
 ```python
 import json
@@ -396,41 +397,37 @@ benchmark/eval/     evaluate.py, the policy evaluator
 
 The hardware the simulation models:
 
-| subsystem | what it is |
-| --- | --- |
-| arms | OpenArm dual-arm, 7 DoF each, leader-follower teleoperation for collection |
-| end effector | two-finger electric gripper per arm |
-| cameras | RealSense D435 at the head, a D405 at each wrist |
-| tactile | vision-based fingertips (Daimon DM-Tac), four of them |
-| compute | Jetson AGX Orin on the robot, RTX workstation for training |
+| subsystem    | what it is                                                                 |
+| ---          | ---                                                                        |
+| arms         | OpenArm dual-arm, 7 DoF each, leader-follower teleoperation for collection |
+| end effector | two-finger electric gripper per arm                                        |
+| cameras      | RealSense D435 at the head, a D405 at each wrist                           |
+| tactile      | vision-based fingertips (Daimon DM-Tac), four of them                      |
+| compute      | Jetson AGX Orin on the robot, RTX workstation for training                 |
 
-It records the same cameras, state and action as the simulation, and these
-tactile keys per sensor:
+It records the same cameras, state and action as the simulation, and these tactile keys per sensor:
 
-| key | dtype | shape | sim | real |
-| --- | --- | --- | --- | --- |
-| `observation.images.{sensor}_tactile` | video | 288×384×3 | Taxim render | camera |
-| `observation.depth.{sensor}_tactile` | data | 288×384×1 | gel penetration, mm | gel penetration, mm |
-| `observation.ff_shear.{sensor}_tactile` | data | 288×384×2 | TacSL shear **force** field (x, y), uncalibrated ×1e3 | — |
-| `observation.shear.{sensor}_tactile` | data | 288×384×2 | — | shear **displacement** field (x, y), mm |
-| `observation.deformation.{sensor}_tactile` | data | 288×384×2 | — | deformation field (x, y), mm |
-| `observation.state.force_{sensor}` | float32 | 6 | — | resultant wrench |
+| key                                        | dtype   | shape     | sim                                                   | real                                    |
+| ---                                        | ---     | ---       | ---                                                   | ---                                     |
+| `observation.images.{sensor}_tactile`      | video   | 288×384×3 | Taxim render                                          | camera                                  |
+| `observation.depth.{sensor}_tactile`       | data    | 288×384×1 | gel penetration, mm                                   | gel penetration, mm                     |
+| `observation.ff_shear.{sensor}_tactile`    | data    | 288×384×2 | TacSL shear **force** field (x, y), uncalibrated ×1e3 | —                                       |
+| `observation.shear.{sensor}_tactile`       | data    | 288×384×2 | —                                                     | shear **displacement** field (x, y), mm |
+| `observation.deformation.{sensor}_tactile` | data    | 288×384×2 | —                                                     | deformation field (x, y), mm            |
+| `observation.state.force_{sensor}`         | float32 | 6         | —                                                     | resultant wrench                        |
 
-Tactile RGB and depth line up. The tangential channel does not: the sim's
-`ff_shear` is a force in TacSL's own units, the real `shear` is a
-displacement in millimetres — different physical quantities, carrying
-different names on purpose so that a policy or a converter cannot mistake
-one for the other.
+Tactile RGB and depth line up. The tangential channel does not: the sim's `ff_shear` is a force in
+TacSL's own units, the real `shear` is a displacement in millimetres — different physical
+quantities, carrying different names on purpose so that a policy or a converter cannot mistake one
+for the other.
 
-`PREVIEWS=1` (stage 2) adds `observation.images.{depth,ff_shear}_{sensor}`
-renders beside the raw streams on sim data, as the real recorder does for
-its own fields.
+`PREVIEWS=1` (stage 2) adds `observation.images.{depth,ff_shear}_{sensor}` renders beside the raw
+streams on sim data, as the real recorder does for its own fields.
 
 ## 8. Contributing
 
-Every commit must carry a Developer Certificate of Origin (DCO) sign-off,
-or the pull request's DCO check fails. The repo ships a hook that adds it
-for you. Enable it once per clone:
+Every commit must carry a Developer Certificate of Origin (DCO) sign-off, or the pull request's DCO
+check fails. The repo ships a hook that adds it for you. Enable it once per clone:
 
 ```bash
 git config core.hooksPath .githooks
@@ -442,8 +439,7 @@ From then on every `git commit`, from the terminal or an editor, ends with
 Signed-off-by: Your Name <you@example.com>
 ```
 
-taken from `user.name` and `user.email`. That email must match the one on
-your GitHub account.
+taken from `user.name` and `user.email`. That email must match the one on your GitHub account.
 
 Check it works:
 
@@ -453,8 +449,8 @@ git log -1 --format=%B        # the last line is Signed-off-by
 git reset --soft HEAD~1       # drop the test commit, keep your changes
 ```
 
-The hook does not run on rebase or cherry-pick. To sign commits that are
-already on your branch, rewrite them and force-push:
+The hook does not run on rebase or cherry-pick. To sign commits that are already on your branch,
+rewrite them and force-push:
 
 ```bash
 git rebase --signoff main
