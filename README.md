@@ -315,10 +315,6 @@ To evaluate the new set, replace `INIT_STATES` in the commands above with
 LeRobot **v3.0**, readable by stock `LeRobotDatasetMetadata`; the tactile `data` features need
 `lerobot_tactile_ext` to decode.
 
-Shapes below describe decoded data at the default sensor resolution. The two shear
-channels are stored in three planes; `meta/info.json` records the stored shape and
-`original_channels=2` for decoding.
-
 | key                                                        | dtype               | shape     | what it is                                         |
 | ---                                                        | ---                 | ---       | ---                                                |
 | `observation.images.base` / `.left_wrist` / `.right_wrist` | video               | 480×640×3 | cameras                                            |
@@ -332,8 +328,7 @@ channels are stored in three planes; `meta/info.json` records the stored shape a
 `data` feature's `info`, so no out-of-band constants are needed.
 
 Stage 3 turns a recording into three training datasets — each a new, separate dataset; the recording
-is never modified. The tables below list each variant's training features and their recorded sources;
-raw episode flags and numerical tactile `data` streams are not copied into the training feature set.
+is never modified.
 
 **`vision`** — cameras and proprioception only:
 
