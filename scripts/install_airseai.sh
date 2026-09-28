@@ -397,58 +397,20 @@ PY
         echo "!! lerobot does not compile under python 3.11 — see the error above"
         return 1
     fi
-    # The GR00T policy's vendored Eagle backbone asserts on flash_attention_2;
-    # repoint it at sdpa where flash-attn is not importable, or everywhere with
-    # AIRSEAI_FORCE_SDPA=1. Idempotent; affects stages 4-5 only.
-    local eagle="$LEROBOT_DIR/src/lerobot/policies/groot/eagle2_hg_model"
-    if [ ! -d "$eagle" ]; then
-        echo "no vendored Eagle model at $eagle — nothing to repoint"
-    elif [ "${AIRSEAI_FORCE_SDPA:-0}" != "1" ] && python -c "import flash_attn" 2>/dev/null; then
-        echo "attention: flash-attn $(python -c "import flash_attn; print(flash_attn.__version__)" \
-              2>/dev/null) importable — leaving the Eagle model on flash_attention_2"
-    else
-        if [ "${AIRSEAI_FORCE_SDPA:-0}" = "1" ]; then
-            echo "attention: AIRSEAI_FORCE_SDPA=1 — pinning the Eagle model to sdpa"
-        else
-            echo "attention: flash-attn not importable — switching the Eagle model to sdpa"
-        fi
-        for f in "$eagle"/*.py; do
-            [ -f "$f" ] || continue
-            grep -q flash_attention_2 "$f" \
-                && sed -i "s/flash_attention_2/sdpa/g" "$f" \
-                && echo "  sdpa: ${f#"$LEROBOT_DIR/src/lerobot/"}"
-        done
-        find "$LEROBOT_DIR/src/lerobot/policies/groot" -name __pycache__ -type d \
-             -exec rm -rf {} + 2>/dev/null
-    fi
     return 0
 }
 
-install_groot_deps() {
-    # GR00T N1.5 policy deps; the probe below reports what is still missing.
-    # lerobot sits on PYTHONPATH and is never pip-installed, so its own pins do
-    # not apply here. draccus is pinned because a newer one writes policy
-    # configs without the "type" key stage 5 reads back; transformers follows
-    # Isaac Lab's pin, taken from its setup.py so only one file carries it.
+install_policy_deps() {
     local tf
     tf=$(grep -o 'transformers[=<>~!]*[0-9.]*' \
               "$ISAACLAB_DIR/source/isaaclab/setup.py" 2>/dev/null | head -1)
     [ -n "$tf" ] || tf="transformers"
     pip_install "draccus==0.10.0" "$tf" accelerate einops diffusers peft \
-                pyserial deepdiff jsonlines termcolor wandb imageio || true
-    python - <<'PY'
-import importlib, traceback
-try:
-    from lerobot.policies.factory import get_policy_class
-except Exception:
-    traceback.print_exc(); raise SystemExit(1)
-for name in ("groot", "gr00t", "gr00t_n1_5"):
-    try:
-        print("policy type", name, "->", get_policy_class(name))
-        break
-    except Exception as e:
-        print("policy type", name, "not loadable:", type(e).__name__, e)
-PY
+                pyserial deepdiff jsonlines termcolor wandb
+}
+
+install_video_deps() {
+    pip_install imageio imageio-ffmpeg "opencv-python-headless==4.11.0.86"
 }
 
 verify_policy_io() {
@@ -533,10 +495,65 @@ install_ffmpeg() {
 
 verify() {
     export OMNI_KIT_ACCEPT_EULA=YES ACCEPT_EULA=Y
-    ( cd "$REPO_DIR" && python -c "import sim, tactile_codec, lerobot_tactile_ext; print('repo imports ok')" ) || return 1
+    python - "$REPO_DIR" <<'PYEOF'
+import importlib
+import sys
+import tempfile
+from pathlib import Path
+
+import av
+import cv2
+import gymnasium as gym
+import imageio_ffmpeg
+import numpy as np
+
+root = (Path(sys.argv[1]) / "src").resolve()
+for name in ("sim", "tactile_codec", "lerobot_tactile_ext", "gym_airseai", "lerobot_airseai"):
+    module = importlib.import_module(name)
+    path = Path(module.__file__).resolve()
+    if root not in path.parents:
+        raise RuntimeError(f"{name} loaded from unexpected path: {path}")
+    print(f"ok {name}: {path}")
+
+from gym_airseai import TASK_IDS
+from lerobot_airseai import AirseaiEnvConfig
+
+from sim.video import Mp4Writer
+
+dataset = importlib.import_module("lerobot.datasets.lerobot_dataset")
+for name in ("LeRobotDataset", "LeRobotDatasetMetadata"):
+    getattr(dataset, name)
+if not Path(imageio_ffmpeg.get_ffmpeg_exe()).is_file():
+    raise RuntimeError("Recording ffmpeg executable is missing")
+
+for task in TASK_IDS:
+    gym.spec(f"gym_airseai/{task}")
+    for variant in ("vision", "tacrgb", "tacff"):
+        AirseaiEnvConfig(task=task, variant=variant)
+print("Gym registration, LeRobot configurations and dataset imports ok")
+
+with tempfile.TemporaryDirectory(prefix="airseai-video-") as folder:
+    path = Path(folder) / "recording.mp4"
+    writer = Mp4Writer(path, fps=20)
+    try:
+        for value in (0, 64, 128, 255):
+            frame = np.full((64, 96, 3), value, dtype=np.uint8)
+            cv2.putText(frame, "test", (4, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 255, 0))
+            writer.add(frame)
+    finally:
+        writer.close()
+    with av.open(str(path)) as container:
+        stream = container.streams.video[0]
+        if stream.average_rate != 20:
+            raise RuntimeError("Recording frame rate mismatch")
+        frames = list(container.decode(video=0))
+    if len(frames) != 4 or any((frame.width, frame.height) != (96, 64) for frame in frames):
+        raise RuntimeError("Recording frame count or dimensions mismatch")
+print("Video encode/decode ok")
+PYEOF
+    [ "$?" -eq 0 ] || return 1
     ( cd "$REPO_DIR" && python benchmark/run/verify_codec.py --out "$OUTPUT_ROOT/verify/stage0/codec" ) || return 1
-    python -c "import isaaclab, isaaclab_contrib; print('isaac ok')" || return 1
-    python -c "from lerobot.datasets.lerobot_dataset import LeRobotDatasetMetadata; print('lerobot loader ok')"
+    python -c "import isaaclab, isaaclab_contrib; print('isaac ok')"
 }
 
 step critical "package sources"      select_sources
@@ -550,11 +567,12 @@ step critical "IsaacLab v2.3.2"      install_isaaclab
 step critical "repo -e .[codec,dataset,dev]" install_repo
 step critical "lerobot 0.5.1 (source, py3.11)" install_lerobot
 step critical "lerobot py3.11 compat patches" patch_lerobot_py311
-step soft     "gr00t policy deps"    install_groot_deps
+step critical "policy dependencies"  install_policy_deps
+step critical "video dependencies"   install_video_deps
 step critical "policy save/load"     verify_policy_io
 step critical "OpenArm robot asset"  fetch_robot_asset
 step critical "task assets (boards, balls, cans)" make_task_assets
-step soft     "verify"               verify
+step critical "verify"               verify
 
 summary
 echo "DONE $(date '+%F %T')"
