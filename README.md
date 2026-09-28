@@ -146,6 +146,17 @@ NUM_ENVS=4 RENDER=1 PREVIEWS=1 \
     "$OUTPUT_ROOT/raw/stack_cube_expert_parallel"
 ```
 
+The requested count is the total number of attempts, not successful episodes,
+for both single- and multi-environment collection. By default, failed trajectories
+are excluded from the training dataset and are not replaced by extra attempts.
+For example, 50 attempts with 42 successes produce a dataset of 42 episodes.
+Failed-attempt diagnostics remain under `<dataset>/run/attempts/`.
+
+When `INIT_STATES` is supplied, each state is attempted once; the number of states
+overrides the requested episode count. Without it, each attempt draws a new state.
+The Python entry point's `--keep_unclean` option explicitly allows unsuccessful
+trajectories to be retained; it is disabled by default.
+
 | Option | Meaning / default |
 | --- | --- |
 | `NUM_ENVS` | Concurrent environments; `1` |
