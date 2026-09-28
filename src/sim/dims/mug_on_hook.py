@@ -61,15 +61,8 @@ MUG_FLOOR = 0.009
 MUG_COLOR = (0.88, 0.87, 0.83)  # glazed off-white
 
 # ----- the handle ------------------------------------------------------------
-# A round-section loop in the mug's xz plane, standing off the +x side, swept
-# along a rounded path whose ends are buried in the body. Handle and body are
-# two closed meshes of one rigid body: their union is not itself watertight,
-# and the SDF cooker needs each mesh closed.
-#
-# The section is round, so both walls a mis-aimed peg can strike -- the body's
-# outside and the handle's outer bar -- are curved, and the contact carries a
-# sideways component. That is the eye's lead-in, and why the peg needs no
-# taper.
+# The round handle and mug body are separate closed meshes for SDF collision cooking.
+# Curved contact surfaces guide the peg sideways into the handle opening.
 HANDLE_SECTION = 0.006
 HANDLE_CORNER_R = 0.008  # path corner radius at the two outer corners
 HANDLE_ROOT_R = 0.017  # where the path's ends sit, inside the wall

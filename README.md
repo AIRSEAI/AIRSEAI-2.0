@@ -315,6 +315,10 @@ To evaluate the new set, replace `INIT_STATES` in the commands above with
 LeRobot **v3.0**, readable by stock `LeRobotDatasetMetadata`; the tactile `data` features need
 `lerobot_tactile_ext` to decode.
 
+Shapes below describe decoded data at the default sensor resolution. The two shear
+channels are stored in three planes; `meta/info.json` records the stored shape and
+`original_channels=2` for decoding.
+
 | key                                                        | dtype               | shape     | what it is                                         |
 | ---                                                        | ---                 | ---       | ---                                                |
 | `observation.images.base` / `.left_wrist` / `.right_wrist` | video               | 480×640×3 | cameras                                            |
@@ -328,8 +332,8 @@ LeRobot **v3.0**, readable by stock `LeRobotDatasetMetadata`; the tactile `data`
 `data` feature's `info`, so no out-of-band constants are needed.
 
 Stage 3 turns a recording into three training datasets — each a new, separate dataset; the recording
-is never modified. Same columns as above; the last column says which recorded key each one comes
-from.
+is never modified. The tables below list each variant's training features and their recorded sources;
+raw episode flags and numerical tactile `data` streams are not copied into the training feature set.
 
 **`vision`** — cameras and proprioception only:
 
@@ -370,30 +374,7 @@ u16 = decode_data_frames(root / "videos" / key / "chunk-000/file-000.mkv",
 depth_mm = dequantize(u16, QuantProfile(**spec["info"]["quant"]))
 ```
 
-## 6. Layout
-
-```
-src/sim/            simulation: tactile sensing, robot asset builder,
-                    envs/ (scenes) and tasks/ (experts, registry),
-                    init_state.py (frozen evaluation states)
-meta/               data the benchmark is pinned to: init_states/ (the
-                    evaluation set) and baseline/ (the expert's own score)
-src/tactile_codec/  quantisation profiles (float mm <-> uint16)
-src/lerobot_tactile_ext/  ffv1 codec + LeRobot v3 dataset writer
-src/gym_airseai/    the tasks as a gym environment, for lerobot
-src/lerobot_airseai/  the matching lerobot environment config
-scripts/run_*.sh    the pipeline entry points (collect, convert, train, eval)
-                    plus install_airseai.sh
-benchmark/run/      launch_env, collect_dataset, make_init_states, build_asset,
-                    render_previews, make_* (task assets), verify_codec
-benchmark/tasks/    run_expert.py, the shared expert runner
-benchmark/teleop/   run_teleop.py, demonstrations driven by hand
-benchmark/policy/   BC pipeline: dataset conversion, policy server
-benchmark/eval/     evaluate.py, the policy evaluator
-.githooks/          shared git hooks (DCO sign-off)
-```
-
-## 7. Simulation vs. the real robot
+## 6. Simulation vs. the real robot (Pending)
 
 The hardware the simulation models:
 
@@ -424,7 +405,7 @@ for the other.
 `PREVIEWS=1` (stage 2) adds `observation.images.{depth,ff_shear}_{sensor}` renders beside the raw
 streams on sim data, as the real recorder does for its own fields.
 
-## 8. Contributing
+## 7. Contributing
 
 Every commit must carry a Developer Certificate of Origin (DCO) sign-off, or the pull request's DCO
 check fails. The repo ships a hook that adds it for you. Enable it once per clone:

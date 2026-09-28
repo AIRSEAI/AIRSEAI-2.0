@@ -11,8 +11,14 @@ from sim.dims.texture_sort import CUP_INNER_R
 __all__ = ["verdict"]
 
 
-def verdict(trace: EpisodeTrace, *, bin_xy: np.ndarray, correct_bin: int,
-            pads: tuple[str, ...], hold_s: float = SUCCESS_HOLD_S) -> Verdict:
+def verdict(
+    trace: EpisodeTrace,
+    *,
+    bin_xy: np.ndarray,
+    correct_bin: int,
+    pads: tuple[str, ...],
+    hold_s: float = SUCCESS_HOLD_S,
+) -> Verdict:
     """Latch sustained XY placement in the correct cup with prior grasp."""
     pos = np.asarray(trace.object_pos["target"], dtype=float)
     distances = np.linalg.norm(pos[:, None, :2] - np.asarray(bin_xy)[None, :, :], axis=2)
@@ -22,6 +28,7 @@ def verdict(trace: EpisodeTrace, *, bin_xy: np.ndarray, correct_bin: int,
     if len(pos):
         closest = int(nearest[-1])
         chosen = closest if distances[-1, closest] < CUP_INNER_R else -1
-        result.metrics.update(chosen_bin=float(chosen), correct_bin=float(correct_bin),
-                              bin_radius_m=CUP_INNER_R)
+        result.metrics.update(
+            chosen_bin=float(chosen), correct_bin=float(correct_bin), bin_radius_m=CUP_INNER_R
+        )
     return result

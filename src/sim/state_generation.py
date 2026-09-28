@@ -28,13 +28,11 @@ class StateCollector(Collector):
         self.fingerprints = set()
         self.excluded = set()
         self.exclude_digests = {}
-        for path in args.exclude:
+        for index, path in enumerate(args.exclude):
             document = init_state.load(path)
             if document["task"] != task.task_id(knobs):
                 raise ValueError("Excluded initial states must belong to the same task")
-            self.exclude_digests[str(Path(path).resolve())] = hashlib.sha256(
-                Path(path).read_bytes()
-            ).hexdigest()
+            self.exclude_digests[f"source_{index:03d}"] = hashlib.sha256(Path(path).read_bytes()).hexdigest()
             for state in document["states"]:
                 self.excluded.add(state_hash(state))
                 if fingerprint := state.get("meta", {}).get("candidate_hash"):

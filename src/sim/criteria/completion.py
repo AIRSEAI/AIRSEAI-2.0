@@ -11,9 +11,9 @@ GRASP_HOLD_S = 0.5
 CONTACT_AREA_MM2 = 5.0
 
 
-def sustained_completion(trace: EpisodeTrace, positioned: np.ndarray, *,
-                        pads: tuple[str, ...],
-                        hold_s: float = SUCCESS_HOLD_S) -> Verdict:
+def sustained_completion(
+    trace: EpisodeTrace, positioned: np.ndarray, *, pads: tuple[str, ...], hold_s: float = SUCCESS_HOLD_S
+) -> Verdict:
     """Latch completion after position persists for the hold time."""
     t = np.asarray(trace.t, dtype=float)
     if hold_s <= 0 or not pads:
@@ -39,12 +39,15 @@ def sustained_completion(trace: EpisodeTrace, positioned: np.ndarray, *,
         previous = positioned[max(0, i - 1)]
         success_run = success_run + dt if ready and previous else 0.0
         longest_success = max(longest_success, success_run)
-        if (success_time is None and success_run + 1e-9 >= hold_s
-                and longest_grasp + 1e-9 >= GRASP_HOLD_S):
+        if success_time is None and success_run + 1e-9 >= hold_s and longest_grasp + 1e-9 >= GRASP_HOLD_S:
             success_time = float(t[i])
-    metrics = {"completion_hold_s": longest_success, "required_hold_s": hold_s,
-               "grasp_longest_hold_s": longest_grasp, "grasp_required_hold_s": GRASP_HOLD_S,
-               "contact_area_mm2": CONTACT_AREA_MM2}
+    metrics = {
+        "completion_hold_s": longest_success,
+        "required_hold_s": hold_s,
+        "grasp_longest_hold_s": longest_grasp,
+        "grasp_required_hold_s": GRASP_HOLD_S,
+        "contact_area_mm2": CONTACT_AREA_MM2,
+    }
     if success_time is not None:
         metrics["success_time_s"] = success_time
         return Verdict(True, metrics=metrics)

@@ -12590,7 +12590,7 @@
     "max_candidates": 1000,
     "candidate_count": 144,
     "excluded_files": {
-      "/home/airseai/outputs/isaaclab-vector-env/stage3_formal_20260925/init_states/train_pairs_s41_p250.json": "3b6660df6992977c6396a957806924568f59fa6d603d00053c6de928b406b118"
+      "source_000": "3b6660df6992977c6396a957806924568f59fa6d603d00053c6de928b406b118"
     },
     "configuration_sha256": "abc88b20db7a29e3a83c492baad39d4a965f62efc0454f3ded5e2ce5f5f42680",
     "source_manifest_sha256": "4ad470d615842f68f9b3e57fa4891f8cbbc37a356e267a4794fa47ee0a929b38",

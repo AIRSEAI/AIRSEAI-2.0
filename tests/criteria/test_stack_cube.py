@@ -60,10 +60,12 @@ def test_prefix_matches_full_trace(cube_trace, right_pads):
 
     first = None
     for n in range(2, len(cube_trace.t) + 1):
-        prefix = EpisodeTrace(cube_trace.t[:n],
-                              {k: v[:n] for k, v in cube_trace.pad_area.items()},
-                              {k: v[:n] for k, v in cube_trace.object_pos.items()},
-                              extra={k: v[:n] for k, v in cube_trace.extra.items()})
+        prefix = EpisodeTrace(
+            cube_trace.t[:n],
+            {k: v[:n] for k, v in cube_trace.pad_area.items()},
+            {k: v[:n] for k, v in cube_trace.object_pos.items()},
+            extra={k: v[:n] for k, v in cube_trace.extra.items()},
+        )
         result = verdict(prefix, pads=right_pads)
         if result.success:
             first = result.metrics["success_time_s"]
@@ -95,6 +97,4 @@ def test_policy_hook_keeps_episodes_independent():
     task = CompletionTask()
     hist = {"t": [0.0, 0.05]}
     for success in (True, False, True, False):
-        assert task.policy_should_terminate(
-            "handle", {"success": success}, hist, {"threshold": 1}
-        ) is success
+        assert task.policy_should_terminate("handle", {"success": success}, hist, {"threshold": 1}) is success

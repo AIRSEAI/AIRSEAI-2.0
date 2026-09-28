@@ -7,10 +7,20 @@ from sim.criteria.texture_sort import verdict
 from sim.dims.texture_sort import CUP_FLOOR, OBJECT_RADIUS
 
 
-@pytest.mark.parametrize("case, success", [
-    ("seated", True), ("overhead", True), ("wrong", False),
-    ("rim", True), ("held", True), ("closed", True), ("brief", False), ("boundary", False), ("inside", True),
-])
+@pytest.mark.parametrize(
+    "case, success",
+    [
+        ("seated", True),
+        ("overhead", True),
+        ("wrong", False),
+        ("rim", True),
+        ("held", True),
+        ("closed", True),
+        ("brief", False),
+        ("boundary", False),
+        ("inside", True),
+    ],
+)
 def test_placement(held_trace, right_pads, case, success):
     tr = held_trace(n=80)
     pos = tr.object_pos.pop("manipuland")
@@ -36,6 +46,5 @@ def test_placement(held_trace, right_pads, case, success):
         pos[:, 0] = 0.04
     elif case == "inside":
         pos[:, 0] = 0.0399
-    result = verdict(tr, bin_xy=np.array([[0, 0], [1, 0]]),
-                     correct_bin=0, pads=right_pads)
+    result = verdict(tr, bin_xy=np.array([[0, 0], [1, 0]]), correct_bin=0, pads=right_pads)
     assert result.success is success

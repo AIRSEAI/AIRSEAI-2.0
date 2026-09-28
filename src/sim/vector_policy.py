@@ -36,11 +36,10 @@ class VectorACT:
         needed = [slot for slot in observations if not self.queues[slot]]
         if needed:
             batch = {
-                key: torch.cat([observations[slot][key] for slot in needed], dim=0)
-                for key in self.input_keys
+                key: torch.cat([observations[slot][key] for slot in needed], dim=0) for key in self.input_keys
             }
             with torch.inference_mode():
-                chunks = self.model.predict_action_chunk(self.pre(batch))[:, :self.steps]
+                chunks = self.model.predict_action_chunk(self.pre(batch))[:, : self.steps]
                 if chunks.ndim != 3 or chunks.shape[1] != self.steps:
                     raise ValueError("Unexpected ACT action chunk shape")
                 # Apply the same postprocessor shape used by select_action: batch x action.

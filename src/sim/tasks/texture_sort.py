@@ -528,9 +528,12 @@ class TextureSortTask(Task):
         )
 
     def verdict(self, trace, ctx, knobs):
-        result = _verdict(trace, bin_xy=_np.asarray([ctx["layout"][b] for b in FIXTURES]),
-                          correct_bin=ctx["correct_bin"],
-                          pads=tuple(trace.pad_area))
+        result = _verdict(
+            trace,
+            bin_xy=_np.asarray([ctx["layout"][b] for b in FIXTURES]),
+            correct_bin=ctx["correct_bin"],
+            pads=tuple(trace.pad_area),
+        )
         ctx["landed_bin"] = int(result.metrics.get("chosen_bin", -1))
         return result
 

@@ -29,7 +29,8 @@ class Evaluator(Collector):
         self.policy = VectorACT(args.policy, args.device, args.num_envs, action_steps)
         self.checkpoint_hashes = {
             str(path.relative_to(self.policy.checkpoint)): hashlib.sha256(path.read_bytes()).hexdigest()
-            for path in sorted(self.policy.checkpoint.rglob("*")) if path.is_file()
+            for path in sorted(self.policy.checkpoint.rglob("*"))
+            if path.is_file()
         }
         document = init_state.load(args.init_states)
         if document.get("generator", {}).get("coordinate_frame") != "environment_local":
@@ -47,8 +48,11 @@ class Evaluator(Collector):
         self.report_path = self.out / "eval_report.json"
         self.init_digest = hashlib.sha256(Path(args.init_states).expanduser().read_bytes()).hexdigest()
         self.initialization_s = time.perf_counter() - self.started
-        self.hardware = dict(host=platform.node(), device=str(args.device),
-                             visible_devices=os.environ.get("CUDA_VISIBLE_DEVICES"))
+        self.hardware = dict(
+            host=platform.node(),
+            device=str(args.device),
+            visible_devices=os.environ.get("CUDA_VISIBLE_DEVICES"),
+        )
         self.versions = json.loads((self.out / "configuration.json").read_text())["versions"]
         source_root = Path(__file__).resolve().parents[2]
         self.source_hashes = {
@@ -56,7 +60,9 @@ class Evaluator(Collector):
             for path in sorted((source_root / "src/sim").rglob("*.py"))
         }
         entry = source_root / "benchmark/eval/evaluate.py"
-        self.source_hashes[str(entry.relative_to(source_root))] = hashlib.sha256(entry.read_bytes()).hexdigest()
+        self.source_hashes[str(entry.relative_to(source_root))] = hashlib.sha256(
+            entry.read_bytes()
+        ).hexdigest()
         if str(args.device).startswith("cuda"):
             self.hardware["gpu"] = torch.cuda.get_device_name(args.device)
             torch.cuda.reset_peak_memory_stats(args.device)
@@ -90,7 +96,8 @@ class Evaluator(Collector):
         super().schedule()
         observations = {
             attempt.env_id: self.handles[attempt.env_id].build_obs(self.policy.input_keys)
-            for attempt in self.active if attempt and attempt.mode == "running"
+            for attempt in self.active
+            if attempt and attempt.mode == "running"
         }
         start = time.perf_counter()
         self.commands = self.policy.actions(observations)
@@ -156,23 +163,37 @@ class Evaluator(Collector):
         complete = status == "complete" and len(rows) == n
         report = dict(
             status=status if status != "complete" or complete else "incomplete",
-            task=self.task.task_id(self.knobs), num_envs=self.num_envs,
-            policy=str(self.policy.checkpoint), checkpoint_sha256=self.checkpoint_hashes,
-            policy_execution=dict(chunk_size=self.policy.chunk_size,
-                                  n_action_steps=self.policy.steps,
-                                  temporal_ensemble_coeff=None),
-            init_states_sha256=self.init_digest, requested_episodes=n,
-            n_episodes=len(rows), n_success=successes,
+            task=self.task.task_id(self.knobs),
+            num_envs=self.num_envs,
+            policy=str(self.policy.checkpoint),
+            checkpoint_sha256=self.checkpoint_hashes,
+            policy_execution=dict(
+                chunk_size=self.policy.chunk_size,
+                n_action_steps=self.policy.steps,
+                temporal_ensemble_coeff=None,
+            ),
+            init_states_sha256=self.init_digest,
+            requested_episodes=n,
+            n_episodes=len(rows),
+            n_success=successes,
             success_rate=rate if complete else None,
             confidence_interval_95=[center - radius, center + radius] if complete else None,
-            episodes=rows, hardware=self.hardware, knobs=self.knobs, seed=self.args.seed,
-            versions=self.versions, source_sha256=self.source_hashes,
+            episodes=rows,
+            hardware=self.hardware,
+            knobs=self.knobs,
+            seed=self.args.seed,
+            versions=self.versions,
+            source_sha256=self.source_hashes,
             horizon_s=self.args.horizon_s or self.task.horizon_s,
-            video_enabled=bool(self.video_path), control_hz=1 / CONTROL_DT,
-            timing=dict(initialization_s=self.initialization_s, evaluation_s=elapsed,
-                        total_s=time.perf_counter() - self.started,
-                        inference_s=self.inference_s,
-                        episodes_per_minute=60 * len(rows) / elapsed if elapsed else 0),
+            video_enabled=bool(self.video_path),
+            control_hz=1 / CONTROL_DT,
+            timing=dict(
+                initialization_s=self.initialization_s,
+                evaluation_s=elapsed,
+                total_s=time.perf_counter() - self.started,
+                inference_s=self.inference_s,
+                episodes_per_minute=60 * len(rows) / elapsed if elapsed else 0,
+            ),
         )
         if str(self.args.device).startswith("cuda"):
             report["peak_cuda_allocated_bytes"] = torch.cuda.max_memory_allocated(self.args.device)

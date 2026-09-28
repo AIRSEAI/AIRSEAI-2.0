@@ -18,8 +18,9 @@ from sim.tasks.registry import TASKS
 
 CRITERIA_DIR = Path(sim.criteria.__file__).parent
 SHARED = ("completion", "detectors", "probes", "trace")
-TASK_MODULES = sorted(p.stem for p in CRITERIA_DIR.glob("*.py")
-                      if p.stem not in SHARED and p.stem != "__init__")
+TASK_MODULES = sorted(
+    p.stem for p in CRITERIA_DIR.glob("*.py") if p.stem not in SHARED and p.stem != "__init__"
+)
 FORBIDDEN_PREFIXES = ("isaaclab", "isaacsim", "omni", "torch", "sim.envs", "sim.tasks")
 
 
@@ -40,8 +41,9 @@ def test_a_task_module_exposes_a_verdict(task):
     fn = importlib.import_module(f"sim.criteria.{task}").verdict
     params = list(inspect.signature(fn).parameters.values())
     assert params[0].name == "trace"
-    assert all(p.kind is p.KEYWORD_ONLY for p in params[1:]), \
+    assert all(p.kind is p.KEYWORD_ONLY for p in params[1:]), (
         "thresholds are keyword arguments, so a trace can be re-judged"
+    )
 
 
 @pytest.mark.parametrize("task", TASK_MODULES)

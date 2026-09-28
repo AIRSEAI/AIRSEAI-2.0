@@ -9230,7 +9230,7 @@
     "max_candidates": 200,
     "candidate_count": 104,
     "excluded_files": {
-      "/home/airseai/outputs/isaaclab-vector-env/stage3_stack_cube_20260926/init_states/train_s51_n500_expert_checked.json": "0f32bd2484280bbceb60d5a39f5a9fa73db97e74c52c9b040f75ee9123b39747"
+      "source_000": "0f32bd2484280bbceb60d5a39f5a9fa73db97e74c52c9b040f75ee9123b39747"
     },
     "configuration_sha256": "36dee0174d9513e55e34636c9629a2d5ec76c59f530dfbc80cf5c57429474880",
     "source_manifest_sha256": "4ad470d615842f68f9b3e57fa4891f8cbbc37a356e267a4794fa47ee0a929b38",

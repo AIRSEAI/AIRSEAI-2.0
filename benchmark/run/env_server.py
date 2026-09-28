@@ -22,19 +22,16 @@ VARIANTS = ("vision", "tacff", "tacrgb")
 
 parser = argparse.ArgumentParser(description="Serve an AIRSEAI task to lerobot.")
 parser.add_argument("--task", required=True, choices=sorted(TASKS))
-parser.add_argument("--variant", default="tacff", choices=VARIANTS,
-                    help="which observation set to serve")
-parser.add_argument("--port", type=int, default=0,
-                    help="0 picks a free port and prints it")
-parser.add_argument("--init_states", default="",
-                    help="frozen state file; without it every reset draws")
-parser.add_argument("--seed", type=int, default=11,
-                    help="draw seed, used only without --init_states")
+parser.add_argument("--variant", default="tacff", choices=VARIANTS, help="which observation set to serve")
+parser.add_argument("--port", type=int, default=0, help="0 picks a free port and prints it")
+parser.add_argument("--init_states", default="", help="frozen state file; without it every reset draws")
+parser.add_argument("--seed", type=int, default=11, help="draw seed, used only without --init_states")
 parser.add_argument("--horizon_s", type=float, default=None)
 parser.add_argument("--robot_usd", default="")
 parser.add_argument("--grid", type=int, nargs=2, default=(288, 384))
-parser.add_argument("--scene_cam", action="store_true",
-                    help="also spawn the third-person camera, for render()")
+parser.add_argument(
+    "--scene_cam", action="store_true", help="also spawn the third-person camera, for render()"
+)
 AppLauncher.add_app_launcher_args(parser)
 _known, _rest = parser.parse_known_args()
 app_launcher = AppLauncher(_known)
@@ -62,11 +59,14 @@ KNOBS = {k: PINS.get(k, getattr(args_cli, k)) for k in TASK.knobs}
 
 def observation_keys(variant: str, h) -> list[str]:
     """The keys this variant serves, in the order the datasets use."""
-    keys = ["observation.state", "observation.images.base",
-            "observation.images.right_wrist", "observation.images.left_wrist"]
+    keys = [
+        "observation.state",
+        "observation.images.base",
+        "observation.images.right_wrist",
+        "observation.images.left_wrist",
+    ]
     if variant in ("tacff", "tacrgb"):
-        keys += [f"observation.images.{variant}_{h.tactile_key_stem(p)}"
-                 for p in TACTILE_SENSORS]
+        keys += [f"observation.images.{variant}_{h.tactile_key_stem(p)}" for p in TACTILE_SENSORS]
     return keys
 
 
@@ -81,14 +81,21 @@ def as_uint8(key: str, value: torch.Tensor) -> np.ndarray:
 
 def main() -> int:
     horizon_s = args_cli.horizon_s or TASK.horizon_s
-    h = Harness(TASK.make_scene_cfg(KNOBS), device=args_cli.device,
-                grid=tuple(args_cli.grid), robot_usd=args_cli.robot_usd,
-                scene_cam=TASK.scene_cam if args_cli.scene_cam else None)
+    h = Harness(
+        TASK.make_scene_cfg(KNOBS),
+        device=args_cli.device,
+        grid=tuple(args_cli.grid),
+        robot_usd=args_cli.robot_usd,
+        scene_cam=TASK.scene_cam if args_cli.scene_cam else None,
+    )
     TASK.apply_collision(h)
     h.start()
     keys = observation_keys(args_cli.variant, h)
-    frozen = (init_state_io.load(os.path.expanduser(args_cli.init_states))["states"]
-              if args_cli.init_states else None)
+    frozen = (
+        init_state_io.load(os.path.expanduser(args_cli.init_states))["states"]
+        if args_cli.init_states
+        else None
+    )
 
     srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -98,8 +105,7 @@ def main() -> int:
     # The client waits for this line to learn the port.
     print(f"ENVSERVER listening on 127.0.0.1:{port}", flush=True)
 
-    state: dict = {"ctx": None, "hist": None, "step": 0, "nominal": False,
-                   "episode": 0, "state_id": None}
+    state: dict = {"ctx": None, "hist": None, "step": 0, "nominal": False, "episode": 0, "state_id": None}
     n_ctrl = int(horizon_s * CTRL_FPS)
 
     def observe() -> dict:
@@ -116,8 +122,9 @@ def main() -> int:
                     state["ctx"] = init_state_io.restore(h, TASK, st, KNOBS)
                 else:
                     state["state_id"] = None
-                    rng = np.random.default_rng([int(msg.get("seed", args_cli.seed)),
-                                                 TASK.reset_seed_index(ep)])
+                    rng = np.random.default_rng(
+                        [int(msg.get("seed", args_cli.seed)), TASK.reset_seed_index(ep)]
+                    )
                     state["ctx"] = TASK.reset(h, rng, ep, KNOBS)
             except RetryReset as e:
                 print(f"ENVSERVER reset retry ({e})", flush=True)
@@ -131,8 +138,7 @@ def main() -> int:
         state["hist"] = {"t": []}
         state["step"] = 0
         state["episode"] = ep + 1
-        return {"obs": observe(),
-                "info": {"init_state_id": state["state_id"], "arm": state["ctx"]["side"]}}
+        return {"obs": observe(), "info": {"init_state_id": state["state_id"], "arm": state["ctx"]["side"]}}
 
     def do_step(msg: dict) -> dict:
         ctx, hist = state["ctx"], state["hist"]
@@ -156,14 +162,22 @@ def main() -> int:
         if terminated or truncated:
             trace = TASK.build_trace(h, ctx, hist)
             jaw_col = 7 if ctx["side"] == "right" else 15
-            trace.extra.setdefault("jaw_command_mm",
-                                   np.asarray(hist["action"])[:, jaw_col])
+            trace.extra.setdefault("jaw_command_mm", np.asarray(hist["action"])[:, jaw_col])
             v = TASK.verdict(trace, ctx, KNOBS)
             reward = float(v.success)
-            info.update(is_success=bool(v.success), failure=v.failure.value,
-                        metrics=v.metrics, **TASK.episode_extra(ctx, hist))
-        return {"obs": observe(), "reward": reward, "terminated": terminated,
-                "truncated": truncated, "info": info}
+            info.update(
+                is_success=bool(v.success),
+                failure=v.failure.value,
+                metrics=v.metrics,
+                **TASK.episode_extra(ctx, hist),
+            )
+        return {
+            "obs": observe(),
+            "reward": reward,
+            "terminated": terminated,
+            "truncated": truncated,
+            "info": info,
+        }
 
     while True:
         conn, _ = srv.accept()
@@ -175,21 +189,27 @@ def main() -> int:
                 op = msg.get("op")
                 try:
                     if op == "meta":
-                        send_msg(conn, {
-                            "task": TASK.task_id(KNOBS), "variant": args_cli.variant,
-                            "instruction": TASK.instruction,
-                            "keys": keys, "action_dim": 16, "fps": CTRL_FPS,
-                            "max_episode_steps": n_ctrl,
-                            "n_states": 0 if frozen is None else len(frozen),
-                            "shapes": {k: list(v.shape) for k, v in observe().items()}})
+                        send_msg(
+                            conn,
+                            {
+                                "task": TASK.task_id(KNOBS),
+                                "variant": args_cli.variant,
+                                "instruction": TASK.instruction,
+                                "keys": keys,
+                                "action_dim": 16,
+                                "fps": CTRL_FPS,
+                                "max_episode_steps": n_ctrl,
+                                "n_states": 0 if frozen is None else len(frozen),
+                                "shapes": {k: list(v.shape) for k, v in observe().items()},
+                            },
+                        )
                     elif op == "reset":
                         send_msg(conn, do_reset(msg))
                     elif op == "step":
                         send_msg(conn, do_step(msg))
                     elif op == "render":
                         h.update_cams(include_scene_cam=args_cli.scene_cam)
-                        send_msg(conn, {"frame": h.cam_rgb(
-                            "scene" if args_cli.scene_cam else "base")})
+                        send_msg(conn, {"frame": h.cam_rgb("scene" if args_cli.scene_cam else "base")})
                     elif op == "close":
                         send_msg(conn, {"ok": True})
                         return 0
@@ -206,5 +226,6 @@ def main() -> int:
 if __name__ == "__main__":
     rc = main()
     import sys
+
     sys.stdout.flush()
-    os._exit(rc)       # skip Kit's own shutdown, which can hang
+    os._exit(rc)  # skip Kit's own shutdown, which can hang
