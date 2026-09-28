@@ -144,7 +144,29 @@ def _stats(episodes: list[dict], table: pa.Table) -> dict:
     return result
 
 
-def merge_recordings(inputs: list[str | Path], output: str | Path) -> Path:
+def _drop_previews(recording: dict) -> None:
+    features = recording["info"]["features"]
+    previews = {key for key, spec in features.items() if spec.get("info", {}).get("preview_of")}
+    for key in previews:
+        source = features[key]["info"]["preview_of"]
+        if source not in features or source in previews or features[key]["dtype"] != "video":
+            raise ValueError(f"Invalid preview source: {key} -> {source}")
+        recording["media"].pop(key)
+    recording["info"]["features"] = {key: spec for key, spec in features.items() if key not in previews}
+    recording["table"] = recording["table"].drop_columns(
+        [key for key in previews if key in recording["table"].column_names]
+    )
+    recording["episodes"] = [
+        {
+            key: value
+            for key, value in row.items()
+            if not (key.startswith(("videos/", "stats/")) and key.split("/")[1] in previews)
+        }
+        for row in recording["episodes"]
+    ]
+
+
+def merge_recordings(inputs: list[str | Path], output: str | Path, *, drop_previews: bool = False) -> Path:
     roots = [Path(p).expanduser().resolve() for p in inputs]
     dst = Path(output).expanduser().resolve()
     if not roots or len(set(roots)) != len(roots):
@@ -161,6 +183,9 @@ def merge_recordings(inputs: list[str | Path], output: str | Path) -> Path:
     ):
         raise FileExistsError(dst)
     recordings = [inspect_recording(p) for p in roots]
+    if drop_previews:
+        for recording in recordings:
+            _drop_previews(recording)
     first = recordings[0]
     for item in recordings[1:]:
         for key in ("features", "fps", "robot_type", "codebase_version"):

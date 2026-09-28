@@ -173,7 +173,11 @@ def main() -> int:
         ap.error("output directory must be outside input recordings")
     dst_root.mkdir(parents=True, exist_ok=True)
     merge_dir = tempfile.TemporaryDirectory(prefix=".raw-merge-", dir=dst_root)
-    src = merge_recordings(roots, Path(merge_dir.name) / "raw") if len(roots) > 1 else roots[0]
+    src = (
+        merge_recordings(roots, Path(merge_dir.name) / "raw", drop_previews=True)
+        if len(roots) > 1
+        else roots[0]
+    )
     inspected = inspect_recording(src)
     annotations = {row["episode_index"]: row for row in inspected["annotations"]}
     src_root = src

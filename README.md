@@ -138,10 +138,10 @@ python benchmark/run/launch_env.py --env stack_cube --num_envs 4 \
 
 ```bash
 # Run 50 attempts in one environment, saving review and tactile preview videos
-RENDER=1 PREVIEWS=1 bash scripts/run_collect.sh stack_cube 50 \
+RENDER=1 bash scripts/run_collect.sh stack_cube 50 \
     "$OUTPUT_ROOT/raw/stack_cube_expert"
 # Run 200 total attempts across four environments with the same video outputs
-NUM_ENVS=4 RENDER=1 PREVIEWS=1 \
+NUM_ENVS=4 RENDER=1 \
     bash scripts/run_collect.sh stack_cube 200 \
     "$OUTPUT_ROOT/raw/stack_cube_expert_parallel"
 ```
@@ -195,16 +195,15 @@ hands; the operator/device workflow has not yet been validated.
 
 ### Stage 3 — convert and combine datasets
 
-Combine the expert and keyboard recordings from stage 2:
+Combine multiple demonstration datasets from stage 2:
 
 ```bash
-DATASET=stack_cube_mixed bash scripts/run_convert.sh \
-    "$OUTPUT_ROOT/raw/stack_cube_expert" \
-    "$OUTPUT_ROOT/raw/stack_cube_teleop"
+DATASET=merged_demonstrations bash scripts/run_convert.sh \
+    "$OUTPUT_ROOT/raw/stack_cube_1" \
+    "$OUTPUT_ROOT/raw/stack_cube_2"
 ```
 
-For the parallel expert recording, replace `stack_cube_expert` with
-`stack_cube_expert_parallel`. One or more input directories are accepted;
+One or more input directories are accepted;
 `DATASET` names the combined output. Source recordings remain unchanged.
 Inputs must have compatible task, action, and observation definitions.
 
@@ -216,9 +215,9 @@ Inputs must have compatible task, action, and observation definitions.
 
 | Variant | Inputs | Combined output |
 | --- | --- | --- |
-| `vision` | Cameras and robot state | `$OUTPUT_ROOT/datasets/stack_cube_mixed_vision/` |
-| `tacff` | Vision plus force-field images | `$OUTPUT_ROOT/datasets/stack_cube_mixed_tacff/` |
-| `tacrgb` | Vision plus tactile RGB images | `$OUTPUT_ROOT/datasets/stack_cube_mixed_tacrgb/` |
+| `vision` | Cameras and robot state | `$OUTPUT_ROOT/datasets/merged_demonstrations_vision/` |
+| `tacff` | Vision plus force-field images | `$OUTPUT_ROOT/datasets/merged_demonstrations_tacff/` |
+| `tacrgb` | Vision plus tactile RGB images | `$OUTPUT_ROOT/datasets/merged_demonstrations_tacrgb/` |
 
 All variants contain the same combined episodes and actions. Each output
 includes `meta/source_episodes.json` mapping episodes to their source
@@ -227,7 +226,7 @@ recording, and review videos under `review/third_person/`.
 ### Stage 4 — train a policy
 
 ```bash
-DATASET=stack_cube_mixed VARIANT=tacff POLICY=act GPU=0 \
+DATASET=merged_demonstrations VARIANT=tacff POLICY=act GPU=0 \
     STEPS=50000 SEED=1000 bash scripts/run_train.sh
 ```
 
@@ -326,9 +325,9 @@ Every evaluation uses a saved initial-state file. Start with the published
 initial-state set for the task (100 states for texture sort and stack cube):
 
 ```bash
-CKPT="$OUTPUT_ROOT/outputs/stack_cube_mixed_tacff_act_s1000/checkpoints/last/pretrained_model"
+CKPT="$OUTPUT_ROOT/outputs/merged_demonstrations_tacff_act_s1000/checkpoints/last/pretrained_model"
 INIT_STATES=meta/init_states/stack_cube.json VIDEO=1 \
-    OUT="$OUTPUT_ROOT/eval/stack_cube_mixed_tacff_act_s1000" \
+    OUT="$OUTPUT_ROOT/eval/merged_demonstrations_tacff_act_s1000" \
     bash scripts/run_eval.sh stack_cube "$CKPT"
 ```
 
@@ -337,7 +336,7 @@ For four environments on two GPUs, use the same state file:
 ```bash
 INIT_STATES=meta/init_states/stack_cube.json \
     NUM_ENVS=4 GPUS=0,1 SEED=11 VIDEO=1 \
-    OUT="$OUTPUT_ROOT/eval/stack_cube_mixed_tacff_act_s1000_parallel" \
+    OUT="$OUTPUT_ROOT/eval/merged_demonstrations_tacff_act_s1000_parallel" \
     bash scripts/run_eval.sh stack_cube "$CKPT"
 ```
 
@@ -357,9 +356,9 @@ For the parallel example:
 
 | Output | Path |
 | --- | --- |
-| Combined report | `$OUTPUT_ROOT/eval/stack_cube_mixed_tacff_act_s1000_parallel/eval_report.json` |
-| Videos by state ID | `$OUTPUT_ROOT/eval/stack_cube_mixed_tacff_act_s1000_parallel/videos/` |
-| Worker logs | `$OUTPUT_ROOT/eval/stack_cube_mixed_tacff_act_s1000_parallel/workers/worker_<id>/` |
+| Combined report | `$OUTPUT_ROOT/eval/merged_demonstrations_tacff_act_s1000_parallel/eval_report.json` |
+| Videos by state ID | `$OUTPUT_ROOT/eval/merged_demonstrations_tacff_act_s1000_parallel/videos/` |
+| Worker logs | `$OUTPUT_ROOT/eval/merged_demonstrations_tacff_act_s1000_parallel/workers/worker_<id>/` |
 
 The report includes success rate, per-state success and failure details,
 and the evaluation-set hash. Missing or duplicate states mark a run incomplete.
