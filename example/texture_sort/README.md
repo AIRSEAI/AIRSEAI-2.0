@@ -55,8 +55,9 @@ An exhausted budget writes `.partial.json`, returns exit code 2, and does not
 publish the final dataset. Operational failures stop the workflow; existing batch
 artifacts remain available. Choose new paths for another run.
 
-With `RENDER=1`, each batch writes a fixed-camera mosaic to
-`<report_dir>/batch_NNNN/collection/texture_sort.mp4`, with frame metadata beside it.
+Accepted episodes retain fixed-camera videos under `<dataset>/review/third_person/`.
+After the final dataset passes validation, batch datasets and raw shards are removed;
+attempt reports and initial states remain available.
 
 ## Independent evaluation states
 

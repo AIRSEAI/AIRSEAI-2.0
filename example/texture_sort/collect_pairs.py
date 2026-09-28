@@ -4,6 +4,7 @@ import argparse
 import hashlib
 import json
 import os
+import shutil
 import signal
 import subprocess
 import sys
@@ -127,6 +128,7 @@ def main():
             "--seed",
             seed,
             "--allow_empty",
+            "--keep-shards",
             "--write_mode",
             args.write_mode,
             "--write_queue_size",
@@ -189,6 +191,12 @@ def main():
     output = args.states_out if complete else args.states_out.with_suffix(".partial.json")
     if complete:
         merge_recordings(inputs, args.dataset)
+        for folder in sorted(args.out.glob("batch_*")):
+            for shard in sorted((folder / "collection").glob("attempts/*/raw")):
+                shutil.rmtree(shard)
+            raw = folder / "raw"
+            if raw.is_dir():
+                shutil.rmtree(raw)
     write_json(output, document)
     write_json(args.out / "selection.json", selections)
     write_json(

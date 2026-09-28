@@ -137,8 +137,14 @@ class Collector:
             .expanduser()
             .resolve()
         )
-        if self.dataset and (
-            self.dataset == self.out or self.dataset in self.out.parents or self.out in self.dataset.parents
+        if (
+            self.dataset
+            and self.out != self.dataset / "run"
+            and (
+                self.dataset == self.out
+                or self.dataset in self.out.parents
+                or self.out in self.dataset.parents
+            )
         ):
             raise ValueError("Dataset and report directories must not overlap")
         for path in (self.out, self.dataset):

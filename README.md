@@ -1,6 +1,6 @@
 # AIRSEAI 2.0
 
-AIRS's open-source embodied-AI platform, 2.0: a dual-arm
+An open-source embodied-AI platform: a dual-arm
 manipulator with vision-based tactile sensors, one data pipeline, and two
 places it runs — sim and the real robot.
 
@@ -9,9 +9,7 @@ fingers in Isaac Sim, a scripted expert per task, LeRobot v3 datasets
 carrying the tactile channels, ACT training on them, and policy rollout in
 the same scenes.
 
-**On the real robot.** The same arms, the same recorded keys, collected by
-leader-follower teleoperation. Sim and real do not line up everywhere, and
-quantifying where they part is why the benchmark exists.
+**On the real robot.** The same arms, the same recorded keys, collected by leader-follower teleoperation. Sim and real do not line up everywhere, and quantifying where they part is why the benchmark exists.
 
 ## The tasks
 
@@ -19,8 +17,8 @@ quantifying where they part is why the benchmark exists.
 | :---: | :---: | :---: |
 | <img src="docs/media/stack_cube.webp" width="250" alt="stack_cube"> | <img src="docs/media/blind_peg_insertion.webp" width="250" alt="blind_peg_insertion"> | <img src="docs/media/sleeve_on_shaft.webp" width="250" alt="sleeve_on_shaft"> |
 | `stack_cube` — stack one cube on another | `blind_peg_insertion` — insert a peg into a hole that is not where the robot is told | `sleeve_on_shaft` — slide a squeezable sleeve onto a shaft |
-| <img src="docs/media/texture_sort.webp" width="250" alt="texture_sort"> | <img src="docs/media/handover.webp" width="250" alt="handover"> | |
-| `texture_sort` — sort two balls that differ only in surface, in the dark | `handover` — hand a spring-loaded sleeve between the arms, from one cup to the other | |
+| <img src="docs/media/texture_sort.webp" width="250" alt="texture_sort"> | <img src="docs/media/handover.webp" width="250" alt="handover"> | <img src="docs/media/cap_unscrew.webp" width="250" alt="cap_unscrew"> |
+| `texture_sort` — sort two balls that differ only in surface, in the dark | `handover` — hand a spring-loaded sleeve between the arms, from one cup to the other | `cap_unscrew` — hold a bottle, unscrew its cap and place it in a tray |
 
 ---
 
@@ -28,15 +26,15 @@ quantifying where they part is why the benchmark exists.
 
 | | version |
 | --- | --- |
-| GPU | NVIDIA, ≥ 10 GB VRAM |
-| disk | ~25 GB free (Isaac Sim is ~18 GB) |
-| driver | ≥ 580 |
 | OS | Ubuntu 22.04 |
 | Isaac Sim | 5.1.0.0 |
 | Isaac Lab | v2.3.2 (`isaaclab` 0.54.2) + `isaaclab_contrib` (TacSL) |
 | Python | 3.11 |
 | PyTorch | 2.7.0+cu128 |
 | lerobot | 0.5.1, compatible source installed in `airseai` (dataset format v3.0) |
+
+See the [Isaac Sim 5.1 system requirements](https://docs.isaacsim.omniverse.nvidia.com/5.1.0/installation/requirements.html)
+for minimum hardware requirements and supported drivers.
 
 ## 2. Robot asset
 
@@ -47,7 +45,7 @@ wrist/head cameras at `assets/usds/openarm_bimanual/openarm_tactile.usd`.
 
 ## 3. The environments
 
-Eight registered scenes (every task in the registry, plus `minimal`); the clips
+The registered scenes include the task environments and `minimal`. The clips
 at the top of this file show demonstrations of the task scenes:
 
 | `--env` | what it is |
@@ -71,13 +69,9 @@ at the top of this file show demonstrations of the task scenes:
 
 #### NVIDIA driver
 
+Install an NVIDIA driver compatible with your GPU model and the selected
+Isaac Sim release. Follow the [Isaac Sim driver requirements](https://docs.isaacsim.omniverse.nvidia.com/5.1.0/installation/requirements.html).
 Skip this step if a compatible driver is already installed.
-
-```bash
-sudo add-apt-repository universe && sudo apt update
-sudo apt install -y nvidia-driver-580-server
-sudo reboot
-```
 
 #### Conda
 
@@ -122,107 +116,35 @@ and loaded automatically on activation.
 
 ### Stage 1 — preview an environment
 
-All seven tasks use the shared ManagerBased environment.
-`--num_envs` defaults to 1; multiple environments run in one Kit process.
+Task environments use the shared Isaac Lab ManagerBased environment.
+`--num_envs` defaults to 1. Larger values create independent copies of the
+selected task in one Isaac Sim scene and process, advancing together at each
+simulation step.
 
 ```bash
-# Interactive overview of four environments
+# Open an interactive view of four environments
 python benchmark/run/launch_env.py --env stack_cube --num_envs 4 --gui
-# Focus one environment in the GUI (zero-based slot)
-python benchmark/run/launch_env.py --env stack_cube --num_envs 4 --gui --view_env 2
-# Synchronous per-environment grid, 30 simulation seconds at 20 fps
-python benchmark/run/launch_env.py --env texture_sort --num_envs 4 \
-    --video "$OUTPUT_ROOT/preview/texture_sort.mp4" --steps 1800
-# Settled snapshot
+# Save a 30-second grid video of four environments
+python benchmark/run/launch_env.py --env stack_cube --num_envs 4 \
+    --video "$OUTPUT_ROOT/preview/stack_cube.mp4" --steps 1800
+# Save a snapshot of four environments
 python benchmark/run/launch_env.py --env stack_cube --num_envs 4 \
     --snapshot "$OUTPUT_ROOT/preview/stack_cube.png"
 ```
-
-`--steps` counts 60 Hz physics steps, rounded up to a complete 3-step control
-tick. Video defaults to 300 physics steps (5 seconds). Every grid tile shows
-its environment ID and simulation time; a `.frames.json` sidecar records
-frame/tick correspondence. Add `--report path.json` to save the backend,
-Kit PID, origins, collider paths, sensor inventory and timing. GUI needs an
-accessible display. Other tasks retain their single-environment preview.
-
-Native batching for collection and evaluation is a subsequent migration
-stage; preview support alone does not certify those entry points.
 
 ### Stage 2 — collect demonstrations
 
 #### Scripted expert
 
 ```bash
+# Run 50 attempts in one environment, saving review and tactile preview videos
 RENDER=1 PREVIEWS=1 bash scripts/run_collect.sh stack_cube 50 \
     "$OUTPUT_ROOT/raw/stack_cube_expert"
-```
-
-Or collect 200 episode attempts with four native environments on one GPU:
-
-```bash
-NUM_ENVS=4 GPUS=0 SEED=7 RENDER=1 PREVIEWS=1 \
+# Run 200 total attempts across four environments with the same video outputs
+NUM_ENVS=4 RENDER=1 PREVIEWS=1 \
     bash scripts/run_collect.sh stack_cube 200 \
     "$OUTPUT_ROOT/raw/stack_cube_expert_parallel"
 ```
-
-All seven tasks use one Isaac Lab ManagerBasedEnv process with
-60 Hz physics and 20 Hz control/recording. Each slot has its own expert, reset,
-and episode buffer. The count is total attempts, including failures. Accepted
-episodes are combined in attempt-ID order. Use one GPU per native invocation.
-
-The same preview, expert collection, teleoperation, initial-state generation,
-and ACT evaluation entries accept all seven task IDs. Teleoperation uses one
-slot; preview, expert collection, and ACT evaluation accept `--num_envs`.
-Success geometry and expert phases remain task-specific.
-
-Initial states store the robot joints and each task object's local pose. The
-additional task variables are:
-
-| Task | Task variables |
-| --- | --- |
-| `stack_cube` | Active arm |
-| `texture_sort` | Active arm, target material and cup layout |
-| `blind_peg_insertion` | Active arm and the observed hole-position error |
-| `sleeve_on_shaft` | Active arm and sleeve material |
-| `handover` | Receiver arm; cup layout is restored from object poses |
-| `mug_on_hook` | Active arm, grasp bias and alignment offsets |
-| `cap_unscrew` | Turner arm and thread release angle |
-
-Spring-connected shells retain their relative pose while clearing contacts.
-Their joints are created once per environment, and tactile target changes
-apply only to the selected environment.
-
-Native collection defaults to `--write_mode background`; use `--write_mode sync`
-for synchronous saving. The shell entry accepts `WRITE_MODE=sync` and
-`WRITE_QUEUE_SIZE=2`. `--write_queue_size 2` bounds outstanding episode saves,
-including the running save. A full queue pauses collection without dropping data.
-Each completed attempt transfers its detached CPU data and private disk buffer to
-one writer thread. Reports list pending attempt IDs; `saved` becomes true only
-after episode finalization succeeds. A write failure stops collection and marks
-the run failed. Normal exit or a handled interrupt drains accepted writes before
-closing; a forced kill cannot guarantee completion. Runs without write errors merge
-accepted episodes into the final dataset in attempt-ID order.
-
-Per-frame disk buffering and live review/mosaic video encoding remain synchronous;
-background mode moves episode finalization and its output files off the simulation
-thread. It does not change camera views, sampling ticks, or seed assignment.
-The same options apply to native single-environment keyboard/VR collection.
-
-Random starts use `(seed, attempt_id, purpose)` streams. Slots consume attempt
-IDs in fixed strides, so completion or encoding time does not choose the next
-random start. Repeating the same configuration is intended to reproduce its
-trajectories; physics and sensor determinism still requires runtime validation.
-
-Supply `INIT_STATES=/path/to/states.json` to consume every state once in file
-order; the file's count overrides `--episodes`. Without it, each attempt draws
-an independent layout. The run saves both requested and settled initial states.
-Saved `meta.expert_seed` values control expert perturbations independently of
-file ordering. Older states without this field use the run seed and attempt index.
-Metadata is retained in `meta/episode_annotations.json`, including during
-conversion. Raw output is LeRobot v3 with tactile `data` streams; use Stage 3
-for the standard vision/tacrgb/tacff training variants.
-
-For paired smooth/rough layouts, see `example/texture_sort/README.md`.
 
 | Option | Meaning / default |
 | --- | --- |
@@ -231,23 +153,9 @@ For paired smooth/rough layouts, see `example/texture_sort/README.md`.
 | `SEED` | Collection seed; `7` |
 | `INIT_STATES` | Optional initial-state JSON; absent means independent draws |
 | `RENDER=1` | Record review videos |
-| `PREVIEWS=1` | Include tactile preview streams |
+| `PREVIEWS=1` | Add depth heatmaps and shear-field arrow videos for visual inspection |
 
-| Output | Single-environment example |
-| --- | --- |
-| Raw dataset | `$OUTPUT_ROOT/raw/stack_cube_expert/` |
-| Episode report | `$OUTPUT_ROOT/raw/stack_cube_expert_run/stack_cube_scripted.json` |
-| Review videos | `$OUTPUT_ROOT/raw/stack_cube_expert/review/third_person/` |
-
-For the parallel example, replace `stack_cube_expert` with
-`stack_cube_expert_parallel`. Per-attempt states, trajectories, terminal
-observations, results, and recording shards are under
-`$OUTPUT_ROOT/raw/stack_cube_expert_parallel_run/attempts/<attempt_id>/`.
-`RENDER=1` writes a tiled video of all environments into the run directory.
-Image and tactile buffers are spooled to disk; allow space for pending attempts
-and the final dataset in addition to the preserved recording shards.
-
-#### Keyboard and VR teleoperation
+#### Keyboard and VR teleoperation (Todo)
 
 ```bash
 python benchmark/teleop/run_teleop.py --task stack_cube \
@@ -352,7 +260,7 @@ model configuration and dependencies.
 
 ### Stage 5 — evaluate
 
-For any of the seven tasks, evaluate a completed ACT checkpoint with
+For a registered task, evaluate a completed ACT checkpoint with
 the same native vector scheduler at one or more environments. The initial-state
 file determines the episode count; every state is consumed once without retries
 or resampling. These tasks load ACT in the simulation process and require

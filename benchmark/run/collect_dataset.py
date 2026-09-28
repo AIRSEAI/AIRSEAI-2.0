@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shutil
 import signal
 import subprocess
 import sys
@@ -29,7 +30,7 @@ def collect_parallel(args, passthrough, gpus):
     from lerobot_tactile_ext.merge import merge_recordings
 
     dataset = Path(args.dataset).expanduser().resolve()
-    out = Path(args.out).expanduser().resolve() if args.out else Path(str(dataset) + "_run")
+    out = Path(args.out).expanduser().resolve() if args.out else dataset / "run"
     if dataset.exists() or out.exists():
         raise FileExistsError("Collection output already exists; choose a new output path")
     workers = min(args.num_envs, args.episodes)
@@ -65,8 +66,6 @@ def collect_parallel(args, passthrough, gpus):
             ]
             if args.robot_usd:
                 cmd += ["--robot_usd", args.robot_usd]
-            if args.render:
-                cmd += ["--video", str(root / f"{args.task}.mp4")]
             log = (root / "worker.log").open("w")
             logs.append(log)
             child = subprocess.Popen(
@@ -150,6 +149,9 @@ def collect_parallel(args, passthrough, gpus):
     if not inputs:
         raise ValueError(f"No accepted demonstrations; attempts are recorded in {out}")
     merge_recordings(inputs, dataset)
+    if not args.keep_shards:
+        for source in inputs:
+            shutil.rmtree(source)
     if args.previews:
         return subprocess.call(
             [sys.executable, str(REPO / "benchmark/run/render_previews.py"), "--dataset", str(dataset)]
@@ -165,11 +167,16 @@ def main() -> int:
     )
     ap.add_argument("--dataset", required=True, help="output dataset root")
     ap.add_argument("--episodes", type=int, default=10)
-    ap.add_argument("--out", default="", help="report/frames dir (default: <dataset>_run)")
-    ap.add_argument("--render", action="store_true", help="also write a video to <out>/<task>.mp4")
+    ap.add_argument("--out", default="", help="report/frames dir (default: <dataset>/run)")
+    ap.add_argument(
+        "--render",
+        action="store_true",
+        help="compatibility flag; per-episode review videos are always recorded",
+    )
     ap.add_argument(
         "--previews", action="store_true", help="after recording, render preview videos of the tactile data"
     )
+    ap.add_argument("--keep-shards", action="store_true", help="Keep raw shards for further selection")
     ap.add_argument("--num_envs", type=int, default=1)
     ap.add_argument("--gpus", default="0")
     ap.add_argument("--seed", type=int, default=7)
@@ -214,9 +221,9 @@ def main() -> int:
     if any(value.split("=", 1)[0] in reserved for value in passthrough):
         ap.error("Collection controls attempt IDs, GPU selection and output paths")
     dataset = Path(a.dataset).expanduser().resolve()
-    out = Path(a.out).expanduser().resolve() if a.out else Path(str(dataset) + "_run")
-    if dataset == out or dataset in out.parents or out in dataset.parents:
-        ap.error("Dataset and report directories must not overlap")
+    out = Path(a.out).expanduser().resolve() if a.out else dataset / "run"
+    if out != dataset / "run" and (dataset == out or dataset in out.parents or out in dataset.parents):
+        ap.error("Reports must be <dataset>/run or outside the dataset")
     if dataset.exists() or out.exists():
         ap.error("Collection output already exists; choose a new output path")
     a.dataset, a.out = str(dataset), str(out)
@@ -225,11 +232,10 @@ def main() -> int:
         raise KeyboardInterrupt(f"Collection interrupted by signal {signum}")
 
     signal.signal(signal.SIGTERM, interrupted)
-    if a.num_envs > 1 and not native:
+    if not native:
         return collect_parallel(a, passthrough, gpus)
 
-    out = a.out or (os.path.expanduser(a.dataset).rstrip("/") + "_run")
-    inline_video = ["--video", os.path.join(out, f"{a.task}.mp4")] if a.render else []
+    out = a.out
     cmd = [
         sys.executable,
         str(RUNNER),
@@ -249,7 +255,6 @@ def main() -> int:
         a.dataset,
         "--out",
         out,
-        *inline_video,
         *passthrough,
     ]
     print("[collect_dataset]", " ".join(cmd), flush=True)
@@ -278,6 +283,9 @@ def main() -> int:
                 child.wait()
     if rc == 0 and not a.allow_empty and not (dataset / "meta/info.json").is_file():
         raise RuntimeError(f"No accepted demonstrations; see {out}")
+    if rc == 0 and not a.keep_shards and (dataset / "meta/info.json").is_file():
+        for shard in sorted(Path(out).glob("attempts/*/raw")):
+            shutil.rmtree(shard)
     if rc == 0 and a.previews and (dataset / "meta/info.json").is_file():
         pcmd = [sys.executable, str(REPO / "benchmark/run/render_previews.py"), "--dataset", a.dataset]
         print("[collect_dataset]", " ".join(pcmd), flush=True)
