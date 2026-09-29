@@ -70,6 +70,8 @@ AppLauncher.add_app_launcher_args(parser)
 _known, _rest = parser.parse_known_args()
 if _known.write_queue_size < 1:
     parser.error("write_queue_size must be positive")
+if _known.episode_write_workers < 1:
+    parser.error("episode_write_workers must be positive")
 if _known.write_mode is None:
     parser.set_defaults(write_mode="background" if TASK_IDS[_known.task].manager_cfg else "sync")
 if not TASK_IDS[_known.task].manager_cfg and _known.write_mode == "background":

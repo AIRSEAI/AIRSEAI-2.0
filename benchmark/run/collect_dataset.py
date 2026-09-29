@@ -199,10 +199,13 @@ def main() -> int:
     native = bool(TASKS[a.task].manager_cfg)
     if a.write_queue_size < 1:
         ap.error("write_queue_size must be positive")
+    if a.episode_write_workers < 1:
+        ap.error("episode_write_workers must be positive")
     a.write_mode = a.write_mode or ("background" if native else "sync")
     if not native and a.write_mode != "sync":
         ap.error("Background writing requires a native vector environment")
     passthrough += ["--write_mode", a.write_mode, "--write_queue_size", str(a.write_queue_size)]
+    passthrough += ["--episode_write_workers", str(a.episode_write_workers)]
     if native and len(gpus) != 1:
         ap.error("Native vector collection uses one GPU per invocation")
     if a.init_states and not native:

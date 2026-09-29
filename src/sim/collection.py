@@ -113,9 +113,14 @@ class Collector:
         self.stop_requested = lambda: False
         self.num_envs = args.num_envs
         self.write_mode = getattr(args, "write_mode", None) or "background"
-        self.write_queue_size = getattr(args, "write_queue_size", 2)
-        if self.write_mode not in ("sync", "background") or self.write_queue_size < 1:
-            raise ValueError("write_mode must be sync or background; write_queue_size must be positive")
+        self.write_queue_size = getattr(args, "write_queue_size", 4)
+        self.episode_write_workers = getattr(args, "episode_write_workers", 2)
+        if (
+            self.write_mode not in ("sync", "background")
+            or self.write_queue_size < 1
+            or self.episode_write_workers < 1
+        ):
+            raise ValueError("write_mode must be sync or background; queue size and worker count must be positive")
         if self.num_envs < 1 or (teleop and self.num_envs != 1):
             raise ValueError("Teleoperation requires exactly one environment")
         if args.seed < 0 or args.episodes < 1:
@@ -209,7 +214,7 @@ class Collector:
             ),
         )
         self.report_path = self.out / (task.name + ("_teleop.json" if teleop else "_scripted.json"))
-        self.writes = EpisodeWriteQueue(self.write_mode, self.write_queue_size)
+        self.writes = EpisodeWriteQueue(self.write_mode, self.write_queue_size, self.episode_write_workers)
 
     def report(self, status):
         episodes = sorted(self.reports, key=lambda row: row["attempt_id"])
@@ -242,6 +247,7 @@ class Collector:
                 pending_writes=self.writes.attempt_ids,
                 write_mode=self.write_mode,
                 write_queue_size=self.write_queue_size,
+                episode_write_workers=self.episode_write_workers,
                 knobs=self.knobs,
                 init_states_sha256=(init_state.digest(self.args.init_states) if self.document else None),
             ),
