@@ -2,7 +2,7 @@
 # Collect expert attempts; accepted episodes are combined into one dataset.
 #   bash scripts/run_collect.sh <task> [episodes] [dataset_out]
 # NUM_ENVS, GPUS, SEED, INIT_STATES, RENDER and PREVIEWS configure collection.
-# WRITE_MODE and WRITE_QUEUE_SIZE configure episode saving.
+# WRITE_MODE, WRITE_QUEUE_SIZE and EPISODE_WRITE_WORKERS configure episode saving.
 set -euo pipefail
 TASK="${1:?usage: run_collect.sh <task> [episodes] [dataset_out]}"
 EP="${2:-50}"
@@ -25,7 +25,8 @@ ARGS=(--task "$TASK" --episodes "$EP" --dataset "$OUT"
 [ "${PREVIEWS:-0}" = 1 ] && ARGS+=(--previews)
 [ -n "${INIT_STATES:-}" ] && ARGS+=(--init_states "$INIT_STATES")
 [ -n "${WRITE_MODE:-}" ] && ARGS+=(--write_mode "$WRITE_MODE")
-ARGS+=(--write_queue_size "${WRITE_QUEUE_SIZE:-2}")
+ARGS+=(--write_queue_size "${WRITE_QUEUE_SIZE:-4}")
+ARGS+=(--episode_write_workers "${EPISODE_WRITE_WORKERS:-2}")
 
 echo "collect: task=$TASK episodes=$EP -> $OUT"
 exec "$PY" benchmark/run/collect_dataset.py "${ARGS[@]}"
