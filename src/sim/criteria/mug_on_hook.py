@@ -16,9 +16,7 @@ from sim.dims.mug_on_hook import EYE_FLOOR_Z, EYE_HEIGHT, EYE_X, MUG_OUTER_R
 
 __all__ = ["eye_margin", "verdict"]
 
-# How far the mug may travel within the grasp before it counts as slipped, m.
-# Above the seating descent: the hand drives down against a peg that will not
-# move, so a mug that seats correctly rides that far up in the gel by design.
+# Allow relative jaw travel during seating, in metres.
 MAX_SLIP = 0.030
 
 
@@ -86,10 +84,10 @@ def verdict(
 
     if never_held:
         return Verdict(False, FailureMode.GRASP_FAILURE, metrics)
-    if margin > 0.0:
-        return Verdict(True, metrics=metrics)
     if still_held:
         return Verdict(False, FailureMode.UNFINISHED, metrics)
+    if margin > 0.0:
+        return Verdict(True, metrics=metrics)
     if slipped:
         return Verdict(False, FailureMode.SLIP, metrics)
     return Verdict(False, FailureMode.MISTIMING, metrics)
