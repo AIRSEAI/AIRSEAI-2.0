@@ -19,6 +19,8 @@ benchmark exists.
 | `stack_cube` — stack one cube on another                                 | `blind_peg_insertion` — insert a peg into a hole that is not where the robot is told  | `sleeve_on_shaft` — slide a squeezable sleeve onto a shaft                    |
 | <img src="docs/media/texture_sort.webp" width="250" alt="texture_sort">  | <img src="docs/media/handover.webp" width="250" alt="handover">                       | <img src="docs/media/cap_unscrew.webp" width="250" alt="cap_unscrew">         |
 | `texture_sort` — sort two balls that differ only in surface, in the dark | `handover` — hand a spring-loaded sleeve between the arms, from one cup to the other  | `cap_unscrew` — hold a bottle, unscrew its cap and place it in a tray         |
+| <img src="docs/media/drawer_latch.webp" width="250" alt="drawer_latch"> | | |
+| `drawer_latch` — pull the tool drawer to its latch point, release the handle, and leave it open | | |
 
 ---
 
@@ -59,6 +61,7 @@ show demonstrations of the task scenes:
 | `handover`            | pinch a spring-loaded split sleeve out of the orange cup with the left arm, hand it to the right arm, and seat it over the key in the teal cup, holding it open just enough to fit |
 | `mug_on_hook`         | carry a mug by its body and hang its handle on a peg                                                                                                                               |
 | `cap_unscrew`         | hold a bottle, unscrew its cap with the other hand, and place it in a tray                                                                                                         |
+| `drawer_latch`        | pull the tool drawer to its latch point, release the handle, and leave it open                                                                                                  |
 
 ## 4. The pipeline
 
