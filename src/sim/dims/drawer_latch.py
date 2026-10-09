@@ -1,19 +1,23 @@
 """Dimensions of the compact tool drawer, in metres."""
 
 __all__ = [
+    "CASE_COLOR",
     "CASE_SIZE",
+    "DETENT_RANGE",
+    "DRAWER_COLOR",
+    "DRAWER_FRONT_X",
     "DRAWER_SIZE",
+    "HANDLE_CENTER_Z",
+    "HANDLE_COLOR",
     "HANDLE_DEPTH",
     "HANDLE_HEIGHT",
-    "HANDLE_CENTER_Z",
-    "YAW_CENTER_DEG",
-    "YAW_RANGE_DEG",
     "HANDLE_STANDOFF",
     "HANDLE_WIDTH",
-    "DETENT_RANGE",
     "LATCH_TOLERANCE",
     "MAX_EXTENSION",
     "OVERRUN_MARGIN",
+    "YAW_CENTER_DEG",
+    "YAW_RANGE_DEG",
 ]
 
 CASE_SIZE = (0.220, 0.220, 0.240)
@@ -29,3 +33,8 @@ MAX_EXTENSION = 0.125
 DETENT_RANGE = (0.065, 0.095)
 LATCH_TOLERANCE = 0.004
 OVERRUN_MARGIN = 0.009
+
+DRAWER_FRONT_X = -CASE_SIZE[0] / 2 - 0.001
+CASE_COLOR = (0.38, 0.43, 0.48)
+DRAWER_COLOR = (0.78, 0.33, 0.12)
+HANDLE_COLOR = (0.13, 0.15, 0.17)

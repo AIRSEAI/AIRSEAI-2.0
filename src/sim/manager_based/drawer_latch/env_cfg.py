@@ -1,8 +1,9 @@
 """Native batched drawer_latch scene and sliding joints."""
 
 from sim.envs import drawer_latch as scene
+from sim.envs.drawer_latch import reset_drive
 from sim.manager_based.common.env_cfg import build_cfg
-from sim.tasks.drawer_latch import TASK, reset_drive
+from sim.tasks.drawer_latch import TASK
 
 
 def configure_scene(env, env_ids):

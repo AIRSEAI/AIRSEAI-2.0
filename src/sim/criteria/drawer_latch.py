@@ -1,4 +1,9 @@
-"""The drawer succeeds when it stays open after the hand lets go."""
+"""drawer_latch criterion: the drawer stays open after release.
+
+Reads::
+
+    extra["extension_m"], extra["hand_clearance_m"]
+"""
 
 from __future__ import annotations
 
@@ -13,6 +18,7 @@ RELEASE_HOLD_S = 1.0
 CONTACT_AREA_MM2 = 5.0
 GRASP_HOLD_S = 0.30
 HAND_CLEARANCE_M = 0.060
+POSITION_TOLERANCE_M = LATCH_TOLERANCE + 0.002
 
 
 def verdict(
@@ -20,10 +26,16 @@ def verdict(
     *,
     detent_m: float,
     pads: tuple[str, ...],
-    position_tolerance_m: float = LATCH_TOLERANCE + 0.002,
+    position_tolerance_m: float = POSITION_TOLERANCE_M,
     release_hold_s: float = RELEASE_HOLD_S,
     contact_area_mm2: float = CONTACT_AREA_MM2,
+    grasp_hold_s: float = GRASP_HOLD_S,
+    hand_clearance_m: float = HAND_CLEARANCE_M,
 ) -> Verdict:
+    """Require a grasp and a final interval of unsupported opening.
+
+    Precedence: GRASP_FAILURE, UNFINISHED.
+    """
     t = np.asarray(trace.t, dtype=float)
     x = np.asarray(trace.extra["extension_m"], dtype=float)
     if len(t) < 2:
@@ -40,19 +52,24 @@ def verdict(
         raise ValueError("Pad areas must be finite and share the trace clock")
     touching = np.any(area > contact_area_mm2, axis=0)
     positioned = np.abs(x - detent_m) <= position_tolerance_m
-    clear = clearance >= HAND_CLEARANCE_M
+    clear = clearance >= hand_clearance_m
     grasp_run = release_run = longest_grasp = longest_release = 0.0
     success_time = None
     for i in range(1, len(t)):
         dt = float(t[i] - t[i - 1])
         grasp_run = grasp_run + dt if touching[i] and touching[i - 1] else 0.0
         longest_grasp = max(longest_grasp, grasp_run)
-        released = (positioned[i] and positioned[i - 1]
-                    and clear[i] and clear[i - 1]
-                    and not touching[i] and not touching[i - 1])
+        released = (
+            positioned[i]
+            and positioned[i - 1]
+            and clear[i]
+            and clear[i - 1]
+            and not touching[i]
+            and not touching[i - 1]
+        )
         release_run = release_run + dt if released else 0.0
         longest_release = max(longest_release, release_run)
-        if success_time is None and longest_grasp >= GRASP_HOLD_S and release_run >= release_hold_s:
+        if success_time is None and longest_grasp >= grasp_hold_s and release_run >= release_hold_s:
             success_time = float(t[i])
     metrics = {
         "final_extension_m": float(x[-1]),
@@ -67,5 +84,5 @@ def verdict(
     if success_time is not None and release_run >= release_hold_s:
         metrics["success_time_s"] = success_time
         return Verdict(True, metrics=metrics)
-    mode = FailureMode.GRASP_FAILURE if longest_grasp < GRASP_HOLD_S else FailureMode.UNFINISHED
+    mode = FailureMode.GRASP_FAILURE if longest_grasp < grasp_hold_s else FailureMode.UNFINISHED
     return Verdict(False, mode, metrics)
