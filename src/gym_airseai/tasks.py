@@ -19,9 +19,10 @@ except ImportError:  # installed without the simulation
     TASK_IDS = (
         "blind_peg_insertion",
         "cap_unscrew",
+        "drawer_latch",
+        "glassware_tray_transfer",
         "handover",
         "mug_on_hook",
-        "sleeve_on_shaft",
         "stack_cube",
         "texture_sort",
     )

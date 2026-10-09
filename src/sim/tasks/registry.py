@@ -56,12 +56,6 @@ TASKS: dict[str, TaskEntry] = {
         assets="benchmark/run/make_texture_sort_assets.py",
         manager_cfg="sim.manager_based.texture_sort.env_cfg",
     ),
-    "sleeve_on_shaft": TaskEntry(
-        module="sim.tasks.sleeve_on_shaft",
-        scene="sim.envs.sleeve_on_shaft",
-        assets="benchmark/run/make_sleeve_on_shaft_assets.py",
-        manager_cfg="sim.manager_based.sleeve_on_shaft.env_cfg",
-    ),
     "handover": TaskEntry(
         module="sim.tasks.handover",
         scene="sim.envs.handover",
