@@ -19,6 +19,8 @@ benchmark exists.
 | `stack_cube` — stack one cube on another                                 | `blind_peg_insertion` — insert a peg into a hole that is not where the robot is told  | `sleeve_on_shaft` — slide a squeezable sleeve onto a shaft                    |
 | <img src="docs/media/texture_sort.webp" width="250" alt="texture_sort">  | <img src="docs/media/handover.webp" width="250" alt="handover">                       | <img src="docs/media/cap_unscrew.webp" width="250" alt="cap_unscrew">         |
 | `texture_sort` — sort two balls that differ only in surface, in the dark | `handover` — hand a spring-loaded sleeve between the arms, from one cup to the other  | `cap_unscrew` — hold a bottle, unscrew its cap and place it in a tray         |
+| <img src="docs/media/mug_on_hook.webp" width="250" alt="mug_on_hook"> | | |
+| `mug_on_hook` — carry a mug by its body and hang its handle on a peg using tactile feedback | | |
 
 ---
 
@@ -57,7 +59,7 @@ show demonstrations of the task scenes:
 | `sleeve_on_shaft`     | slide a split sleeve onto a shaft, gripping hard enough to carry it but not so hard its bore closes                                                                                |
 | `texture_sort`        | tell two similar-looking balls apart by surface and sort them, in light too dim to see the texture                                                                                 |
 | `handover`            | pinch a spring-loaded split sleeve out of the orange cup with the left arm, hand it to the right arm, and seat it over the key in the teal cup, holding it open just enough to fit |
-| `mug_on_hook`         | carry a mug by its body and hang its handle on a peg                                                                                                                               |
+| `mug_on_hook`         | carry a mug by its body and hang its handle on a peg using tactile feedback                                                                                                             |
 | `cap_unscrew`         | hold a bottle, unscrew its cap with the other hand, and place it in a tray                                                                                                         |
 
 ## 4. The pipeline
