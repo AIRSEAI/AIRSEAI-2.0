@@ -15,7 +15,6 @@ from isaaclab.assets import AssetBaseCfg, RigidObjectCfg
 from isaaclab.utils import configclass
 
 from sim.assets.provision import task_asset_dir
-from sim.dims.mug_on_hook import HANDLE_SECTION, STOP_BALL_R, peg_span
 from sim.envs.bimanual_tactile import (
     REAL_HOME_JOINT_POS,
     TABLE_TOP_Z,
@@ -28,7 +27,6 @@ from sim.envs.preview import PreviewSpec
 __all__ = [
     "ASSETS_DIR",
     "ASSET_NAMES",
-    "HANG_ALONG",
     "MUG_JITTER",
     "MUG_MASS",
     "MUG_SPAWN_Z",
@@ -37,8 +35,8 @@ __all__ = [
     "PAD_TARGET",
     "PREVIEW",
     "RAIL_JITTER",
-    "RAIL_Z_JITTER",
     "RAIL_XY",
+    "RAIL_Z_JITTER",
     "START_JAW_WIDTH",
     "START_JOINT_POS",
     "MugOnHookSceneCfg",
@@ -49,10 +47,6 @@ __all__ = [
 
 
 # ----- assets ----------------------------------------------------------------
-# Generated USDs for this task. If they are missing, or stale after an edit to
-# `sim.dims.mug_on_hook`, regenerate them with
-#     python benchmark/run/make_mug_on_hook_assets.py
-# (the installer does this for every task).
 ASSETS_DIR = task_asset_dir("mug_on_hook")
 
 ASSET_NAMES = ("mug", "hook")
@@ -74,43 +68,19 @@ def ensure_assets() -> None:
 
 
 # ----- objects ---------------------------------------------------------------
-# The mug's mass, kg. Two flat gels meet a 38 mm cylinder along a line, so the
-# hold is far weaker than the contact area suggests; this is light enough to
-# carry without creeping and heavy enough that its shear, and the moment that
-# shear goes, are well clear of the noise.
-MUG_MASS = 0.045
+MUG_MASS = 0.045  # kg
 
 
 # ----- layout ----------------------------------------------------------------
-# The rail's board face, metres: far enough out on the right arm's side that
-# the hanging point stays inside the arm's reachable y band and the near
-# finger keeps clear of the board.
-RAIL_XY = (0.265, -0.240)
+RAIL_XY = (0.265, -0.240)  # m, rail face in world coordinates
 
-# How far along the peg, from the board's face, the eye is threaded to, metres.
-# The mug does not stay there: the rod falls, so it runs down to the stop ball
-# and comes to rest against it. This is only where the hand lets go of it.
-HANG_ALONG = 0.053
-
-
-def rest_along() -> float:
-    """How far out the mug comes to rest, metres: against the stop ball."""
-    return peg_span() - STOP_BALL_R - HANDLE_SECTION / 2.0
-
-
-# Mug start centre, metres: inside the right arm's top-grasp region.
 MUG_XY = (0.245, -0.090)
 
-# Metres, uniform +/- on x and y, per episode.
-RAIL_JITTER = 0.005
-# The fixture's height is unknown to the scripted controller. Its vertical
-# contact point is found while seating the mug.
-RAIL_Z_JITTER = 0.006
-MUG_JITTER = 0.012
-# The handle's heading varies a little about +x, degrees.
-MUG_YAW_JITTER_DEG = 6.0
+RAIL_JITTER = 0.005  # m, uniform half-width on each horizontal axis
+RAIL_Z_JITTER = 0.006  # m, hidden fixture height variation
+MUG_JITTER = 0.012  # m, uniform half-width on each horizontal axis
+MUG_YAW_JITTER_DEG = 6.0  # deg, uniform half-width about +x
 
-# The mug's base at spawn: standing on the table.
 MUG_SPAWN_Z = TABLE_TOP_Z
 
 
@@ -133,13 +103,8 @@ def sample_layout(
 
 
 # ----- start state -----------------------------------------------------------
-# Jaw opening at the start of every episode, metres per jaw: shut, as the
-# robot's HOME leaves them.
 START_JAW_WIDTH = {"right": 0.0, "left": 0.0}
-# Arm pose at the start of every episode: the robot's own HOME.
 START_JOINT_POS = REAL_HOME_JOINT_POS
-# The prim every tactile pad senses. One arm does this task; all four pads
-# watch the mug, so no pad switches target mid-episode.
 PAD_TARGET = "{ENV_REGEX_NS}/mug"
 
 
@@ -151,17 +116,12 @@ def _spawn_mug(prim: str) -> RigidObjectCfg:
         spawn=sim_utils.UsdFileCfg(
             usd_path=str(_usd("mug")),
             rigid_props=sim_utils.RigidBodyPropertiesCfg(
-                # Depenetration well under the default metre per second: a
-                # body this light leaves a deep contact at that speed.
                 disable_gravity=False,
                 max_depenetration_velocity=0.2,
                 solver_position_iteration_count=16,
                 solver_velocity_iteration_count=1,
             ),
             mass_props=sim_utils.MassPropertiesCfg(mass=MUG_MASS),
-            # Contact generated a millimetre and a half out, so the solver
-            # answers the gels, the table and the peg before any is deep in;
-            # well under the stop ball's 2.5 mm sideways clearance.
             collision_props=sim_utils.CollisionPropertiesCfg(contact_offset=0.0015, rest_offset=0.0),
         ),
         init_state=RigidObjectCfg.InitialStateCfg(pos=(*MUG_XY, MUG_SPAWN_Z)),

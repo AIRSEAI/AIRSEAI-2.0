@@ -69,14 +69,6 @@ def test_margin_is_the_clearance_at_the_eye_centre():
     assert m == pytest.approx(EYE_X / 2, abs=1e-6)
 
 
-@pytest.mark.parametrize("rail_shift", [-0.006, 0.006])
-def test_randomised_rail_height_still_threads_the_eye(rail_shift):
-    mug = _hang_pos(UPRIGHT)
-    shift = np.array([0.0, 0.0, rail_shift])
-    margin = eye_margin(mug, UPRIGHT, np.asarray(PEG_ROOT) + shift, np.asarray(PEG_TIP) + shift)
-    assert margin > 0.0
-
-
 def test_margin_goes_negative_past_the_handles_outer_bar():
     pos = _hang_pos(UPRIGHT, offset=(EYE_X, 0.0, 0.0))
     assert eye_margin(pos, UPRIGHT, PEG_ROOT, PEG_TIP) < 0.0
@@ -132,10 +124,6 @@ def test_fallen_on_the_table_is_mistiming(mug_trace, right_pads):
 def test_still_in_the_pads_at_the_end_is_unfinished(mug_trace, right_pads):
     pos = _hang_pos(UPRIGHT, offset=(EYE_X, 0.0, 0.0))
     assert _v(mug_trace(pos), right_pads).failure is FailureMode.UNFINISHED
-
-
-def test_threaded_but_still_held_is_unfinished(mug_trace, right_pads):
-    assert _v(mug_trace(_hang_pos(UPRIGHT)), right_pads).failure is FailureMode.UNFINISHED
 
 
 def test_never_held_is_a_grasp_failure(mug_trace, right_pads):

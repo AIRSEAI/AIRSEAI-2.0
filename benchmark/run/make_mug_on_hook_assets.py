@@ -57,23 +57,15 @@ AppLauncher.add_app_launcher_args(parser)
 args_cli = parser.parse_args()
 args_cli.headless = True
 
-# Kit must be running before `write_usd_parts` can import `pxr`.
 app_launcher = AppLauncher(args_cli)
 simulation_app = app_launcher.app
 
-# Friction authored into the mug: it is the only part a gel touches, and the
-# only one whose grip has to hold against its own weight. High, because flat
-# gels hold a cylinder along a line and creep at the usual figure.
+# Static and dynamic friction coefficients.
 MUG_FRICTION = (1.5, 1.3)
-# The rail's: a polished rod, low enough that a hung mug runs down the fall
-# towards the stop ball rather than sticking where it was put. Combined by
-# `min`, because the mug is deliberately grippy for the gels and PhysX would
-# otherwise average the two and give the rod most of the mug's friction.
 RAIL_FRICTION = (0.32, 0.30)
+# Keep the rail slippery despite the mug's high gripping friction.
 RAIL_FRICTION_COMBINE = "min"
-# Segments per quarter turn of the handle's rounded corners.
 CORNER_STEPS = 6
-# Facets around the handle's round section, and steps over the stop ball.
 SECTION_SIDES = 12
 BALL_STEPS = 7
 
@@ -183,7 +175,6 @@ def sweep(path, diameter: float, sides: int = SECTION_SIDES):
         bx, bz = path[min(i + 1, n - 1)]
         tx, tz = bx - ax, bz - az
         norm = math.hypot(tx, tz) or 1.0
-        # In-plane normal: the tangent turned a quarter turn.
         nx, nz = -tz / norm, tx / norm
         for cn, cy in ring:
             pts.append((px + r * cn * nx, r * cy, pz + r * cn * nz))
@@ -278,7 +269,6 @@ def main() -> int:
     eye_x = args_cli.eye_x
     rc = 0
 
-    # --- the mug: body and handle, one rigid body ---------------------------
     prof = mug_body_profile()
     body, vol = _finish("body", *revolve(prof, args_cli.sections), MUG_COLOR, None)
     want = revolved_volume(prof)
@@ -290,7 +280,6 @@ def main() -> int:
     handle, _ = _finish("handle", *sweep(path, HANDLE_SECTION), MUG_COLOR, None)
     write_usd_parts(out / "mug.usd", [body, handle], rigid=True, root_name="mug", friction=MUG_FRICTION)
 
-    # --- the rail: board, capping strip, peg --------------------------------
     board, _ = _finish(
         "board",
         *box((-RAIL_WIDTH / 2, -RAIL_THICKNESS, 0.0), (RAIL_WIDTH / 2, 0.0, RAIL_HEIGHT)),
@@ -307,7 +296,6 @@ def main() -> int:
         "none",
     )
     peg_pts, peg_tris = revolve(peg_profile(), args_cli.sections // 2)
-    # The peg's own axis leaves the board along +y, falling by PEG_FALL_DEG.
     peg_pts = transform(peg_pts, -(90.0 + PEG_FALL_DEG), (0.0, 0.0, PEG_ROOT_Z))
     peg, _ = _finish("peg", peg_pts, peg_tris, PEG_COLOR, "none")
     write_usd_parts(
