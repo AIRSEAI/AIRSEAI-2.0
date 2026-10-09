@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate a rounded wooden breakfast tray with cutout handles.
+"""Generate a wooden tray with cutout handles and transparent glass cups.
 
 python benchmark/run/make_glassware_tray_transfer_assets.py --headless
 """

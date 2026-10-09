@@ -1,18 +1,20 @@
-"""Dual-arm expert for carrying a breakfast tray with three glass cups."""
+"""Dual-arm expert for carrying a tray with three glass cups."""
 
 from __future__ import annotations
 
 import copy
 
 import numpy as np
+import torch
 from scipy.optimize import lsq_linear
 from scipy.spatial.transform import Rotation
 
-from sim.criteria.glassware_tray_transfer import CUP_NAMES, cup_standing_on_tray
+from sim.criteria.glassware_tray_transfer import cup_standing_on_tray
 from sim.criteria.glassware_tray_transfer import verdict as _verdict
 from sim.criteria.probes import tilt_deg
 from sim.criteria.trace import EpisodeTrace
 from sim.dims.glassware_tray_transfer import (
+    CUP_NAMES,
     CUP_OFFSETS,
     HANDLE_HEIGHT,
     HANDLE_HOLE_HEIGHT,
@@ -23,23 +25,22 @@ from sim.dims.glassware_tray_transfer import (
 from sim.envs.bimanual_tactile import REAL_HOME_JOINT_POS, TACTILE_SENSORS, gel_gap
 from sim.envs.glassware_tray_transfer import (
     GOAL_XY,
+    SPAWN_CLEARANCE,
     START_XY,
     SUPPORT_SIZE,
+    SUPPORT_TOP_Z,
     SURFACE_Z,
     GlasswareTrayTransferSceneCfg,
 )
 from sim.tactile import apply_sdf_collision
-from sim.tactile.load import contact_load, contact_plane
+from sim.tactile.quantities import quat_apply
 from sim.tasks.scene_utils import top_down_grasp_quat
 from sim.tasks.spec import Knob, Task
 
 __all__ = ["TASK", "GlasswareTrayTransferTask"]
 
-DT = 1 / 60
-SETTLE_STEPS = 30
 SIDE_PADS = {"right": TACTILE_SENSORS[:2], "left": TACTILE_SENSORS[2:]}
 GRASP_Y = {"right": -(TRAY_WIDTH / 2 - 0.0045), "left": TRAY_WIDTH / 2 - 0.0045}
-GRASP_X = {"right": 0.0, "left": 0.0}
 GRASP_Z = SURFACE_Z + (HANDLE_HEIGHT + HANDLE_HOLE_Z + HANDLE_HOLE_HEIGHT / 2) / 2
 OPEN_WIDTH = 0.026
 MIN_GRIP = 0.0065
@@ -54,13 +55,11 @@ CARRY_RATE = 0.025
 LIFT_RATE = 0.018
 LOWER_RATE = 0.018
 RELEASE_RATE = 0.035
-GOAL_TABLE_Z = SURFACE_Z + SUPPORT_SIZE[2]
 CARRY_XY = (GOAL_XY[0] + 0.010, GOAL_XY[1])
-# Arm pose from 21 s of the outward-grasp trial, with the wrists moved 1 degree
-# inside their limits. Both arms travel here from the shared Home pose.
-OUTWARD_READY_ARM_DEG = {
-    "right": (-33.29, 13.97, -7.60, 75.95, 89.84, 44.00, -11.94),
-    "left": (33.56, -14.28, 6.85, 76.19, -89.83, -44.00, 12.02),
+# Wrist joint targets for the outward approach from Home.
+OUTWARD_WRIST_DEG = {
+    "right": (89.84, 44.00, -11.94),
+    "left": (-89.83, -44.00, 12.02),
 }
 OUTSIDE_HANDLE_GAP = 0.045
 OUTSIDE_HOVER_HEIGHT = 0.060
@@ -78,9 +77,48 @@ def _tcp(h, side):
     return h.robot.data.body_state_w[0, h.ee_body(side), :3].detach().cpu().numpy().copy()
 
 
-def _wrist_error(h, target):
-    d = abs(float(np.dot(h.tcp_quat(), target)))
+def _quat_error_deg(current, target):
+    d = abs(float(np.dot(current, target)))
     return float(np.degrees(2 * np.arccos(min(1.0, d))))
+
+
+def _contact_load(points, quaternions, normal_force, shear_force, inward_normal):
+    """Return the object's contact load and its horizontal first moment."""
+    local = torch.cat([shear_force, normal_force.unsqueeze(-1)], dim=-1)
+    force = -quat_apply(quaternions, local).nan_to_num(nan=0.0, posinf=0.0, neginf=0.0)
+    inward = torch.as_tensor(inward_normal, dtype=force.dtype, device=force.device)
+    vertical = force[..., 2]
+    return {
+        "force": force.sum(dim=0),
+        "torque": torch.cross(points, force, dim=-1).sum(dim=0),
+        "normal": (force * inward).sum(),
+        "vertical": vertical.sum(),
+        "moment_xy": (points[..., :2] * vertical.unsqueeze(-1)).sum(dim=0),
+    }
+
+
+def _contact_plane(points, depth, inward_normal, shape):
+    """Estimate a flat grasp surface from the interior of a tactile depth patch."""
+    mask = (depth.reshape(shape) > 2e-5).to(depth.dtype)[None, None]
+    interior = -torch.nn.functional.max_pool2d(-mask, 15, stride=1, padding=7)
+    selected = interior.reshape(-1) > 0.5
+    count = int(selected.sum())
+    if count < 64:
+        return None
+    inward = torch.as_tensor(inward_normal, dtype=points.dtype, device=points.device)
+    surface = points[selected] - depth[selected, None] * inward
+    surface = surface[:: max(1, len(surface) // 2048)]
+    for _ in range(2):
+        centered = surface - surface.mean(dim=0)
+        values, vectors = torch.linalg.eigh(centered.T @ centered / len(surface))
+        normal = vectors[:, 0]
+        residual = (centered @ normal).abs()
+        surface = surface[residual <= torch.quantile(residual, 0.85) + 1e-8]
+    if normal[2] < 0:
+        normal = -normal
+    if float(normal[2]) < 0.8 or float(values[1]) < 1e-7:
+        return None
+    return normal, float(torch.sqrt((residual * residual).mean())), count
 
 
 class GlasswareTrayTransferTask(Task):
@@ -116,7 +154,7 @@ class GlasswareTrayTransferTask(Task):
     transport_phases = ("lift", "carry", "lower", "rest", "release", "retreat", "clear", "settle")
     joint_phases = tuple(name for name, _ in phases)
     completion_on_success = True
-    settle_seconds = SETTLE_STEPS * DT
+    settle_seconds = 0.5
 
     def make_scene_cfg(self, knobs):
         return GlasswareTrayTransferSceneCfg(num_envs=1, env_spacing=3.0)
@@ -130,7 +168,7 @@ class GlasswareTrayTransferTask(Task):
             for value in np.asarray(START_XY) + rng.uniform(-knobs["start_jitter"], knobs["start_jitter"], 2)
         )
         objects = {
-            "tray": [x, y, SURFACE_Z + 0.001, 1.0, 0.0, 0.0, 0.0],
+            "tray": [x, y, SURFACE_Z + SPAWN_CLEARANCE, 1.0, 0.0, 0.0, 0.0],
             "goal_support": [*GOAL_XY, SURFACE_Z + SUPPORT_SIZE[2] / 2, 1.0, 0.0, 0.0, 0.0],
         }
         for name, offset in zip(CUP_NAMES, CUP_OFFSETS, strict=True):
@@ -138,7 +176,7 @@ class GlasswareTrayTransferTask(Task):
             objects[name] = [
                 x + float(cx),
                 y + float(cy),
-                SURFACE_Z + TRAY_THICKNESS + 0.002,
+                SURFACE_Z + TRAY_THICKNESS + 2 * SPAWN_CLEARANCE,
                 1.0,
                 0.0,
                 0.0,
@@ -174,7 +212,6 @@ class GlasswareTrayTransferTask(Task):
             "start": p.copy(),
             "grip": {"right": 0.0, "left": 0.0},
             "quat": {"right": None, "left": None},
-            "ready_start": False,
             "touch": {"right": None, "left": None},
             "squeeze_start": {"right": None, "left": None},
             "grasp_offset": {"right": None, "left": None},
@@ -187,8 +224,6 @@ class GlasswareTrayTransferTask(Task):
             "outward_grasp": bool(knobs["outward_grasp"]),
             "balance_angles": np.zeros(2),
             "balance_updates": 0,
-            "load_wrench_filtered": np.zeros(6),
-            "load_tare": None,
             "pressure_tilt_filtered": np.zeros(2),
             "balance_integral": np.zeros(2),
             "contact_deflection": np.zeros(2),
@@ -210,33 +245,14 @@ class GlasswareTrayTransferTask(Task):
             "balance_angles": ctx["balance_angles"].copy(),
             "contact_deflection": ctx["contact_deflection"].copy(),
             "balance_target_tilt": ctx["balance_target_tilt"].copy(),
-            "load_wrench_filtered": ctx["load_wrench_filtered"].copy(),
             "tcp_right": _tcp(h, "right"),
             "tcp_left": _tcp(h, "left"),
             "gel_right": h.gel_centres("right"),
             "gel_left": h.gel_centres("left"),
             "wrist_error_deg": {
-                side: float(
-                    np.degrees(
-                        2
-                        * np.arccos(
-                            np.clip(
-                                abs(
-                                    float(
-                                        np.dot(
-                                            h.robot.data.body_state_w[0, h.ee_body(side), 3:7]
-                                            .detach()
-                                            .cpu()
-                                            .numpy(),
-                                            ctx["quat"][side],
-                                        )
-                                    )
-                                ),
-                                0.0,
-                                1.0,
-                            )
-                        )
-                    )
+                side: _quat_error_deg(
+                    h.robot.data.body_state_w[0, h.ee_body(side), 3:7].detach().cpu().numpy(),
+                    ctx["quat"][side],
                 )
                 if ctx["quat"][side] is not None
                 else 0.0
@@ -255,7 +271,7 @@ class GlasswareTrayTransferTask(Task):
 
     @staticmethod
     def _grasp_point(ctx, side):
-        return np.array([ctx["start"][0] + GRASP_X[side], ctx["start"][1] + GRASP_Y[side], GRASP_Z])
+        return np.array([ctx["start"][0], ctx["start"][1] + GRASP_Y[side], GRASP_Z])
 
     @staticmethod
     def _approach_direction(side):
@@ -298,14 +314,14 @@ class GlasswareTrayTransferTask(Task):
             forces[pad] = torques[pad] = [0.0, 0.0, 0.0]
             if any(value is None for value in (nf, shear, points, quats)):
                 continue
-            load = contact_load(points[0], quats[0], nf[0], shear[0], normals[pad])
+            load = _contact_load(points[0], quats[0], nf[0], shear[0], normals[pad])
             normal[pad] = float(load["normal"])
             vertical[pad] = float(load["vertical"])
             moments[pad] = load["moment_xy"].detach().cpu().tolist()
             forces[pad] = load["force"].detach().cpu().tolist()
             torques[pad] = load["torque"].detach().cpu().tolist()
             alignment[pad] = float(normals[pad][2])
-            plane = contact_plane(points[0], data.penetration_depth[0], normals[pad], (h.rows, h.cols))
+            plane = _contact_plane(points[0], data.penetration_depth[0], normals[pad], (h.rows, h.cols))
             if plane is not None and plane[1] < 0.0002:
                 n = plane[0].detach().cpu().numpy()
                 fitted_angles.append([np.arctan2(-n[1], n[2]), np.arctan2(n[0], np.hypot(n[1], n[2]))])
@@ -324,14 +340,6 @@ class GlasswareTrayTransferTask(Task):
         }
 
     def _balance(self, h, ctx, sig, enabled, integral_gain, phase):
-        force = np.sum(list(sig["pad_force_world"].values()), axis=0)
-        reference = np.mean([*sig["gel_right"], *sig["gel_left"]], axis=0)
-        torque = np.sum(list(sig["pad_torque_world"].values()), axis=0) - np.cross(reference, force)
-        wrench = np.r_[force, torque]
-        if ctx["load_tare"] is None:
-            ctx["load_tare"] = wrench.copy()
-        alpha = h.control_dt / (0.20 + h.control_dt)
-        ctx["load_wrench_filtered"] += alpha * (wrench - ctx["load_tare"] - ctx["load_wrench_filtered"])
         if not enabled or not sig["pressure_tilt_valid"]:
             desired = np.zeros(2)
             ctx["balance_integral"] *= 0.95
@@ -372,7 +380,7 @@ class GlasswareTrayTransferTask(Task):
         roll, pitch = ctx["balance_angles"]
         return Rotation.from_euler("xy", [roll, pitch])
 
-    def _grip_command(self, h, ctx, sig, side, knobs):
+    def _grip_command(self, h, ctx, sig, side):
         current = ctx["grip"][side]
         if not ctx["use_tactile"]:
             return max(MIN_GRIP, current - GRIP_RATE * h.control_dt)
@@ -442,7 +450,7 @@ class GlasswareTrayTransferTask(Task):
                 goal = np.array([*CARRY_XY, SURFACE_Z + PICK_HEIGHT])
                 rate = CARRY_RATE
             else:
-                goal = np.array([*CARRY_XY, GOAL_TABLE_Z])
+                goal = np.array([*CARRY_XY, SUPPORT_TOP_Z])
                 rate = LOWER_RATE
             if name in ("release", "retreat", "clear", "settle"):
                 center = ctx["command_center"] if ctx["command_center"] is not None else goal
@@ -490,23 +498,20 @@ class GlasswareTrayTransferTask(Task):
 
         joints = {}
         for side in SIDE_PADS:
-            joints.update(self._grasp_target(h, ctx, name, sig, knobs, side))
+            joints.update(self._grasp_target(h, ctx, name, sig, side))
             for finger in (1, 2):
                 joints[f"openarm_{side}_finger_joint{finger}"] = ctx["grip"][side]
         h.select_arm("right")
         return joints, ctx["grip"]["right"], None
 
-    def _grasp_target(self, h, ctx, name, sig, knobs, side):
+    def _grasp_target(self, h, ctx, name, sig, side):
         h.select_arm(side)
         if ctx["outward_grasp"] and name == "home":
             ctx["grip"][side] = OPEN_WIDTH
             return {
-                f"openarm_{side}_joint{i}": float(np.deg2rad(OUTWARD_READY_ARM_DEG[side][i - 1]))
+                f"openarm_{side}_joint{i}": float(np.deg2rad(OUTWARD_WRIST_DEG[side][i - 5]))
                 for i in range(5, 8)
             }
-        if ctx["ready_start"] and name in ("home", "above", "orient", "entry", "approach"):
-            ctx["grip"][side] = OPEN_WIDTH
-            return {}
         grasp = self._grasp_point(ctx, side)
         if ctx["outward_grasp"] and name in ("above", "orient", "entry", "approach"):
             ctx["grip"][side] = OPEN_WIDTH
@@ -527,20 +532,20 @@ class GlasswareTrayTransferTask(Task):
             return self._solve_pose(h, side, target, ctx["quat"][side])
         entry = grasp - APPROACH_BACKOFF * self._approach_direction(side)
         pre = entry + np.array([0.0, 0.0, 0.080])
-        if name.startswith("home"):
+        if name == "home":
             ctx["grip"][side] = OPEN_WIDTH if ctx["outward_grasp"] else 0.0
             target = pre + np.array([0.0, 0.0, PREP_RISE])
-        elif name.startswith("above"):
+        elif name == "above":
             ctx["grip"][side] = OPEN_WIDTH
             target = pre
-        elif name.startswith("orient"):
+        elif name == "orient":
             ctx["grip"][side] = OPEN_WIDTH
             target = pre
             self._orient(h, ctx, side)
-        elif name.startswith("entry"):
+        elif name == "entry":
             ctx["grip"][side] = OPEN_WIDTH
             target = entry
-        elif name.startswith("approach"):
+        elif name == "approach":
             ctx["grip"][side] = OPEN_WIDTH
             if ctx["approach_target"][side] is None:
                 ctx["approach_target"][side] = h.tcp_pos().copy()
@@ -550,11 +555,10 @@ class GlasswareTrayTransferTask(Task):
             ctx["approach_target"][side] += delta * min(1.0, step / length) if length > 0 else 0.0
             target = ctx["approach_target"][side].copy()
         else:
-            ctx["grip"][side] = self._grip_command(h, ctx, sig, side, knobs)
+            ctx["grip"][side] = self._grip_command(h, ctx, sig, side)
             target = grasp.copy()
             if name == "grasp" and ctx["outward_grasp"]:
-                # Closing a finger can shift the light tray by a few mm.
-                # Keep both fingertips aligned with the measured handle pose.
+                # Follow small tray shifts while the fingers close.
                 target[:2] += np.clip(sig["tray_pos"][:2] - ctx["start"][:2], -0.008, 0.008)
         if ctx["outward_grasp"] and name in ("home", "above"):
             self._orient(h, ctx, side)
@@ -576,8 +580,8 @@ class GlasswareTrayTransferTask(Task):
                 )
             if name == "lower":
                 return (
-                    ctx["command_center"][2] <= GOAL_TABLE_Z + 0.005
-                    and sig["tray_pos"][2] <= GOAL_TABLE_Z + 0.005
+                    ctx["command_center"][2] <= SUPPORT_TOP_Z + 0.005
+                    and sig["tray_pos"][2] <= SUPPORT_TOP_Z + 0.005
                 )
             if name == "rest":
                 return t_phase > 0.6
@@ -609,25 +613,23 @@ class GlasswareTrayTransferTask(Task):
                     ]
                 )
             )
-            target_angles = np.array([OUTWARD_READY_ARM_DEG[side][i - 1] for i in indices])
+            target_angles = np.array([OUTWARD_WRIST_DEG[side][i - 5] for i in indices])
             return t_phase >= 0.5 and np.max(np.abs(measured - target_angles)) < 3.0
-        if ctx["ready_start"] and name in ("home", "above", "orient", "entry", "approach"):
-            return True
-        if name.startswith(("home", "above")):
+        if name in ("home", "above"):
             return h.tcp_err(ctx["pose_target"][side]) < 0.015
-        if name.startswith("orient"):
+        if name == "orient":
             tolerance_deg = 13.0 if ctx["outward_grasp"] else ORIENT_TOL_DEG
             return (
                 ctx["quat"][side] is not None
                 and t_phase > 0.25
-                and _wrist_error(h, ctx["quat"][side]) < tolerance_deg
+                and _quat_error_deg(h.tcp_quat(), ctx["quat"][side]) < tolerance_deg
                 and h.tcp_err(ctx["pose_target"][side]) < 0.015
             )
-        if name.startswith("entry"):
+        if name == "entry":
             return h.tcp_err(ctx["pose_target"][side]) < 0.008
-        if name.startswith("approach"):
+        if name == "approach":
             return h.tcp_err(self._grasp_point(ctx, side)) < (0.006 if ctx["outward_grasp"] else 0.009)
-        if name.startswith("grasp"):
+        if name == "grasp":
             if not ctx["use_tactile"]:
                 if t_phase >= 2.0:
                     ctx["grasp_offset"][side] = h.tcp_pos() - sig["tray_pos"]
@@ -637,7 +639,7 @@ class GlasswareTrayTransferTask(Task):
             if contact and t_phase > 0.25:
                 if ctx["squeeze_start"][side] is None:
                     ctx["squeeze_start"][side] = t_phase
-                if ctx["use_tactile"] and ctx["touch"][side] is None:
+                if ctx["touch"][side] is None:
                     ctx["touch"][side] = h.grip_measured()
                     ctx["grip"][side] = max(MIN_GRIP, ctx["touch"][side] - EXTRA_SQUEEZE)
                 if t_phase - ctx["squeeze_start"][side] >= 0.4:
@@ -669,7 +671,7 @@ class GlasswareTrayTransferTask(Task):
         return _verdict(
             trace,
             goal_xy=GOAL_XY,
-            goal_z=GOAL_TABLE_Z,
+            goal_z=SUPPORT_TOP_Z,
             support_size=SUPPORT_SIZE[:2],
             right_pads=SIDE_PADS["right"],
             left_pads=SIDE_PADS["left"],

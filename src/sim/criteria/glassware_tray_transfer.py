@@ -7,6 +7,7 @@ import numpy as np
 from sim.criteria.probes import tilt_deg
 from sim.criteria.trace import EpisodeTrace, FailureMode, Verdict
 from sim.dims.glassware_tray_transfer import (
+    CUP_NAMES,
     CUP_RADIUS,
     RIM_THICKNESS,
     TRAY_LENGTH,
@@ -23,7 +24,6 @@ MAX_CUP_TILT_DEG = 15.0
 CUP_Z_TOL = 0.010
 HOLD_S = 1.0
 CONTACT_AREA_MM2 = 5.0
-CUP_NAMES = ("cup_1", "cup_2", "cup_3")
 
 
 def cup_standing_on_tray(cup_pos, cup_quat, tray_pos, tray_quat):
@@ -96,7 +96,7 @@ def verdict(
         for name in CUP_NAMES
     }
     all_standing = np.logical_and.reduce(list(cups.values()))
-    released = np.array([not any(areas[p][i] > CONTACT_AREA_MM2 for p in areas) for i in range(len(t))])
+    released = ~np.any(np.stack(list(areas.values())) > CONTACT_AREA_MM2, axis=0)
     positioned = (
         (xy <= goal_xy_tol)
         & (dz <= goal_z_tol)
