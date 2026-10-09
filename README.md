@@ -13,18 +13,59 @@ benchmark exists.
 
 ## The tasks
 
-|                                                                          |                                                                                       |                                                                               |
-| :---:                                                                    | :---:                                                                                 | :---:                                                                         |
-| <img src="docs/media/stack_cube.webp" width="250" alt="stack_cube">      | <img src="docs/media/blind_peg_insertion.webp" width="250" alt="blind_peg_insertion"> | <img src="docs/media/sleeve_on_shaft.webp" width="250" alt="sleeve_on_shaft"> |
-| `stack_cube` — stack one cube on another                                 | `blind_peg_insertion` — insert a peg into a hole that is not where the robot is told  | `sleeve_on_shaft` — slide a squeezable sleeve onto a shaft                    |
-| <img src="docs/media/texture_sort.webp" width="250" alt="texture_sort">  | <img src="docs/media/handover.webp" width="250" alt="handover">                       | <img src="docs/media/cap_unscrew.webp" width="250" alt="cap_unscrew">         |
-| `texture_sort` — sort two balls that differ only in surface, in the dark | `handover` — hand a spring-loaded sleeve between the arms, from one cup to the other  | `cap_unscrew` — hold a bottle, unscrew its cap and place it in a tray         |
-| <img src="docs/media/glassware_tray_transfer.webp" width="250" alt="glassware_tray_transfer"> | | |
-| `glassware_tray_transfer` — carry three glass cups on a wooden tray to a placemat without tipping them | | |
-| <img src="docs/media/drawer_latch.webp" width="250" alt="drawer_latch"> | | |
-| `drawer_latch` — pull the tool drawer to its latch point, release the handle, and leave it open | | |
-| <img src="docs/media/mug_on_hook.webp" width="250" alt="mug_on_hook"> | | |
-| `mug_on_hook` — carry a mug by its body and hang its handle on a peg using tactile feedback | | |
+<table width="100%">
+  <tr>
+    <td width="33%" align="center" valign="top">
+      <img src="docs/media/stack_cube.webp" width="250" height="188" alt="stack_cube"><br>
+      <code>stack_<wbr>cube</code><br>
+      Stack one cube on another.
+    </td>
+    <td width="33%" align="center" valign="top">
+      <img src="docs/media/blind_peg_insertion.webp" width="250" height="188" alt="blind_peg_insertion"><br>
+      <code>blind_<wbr>peg_<wbr>insertion</code><br>
+      Find a close-fitting hole by touch and insert a peg.
+    </td>
+    <td width="33%" align="center" valign="top">
+      <img src="docs/media/texture_sort.webp" width="250" height="188" alt="texture_sort"><br>
+      <code>texture_<wbr>sort</code><br>
+      Sort two balls by surface texture in the dark.
+    </td>
+  </tr>
+  <tr>
+    <td width="33%" align="center" valign="top">
+      <img src="docs/media/cap_unscrew.webp" width="250" height="188" alt="cap_unscrew"><br>
+      <code>cap_<wbr>unscrew</code><br>
+      Hold a bottle, unscrew its cap and place it in a tray.
+    </td>
+    <td width="33%" align="center" valign="top">
+      <img src="docs/media/loose_parts_box_transfer.webp" width="250" height="188" alt="loose_parts_box_transfer"><br>
+      <code>loose_<wbr>parts_<wbr>box_<wbr>transfer</code><br>
+      Move an open box of loose parts without spilling them.
+    </td>
+    <td width="33%" align="center" valign="top">
+      <img src="docs/media/mug_on_hook.webp" width="250" height="188" alt="mug_on_hook"><br>
+      <code>mug_<wbr>on_<wbr>hook</code><br>
+      Carry a mug by its body and hang its handle on a peg.
+    </td>
+  </tr>
+  <tr>
+    <td width="33%" align="center" valign="top">
+      <img src="docs/media/glassware_tray_transfer.webp" width="250" height="188" alt="glassware_tray_transfer"><br>
+      <code>glassware_<wbr>tray_<wbr>transfer</code><br>
+      Carry three glass cups on a tray without tipping them.
+    </td>
+    <td width="33%" align="center" valign="top">
+      <img src="docs/media/drawer_latch.webp" width="250" height="188" alt="drawer_latch"><br>
+      <code>drawer_<wbr>latch</code><br>
+      Pull the drawer to its latch point, release it and leave it open.
+    </td>
+    <td width="33%" align="center" valign="top">
+      <img src="docs/media/handover.webp" width="250" height="188" alt="handover"><br>
+      <code>handover</code><br>
+      Hand a spring-loaded sleeve between the arms and seat it in a cup.
+    </td>
+  </tr>
+</table>
 
 ---
 
@@ -52,21 +93,20 @@ bimanual robot with four GelSight fingers and wrist/head cameras at
 
 ## 3. The environments
 
-The registered scenes include the task environments and `minimal`. The clips at the top of this file
-show demonstrations of the task scenes:
+The registered scenes include the task environments and `minimal`. The clips at the top of this file show demonstrations of the task scenes:
 
-| `--env`               | what it is                                                                                                                                                                         |
-| ---                   | ---                                                                                                                                                                                |
-| `minimal`             | the robot and its four tactile fingers, no furniture. The reference scene for anything that looks like a sensing bug                                                               |
-| `stack_cube`          | pick up a cube and stack it on a second one. The template every task layer copies                                                                                                  |
-| `blind_peg_insertion` | pick up a peg, find a close-fitting hole by touch under an injected pose error, insert it                                                                                          |
-| `sleeve_on_shaft`     | slide a split sleeve onto a shaft, gripping hard enough to carry it but not so hard its bore closes                                                                                |
-| `texture_sort`        | tell two similar-looking balls apart by surface and sort them, in light too dim to see the texture                                                                                 |
-| `handover`            | pinch a spring-loaded split sleeve out of the orange cup with the left arm, hand it to the right arm, and seat it over the key in the teal cup, holding it open just enough to fit |
-| `mug_on_hook`         | carry a mug by its body and hang its handle on a peg using tactile feedback                                                                                                             |
-| `cap_unscrew`         | hold a bottle, unscrew its cap with the other hand, and place it in a tray                                                                                                         |
-| `glassware_tray_transfer` | carry three glass cups on a wooden tray to a placemat without tipping them                                                                                                   |
-| `drawer_latch`        | pull the tool drawer to its latch point, release the handle, and leave it open                                                                                                  |
+| Task | `--env` | What it is |
+| --- | --- | --- |
+| `minimal` | `minimal` | The robot and its four tactile fingers, no furniture. The reference scene for anything that looks like a sensing bug. |
+| `stack_cube` | `stack_cube` | Stack one cube on another. |
+| `blind_peg_insertion` | `blind_peg_insertion` | Find a close-fitting hole by touch and insert a peg. |
+| `texture_sort` | `texture_sort` | Sort two balls by surface texture in the dark. |
+| `cap_unscrew` | `cap_unscrew` | Hold a bottle, unscrew its cap and place it in a tray. |
+| `loose_parts_box_transfer` | `loose_parts_box_transfer` | Move an open box of loose parts without spilling them. |
+| `mug_on_hook` | `mug_on_hook` | Carry a mug by its body and hang its handle on a peg. |
+| `glassware_tray_transfer` | `glassware_tray_transfer` | Carry three glass cups on a tray without tipping them. |
+| `drawer_latch` | `drawer_latch` | Pull the drawer to its latch point, release it and leave it open. |
+| `handover` | `handover` | Hand a spring-loaded sleeve between the arms and seat it in a cup. |
 
 ## 4. The pipeline
 
@@ -408,35 +448,4 @@ for the other.
 `PREVIEWS=1` (stage 2) adds `observation.images.{depth,ff_shear}_{sensor}` renders beside the raw
 streams on sim data, as the real recorder does for its own fields.
 
-## 7. Contributing
-
-Every commit must carry a Developer Certificate of Origin (DCO) sign-off, or the pull request's DCO
-check fails. The repo ships a hook that adds it for you. Enable it once per clone:
-
-```bash
-git config core.hooksPath .githooks
-```
-
-From then on every `git commit`, from the terminal or an editor, ends with
-
-```
-Signed-off-by: Your Name <you@example.com>
-```
-
-taken from `user.name` and `user.email`. That email must match the one on your GitHub account.
-
-Check it works:
-
-```bash
-git commit --allow-empty -m "test sign-off"
-git log -1 --format=%B        # the last line is Signed-off-by
-git reset --soft HEAD~1       # drop the test commit, keep your changes
-```
-
-The hook does not run on rebase or cherry-pick. To sign commits that are already on your branch,
-rewrite them and force-push:
-
-```bash
-git rebase --signoff main
-git push --force-with-lease
-```
+See [Contributing](CONTRIBUTING.md) for contribution and commit sign-off instructions.
