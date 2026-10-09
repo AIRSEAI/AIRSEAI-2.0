@@ -33,6 +33,12 @@ class TaskEntry:
 
 
 TASKS: dict[str, TaskEntry] = {
+    "glassware_tray_transfer": TaskEntry(
+        module="sim.tasks.glassware_tray_transfer",
+        scene="sim.envs.glassware_tray_transfer",
+        assets="benchmark/run/make_glassware_tray_transfer_assets.py",
+        manager_cfg="sim.manager_based.glassware_tray_transfer.env_cfg",
+    ),
     "stack_cube": TaskEntry(
         module="sim.tasks.stack_cube",
         scene="sim.envs.stack_cube",
