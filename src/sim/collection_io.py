@@ -28,8 +28,14 @@ def add_write_arguments(parser):
     parser.add_argument(
         "--write_queue_size",
         type=int,
-        default=2,
+        default=4,
         help="Maximum outstanding episode saves, including the running save",
+    )
+    parser.add_argument(
+        "--episode_write_workers",
+        type=int,
+        default=2,
+        help="Concurrent background episode saves; ignored in sync mode",
     )
 
 
@@ -96,13 +102,13 @@ class EpisodeWrite:
 class EpisodeWriteQueue:
     """Own submitted episodes until their results are consumed by the caller."""
 
-    def __init__(self, mode="background", capacity=2):
-        if mode not in ("sync", "background") or capacity < 1:
-            raise ValueError("Invalid episode writing mode or capacity")
+    def __init__(self, mode="background", capacity=4, workers=2):
+        if mode not in ("sync", "background") or capacity < 1 or workers < 1:
+            raise ValueError("Invalid episode writing mode, capacity, or worker count")
         self.capacity = capacity
         self.pending = deque()
         self.executor = (
-            ThreadPoolExecutor(max_workers=1, thread_name_prefix="episode-writer")
+            ThreadPoolExecutor(max_workers=workers, thread_name_prefix="episode-writer")
             if mode == "background"
             else None
         )

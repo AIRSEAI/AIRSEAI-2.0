@@ -21,6 +21,10 @@ benchmark exists.
 | `texture_sort` — sort two balls that differ only in surface, in the dark | `handover` — hand a spring-loaded sleeve between the arms, from one cup to the other  | `cap_unscrew` — hold a bottle, unscrew its cap and place it in a tray         |
 | <img src="docs/media/glassware_tray_transfer.webp" width="250" alt="glassware_tray_transfer"> | | |
 | `glassware_tray_transfer` — carry three glass cups on a wooden tray to a placemat without tipping them | | |
+| <img src="docs/media/drawer_latch.webp" width="250" alt="drawer_latch"> | | |
+| `drawer_latch` — pull the tool drawer to its latch point, release the handle, and leave it open | | |
+| <img src="docs/media/mug_on_hook.webp" width="250" alt="mug_on_hook"> | | |
+| `mug_on_hook` — carry a mug by its body and hang its handle on a peg using tactile feedback | | |
 
 ---
 
@@ -59,9 +63,10 @@ show demonstrations of the task scenes:
 | `sleeve_on_shaft`     | slide a split sleeve onto a shaft, gripping hard enough to carry it but not so hard its bore closes                                                                                |
 | `texture_sort`        | tell two similar-looking balls apart by surface and sort them, in light too dim to see the texture                                                                                 |
 | `handover`            | pinch a spring-loaded split sleeve out of the orange cup with the left arm, hand it to the right arm, and seat it over the key in the teal cup, holding it open just enough to fit |
-| `mug_on_hook`         | carry a mug by its body and hang its handle on a peg                                                                                                                               |
+| `mug_on_hook`         | carry a mug by its body and hang its handle on a peg using tactile feedback                                                                                                             |
 | `cap_unscrew`         | hold a bottle, unscrew its cap with the other hand, and place it in a tray                                                                                                         |
 | `glassware_tray_transfer` | carry three glass cups on a wooden tray to a placemat without tipping them                                                                                                   |
+| `drawer_latch`        | pull the tool drawer to its latch point, release the handle, and leave it open                                                                                                  |
 
 ## 4. The pipeline
 

@@ -134,24 +134,20 @@ def top_down_grasp_quat(
     return _quat_from_mat(B @ A.T)
 
 
-def align_frame_quat(tcp_quat_w, axis_a_w, axis_b_w, target_a, target_b) -> np.ndarray:
+def align_frame_quat(tcp_quat_w, axis_a_w, axis_b_w, target_a, target_b, *, signed_b=False) -> np.ndarray:
     """Wrist orientation carrying two measured world axes onto two targets.
 
-    The construction of `top_down_grasp_quat` with both axes chosen by the
-    caller, e.g. a held object's long axis and the jaw axis. Do not use
-    `gel_midpoint - TCP`: it is zero, since the TCP is the gel midpoint.
-
-    Arguments are world-frame vectors. `axis_a` is matched exactly, `axis_b`
-    only in its component perpendicular to `axis_a`. Both are lines, so each
-    is flipped toward its target first to avoid a needless half turn.
-    Returns (w, x, y, z) for pose IK.
+    Match the first axis and the perpendicular component of the second.
+    Axes are flipped toward their targets unless `signed_b` preserves the
+    second axis's direction. Return (w, x, y, z) for pose IK.
     """
     a = np.asarray(axis_a_w, dtype=float)
     b = np.asarray(axis_b_w, dtype=float)
     ta = np.asarray(target_a, dtype=float)
     tb = np.asarray(target_b, dtype=float)
     a = a * (1.0 if float(a @ ta) >= 0.0 else -1.0)
-    b = b * (1.0 if float(b @ tb) >= 0.0 else -1.0)
+    if not signed_b:
+        b = b * (1.0 if float(b @ tb) >= 0.0 else -1.0)
     R = _mat_from_quat(tcp_quat_w)
     A = _orthonormal_frame(R.T @ a, R.T @ b)
     B = _orthonormal_frame(ta, tb)

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate mug_on_hook USD assets: mug, rail and coaster.
+"""Generate mug_on_hook USD assets: mug and rail.
 
 python benchmark/run/make_mug_on_hook_assets.py --headless
 python benchmark/run/make_mug_on_hook_assets.py --headless --keep_obj
@@ -19,11 +19,6 @@ from isaaclab.app import AppLauncher
 from sim.assets.meshio import orient_outward, write_obj, write_usd_parts
 from sim.assets.provision import task_asset_dir
 from sim.dims.mug_on_hook import (
-    COASTER_COLOR,
-    COASTER_FLOOR,
-    COASTER_HEIGHT,
-    COASTER_INNER_R,
-    COASTER_OUTER_R,
     EYE_FLOOR_Z,
     EYE_HEIGHT,
     EYE_X,
@@ -49,7 +44,7 @@ from sim.dims.mug_on_hook import (
     STOP_BALL_R,
 )
 
-parser = argparse.ArgumentParser(description="Generate mug_on_hook's mug, rail and coaster.")
+parser = argparse.ArgumentParser(description="Generate mug_on_hook's mug and rail.")
 parser.add_argument("--out", default=str(task_asset_dir("mug_on_hook")))
 parser.add_argument("--sections", type=int, default=96, help="mesh segments around each solid of revolution")
 parser.add_argument(
@@ -62,29 +57,15 @@ AppLauncher.add_app_launcher_args(parser)
 args_cli = parser.parse_args()
 args_cli.headless = True
 
-# Kit must be running before `write_usd_parts` can import `pxr`.
 app_launcher = AppLauncher(args_cli)
 simulation_app = app_launcher.app
 
-# Friction authored into the mug: it is the only part a gel touches, and the
-# only one whose grip has to hold against its own weight. High, because flat
-# gels hold a cylinder along a line and creep at the usual figure.
+# Static and dynamic friction coefficients.
 MUG_FRICTION = (1.5, 1.3)
-# The rail's: a polished rod, low enough that a hung mug runs down the fall
-# towards the stop ball rather than sticking where it was put. Combined by
-# `min`, because the mug is deliberately grippy for the gels and PhysX would
-# otherwise average the two and give the rod most of the mug's friction.
 RAIL_FRICTION = (0.32, 0.30)
+# Keep the rail slippery despite the mug's high gripping friction.
 RAIL_FRICTION_COMBINE = "min"
-# The coaster's, so a mug set into it stays put.
-COASTER_FRICTION = (0.7, 0.6)
-# Spacing of the coaster mesh's vertices on the faces the mug stands on,
-# metres: a mesh collider is tested against the mug's SDF at its vertices, so
-# a sparsely sampled floor lets the mug sink into it.
-CONTACT_STEP = 0.0015
-# Segments per quarter turn of the handle's rounded corners.
 CORNER_STEPS = 6
-# Facets around the handle's round section, and steps over the stop ball.
 SECTION_SIDES = 12
 BALL_STEPS = 7
 
@@ -101,12 +82,6 @@ def check_closed(tris) -> None:
     und = Counter(tuple(sorted(e)) for e in directed)
     if any(v != 2 for v in und.values()):
         raise AssertionError("mesh is not closed")
-
-
-def _steps(a: float, b: float, step: float) -> list[float]:
-    """Values from `a` to `b` inclusive, at most `step` apart."""
-    n = max(1, math.ceil(abs(b - a) / step))
-    return [a + (b - a) * k / n for k in range(n + 1)]
 
 
 def revolve(prof, sections: int):
@@ -200,7 +175,6 @@ def sweep(path, diameter: float, sides: int = SECTION_SIDES):
         bx, bz = path[min(i + 1, n - 1)]
         tx, tz = bx - ax, bz - az
         norm = math.hypot(tx, tz) or 1.0
-        # In-plane normal: the tangent turned a quarter turn.
         nx, nz = -tz / norm, tx / norm
         for cn, cy in ring:
             pts.append((px + r * cn * nx, r * cy, pz + r * cn * nz))
@@ -281,15 +255,6 @@ def peg_profile() -> list:
     return prof
 
 
-def coaster_profile() -> list:
-    """Base centre, round the rim, down the inner wall and across the floor,
-    both sampled every CONTACT_STEP, to the floor's centre."""
-    prof = [(0.0, 0.0), (COASTER_OUTER_R, 0.0), (COASTER_OUTER_R, COASTER_HEIGHT)]
-    prof += [(COASTER_INNER_R, z) for z in _steps(COASTER_HEIGHT, COASTER_FLOOR, CONTACT_STEP)]
-    prof += [(r, COASTER_FLOOR) for r in _steps(COASTER_INNER_R, 0.0, CONTACT_STEP)[1:]]
-    return prof
-
-
 def _finish(name, pts, tris, colour, approx):
     """Check the mesh closes, point its normals out, and report its volume."""
     check_closed(tris)
@@ -304,7 +269,6 @@ def main() -> int:
     eye_x = args_cli.eye_x
     rc = 0
 
-    # --- the mug: body and handle, one rigid body ---------------------------
     prof = mug_body_profile()
     body, vol = _finish("body", *revolve(prof, args_cli.sections), MUG_COLOR, None)
     want = revolved_volume(prof)
@@ -316,7 +280,6 @@ def main() -> int:
     handle, _ = _finish("handle", *sweep(path, HANDLE_SECTION), MUG_COLOR, None)
     write_usd_parts(out / "mug.usd", [body, handle], rigid=True, root_name="mug", friction=MUG_FRICTION)
 
-    # --- the rail: board, capping strip, peg --------------------------------
     board, _ = _finish(
         "board",
         *box((-RAIL_WIDTH / 2, -RAIL_THICKNESS, 0.0), (RAIL_WIDTH / 2, 0.0, RAIL_HEIGHT)),
@@ -333,7 +296,6 @@ def main() -> int:
         "none",
     )
     peg_pts, peg_tris = revolve(peg_profile(), args_cli.sections // 2)
-    # The peg's own axis leaves the board along +y, falling by PEG_FALL_DEG.
     peg_pts = transform(peg_pts, -(90.0 + PEG_FALL_DEG), (0.0, 0.0, PEG_ROOT_Z))
     peg, _ = _finish("peg", peg_pts, peg_tris, PEG_COLOR, "none")
     write_usd_parts(
@@ -345,20 +307,8 @@ def main() -> int:
         friction_combine=RAIL_FRICTION_COMBINE,
     )
 
-    # --- the coaster ---------------------------------------------------------
-    prof = coaster_profile()
-    coaster, vol = _finish("coaster", *revolve(prof, 2 * args_cli.sections), COASTER_COLOR, "none")
-    want = revolved_volume(prof)
-    err = abs(vol - want) / want
-    if err >= 0.01:
-        print(f"[coaster] volume {vol * 1e6:.2f} vs {want * 1e6:.2f} cm3 MISMATCH", flush=True)
-        rc |= 1
-    write_usd_parts(
-        out / "coaster.usd", [coaster], rigid=True, root_name="coaster", friction=COASTER_FRICTION
-    )
-
     if args_cli.keep_obj:
-        for name, parts in (("mug", [body, handle]), ("hook", [board, cap, peg]), ("coaster", [coaster])):
+        for name, parts in (("mug", [body, handle]), ("hook", [board, cap, peg])):
             pts: list = []
             tris: list = []
             for _, p, t, _c, _a in parts:

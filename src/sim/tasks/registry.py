@@ -80,6 +80,12 @@ TASKS: dict[str, TaskEntry] = {
         assets="benchmark/run/make_cap_unscrew_assets.py",
         manager_cfg="sim.manager_based.cap_unscrew.env_cfg",
     ),
+    "drawer_latch": TaskEntry(
+        module="sim.tasks.drawer_latch",
+        scene="sim.envs.drawer_latch",
+        assets="benchmark/run/make_drawer_latch_assets.py",
+        manager_cfg="sim.manager_based.drawer_latch.env_cfg",
+    ),
 }
 
 
