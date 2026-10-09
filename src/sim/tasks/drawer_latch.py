@@ -59,6 +59,8 @@ GRASP_LOCAL_X = HANDLE_OFFSET_X + GRASP_TCP_DEPTH_OFFSET
 ARM_PADS = {"right": TACTILE_SENSORS[:2], "left": TACTILE_SENSORS[2:]}
 RETREAT_DISTANCE = 0.100
 RETREAT_SPEED = 0.040
+RETREAT_HEIGHT = 0.060
+RETREAT_CLEARANCE = 0.080
 
 
 class DrawerLatchTask(Task):
@@ -220,6 +222,7 @@ class DrawerLatchTask(Task):
             "seat_extension_m": None,
             "seat_hold_s": 0.0,
             "release_pos": None,
+            "release_quat": None,
             "open_ready": False,
             "grasp_ready": False,
         }
@@ -379,12 +382,15 @@ class DrawerLatchTask(Task):
             return (grip - ctx["pull_cmd_m"] * axis).tolist(), CLOSE_WIDTH, q
         if ctx["release_pos"] is None:
             ctx["release_pos"] = h.tcp_pos().copy()
+            ctx["release_quat"] = h.tcp_quat().copy()
         distance = (
             0.0
             if name == "release"
             else (min(RETREAT_DISTANCE, RETREAT_SPEED * t_phase) if name == "retreat" else RETREAT_DISTANCE)
         )
-        return (ctx["release_pos"] - distance * axis).tolist(), RELEASE_WIDTH, q
+        target = ctx["release_pos"] - distance * axis
+        target[2] += RETREAT_HEIGHT * distance / RETREAT_DISTANCE
+        return target.tolist(), RELEASE_WIDTH, ctx["release_quat"]
 
     def phase_done(self, h, ctx, name, t_phase, sig, target, knobs):
         if name in ("home", "pregrasp"):
@@ -404,7 +410,11 @@ class DrawerLatchTask(Task):
         if name == "release":
             return t_phase > 1.2
         if name == "retreat":
-            return t_phase >= RETREAT_DISTANCE / RETREAT_SPEED and h.tcp_err(target) < 0.012
+            return (
+                t_phase >= RETREAT_DISTANCE / RETREAT_SPEED
+                and sig["hand_clearance_m"] >= RETREAT_CLEARANCE
+                and all(sig["areas"][pad] <= GRASP_CONTACT_MM2 for pad in ctx["pads"])
+            )
         if name == "verify":
             return t_phase >= 1.1
         return False
