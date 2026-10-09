@@ -4,7 +4,7 @@ Phases::
 
     home -> above_mug -> orient -> descend -> close -> lift -> carry
         -> align -> thread -> seat -> settle -> release -> retreat -> park
-    seat                     ends where the load transfers, not at a set depth
+    seat                     ends on a sustained gel shear contact signature
 """
 
 from __future__ import annotations
@@ -12,6 +12,7 @@ from __future__ import annotations
 import copy
 
 import numpy as _np
+import torch as _torch
 
 from sim.criteria.mug_on_hook import eye_margin as _eye_margin
 from sim.criteria.mug_on_hook import verdict as _verdict
@@ -35,6 +36,8 @@ from sim.envs.mug_on_hook import (
     sample_layout,
 )
 from sim.tactile import apply_sdf_collision, apply_triangle_mesh_collision
+from sim.tactile.quantities import quat_apply as _quat_apply
+from sim.tasks.mug_on_hook_feedback import ShearContact
 from sim.tasks.scene_utils import oblique_grasp_quat
 from sim.tasks.spec import Knob, RetryReset, Task
 
@@ -62,12 +65,8 @@ APPROACH_GAP = 0.015
 # contact that stops the mug registers before the arm has pushed through it.
 THREAD_SPEED = 0.035
 SEAT_SPEED = 0.025
-# How far the mug's y must come to the hanging point to count as threaded, m.
+# TCP tolerance at the commanded threading endpoint, m.
 THREAD_TOL = 0.005
-# How much of the hand's descent the mug must fail to follow before the load
-# counts as transferred, m. Small: this ends the descent, and the hand should
-# stop where the weight goes rather than press past it.
-UNLOAD_MIN = 0.002
 # Vertical lift before release, metres; drop_mm adds to this offset.
 SETTLE_LIFT = 0.0
 # Mug tilt at reset above which the draw is thrown away, degrees.
@@ -91,10 +90,12 @@ class MugOnHookTask(Task):
         ),
         "align_err_z_mm": Knob(0.0, "optional extra height error of the aim inside the eye (mm)"),
         "eye_gap_mm": Knob(EYE_X * 1e3, "clear width of the handle's eye (mm); the generated mug must match"),
-        "seat_drop_mm": Knob(26.0, "how far the hand may descend looking for the transfer (mm)"),
-        "drop_mm": Knob(
-            0.0, "let go this far above where the load transferred (mm); 0 lets go against the peg"
-        ),
+        "seat_feedback": Knob("tactile", "seating feedback: tactile or fixed (ablation)", type=str),
+        "seat_shear_ratio": Knob(1.25, "gel shear / free-carry baseline required for seating"),
+        "fixed_seat_mm": Knob(18.0, "fixed descent for the no-feedback ablation (mm)"),
+        "tactile_debug": Knob(0, "include tactile phase samples in the report", type=int),
+        "seat_drop_mm": Knob(26.0, "maximum descent while looking for support contact (mm)"),
+        "drop_mm": Knob(0.0, "lift this far above the detected support-contact pose before release (mm)"),
     }
     phases = [
         ("home", 3.0),
@@ -194,6 +195,8 @@ class MugOnHookTask(Task):
         return self._new_ctx(h, (*layout["rail"], layout["rail_z"]), bias, aim_x, aim_z, knobs)
 
     def _new_ctx(self, h, rail_xyz, bias, aim_x, aim_z, knobs):
+        if knobs["seat_feedback"] not in ("tactile", "fixed"):
+            raise ValueError("seat_feedback must be tactile or fixed")
         mug_pos, _ = self._pose(h, "mug")
         rail = _np.asarray(rail_xyz, dtype=float)
         span = peg_span()
@@ -224,12 +227,14 @@ class MugOnHookTask(Task):
             "seat_tcp": None,
             "unload": 0.0,
             "seat_travel": 0.0,
-            "thread_ref": None,
             "thread_cmd": None,
-            "thread_travel": 0.0,
             "threaded": False,
+            "thread_target_reached": False,
             "seated": False,
             "held_area": [],
+            "tactile_trace": [] if knobs["tactile_debug"] else None,
+            "feedback": ShearContact(ratio=float(knobs["seat_shear_ratio"])),
+            "seat_feedback": knobs["seat_feedback"],
         }
 
     @staticmethod
@@ -237,11 +242,44 @@ class MugOnHookTask(Task):
         d = h.scene[name].data
         return (d.root_pos_w[0].detach().cpu().numpy().copy(), d.root_quat_w[0].detach().cpu().numpy().copy())
 
+    @staticmethod
+    def _tactile_load(h) -> dict:
+        """Active gels' force-field resultants, in relative units x 1000."""
+        axial = shear_z = normal = shear = 0.0
+        valid = True
+        for pad in _GRASP_PADS:
+            data = h.sensors[pad].data
+            nf = getattr(data, "tactile_normal_force", None)
+            sh = getattr(data, "tactile_shear_force", None)
+            qw = getattr(data, "tactile_points_quat_w", None)
+            if any(v is None for v in (nf, sh, qw)):
+                valid = False
+                continue
+            if not bool(_torch.isfinite(nf).all() & _torch.isfinite(sh).all() & _torch.isfinite(qw).all()):
+                valid = False
+                continue
+            local = _torch.cat([sh, nf.unsqueeze(-1)], dim=-1)
+            world = _quat_apply(qw, local).sum(dim=1)[0]
+            tangential = _torch.cat([sh, _torch.zeros_like(nf).unsqueeze(-1)], dim=-1)
+            world_shear = _quat_apply(qw, tangential).sum(dim=1)[0]
+            axial += float(world[2]) * 1e3
+            shear_z += float(world_shear[2]) * 1e3
+            normal += float(nf[0].sum()) * 1e3
+            shear += float(_torch.linalg.norm(sh[0], dim=-1).sum()) * 1e3
+        return dict(
+            tactile_valid=valid,
+            tactile_axial=axial,
+            tactile_shear_z=shear_z,
+            tactile_normal=normal,
+            tactile_shear=shear,
+        )
+
     def signals(self, h, ctx) -> dict:
         pos, quat = self._pose(h, "mug")
         tcp = h.tcp_pos()
         sig = {
             "areas": h.pad_areas(),
+            **self._tactile_load(h),
             "mug_pos": pos,
             "mug_quat": quat,
             # The grasp frame `detect_slip` measures against: without it the
@@ -252,15 +290,15 @@ class MugOnHookTask(Task):
             "mug_z": float(pos[2]),
             "tilt": _tilt(quat),
         }
-        # How far the hand has gone down without the mug: the expert's stand-in
-        # for the gel losing the mug's weight.
+        # Ground-truth relative motion is retained only for evaluation plots.
+        # The controller uses the gel shear signature, never this diagnostic.
         ref = ctx.get("seat_ref")
         if ref is not None:
             ctx["unload"] = float((ref[0] - tcp[2]) - (ref[1] - pos[2]))
         sig["unload_mm"] = ctx["unload"] * 1e3
-        # Signed distance from the peg's axis to where the eye really is, for
-        # the search direction and for the trace. The controller uses only its
-        # sign, which the gel's shear carries.
+        sig["tactile_seat_ratio"] = ctx["feedback"].ratio
+        # Object poses and eye geometry below are diagnostics only; they do
+        # not drive threading completion or the seating stop.
         ctx["eye_err"] = self._eye_err(ctx, pos, quat)
         sig["eye_err_mm"] = ctx["eye_err"] * 1e3
         # The verdict's own probe, live: positive means the peg is inside the
@@ -370,15 +408,14 @@ class MugOnHookTask(Task):
             eye = self._stage_eye(ctx)
             eye[1] = ctx["hang_y"]
             goal = self._tcp_for_eye(eye)
-            if ctx["thread_ref"] is None:
-                ctx["thread_ref"] = float(sig["mug_y"])
-                ctx["thread_travel"] = abs(ctx["stage_y"] - ctx["hang_y"])
             return self._ramp(h, ctx, "thread_cmd", goal, THREAD_SPEED), cw, q
         if name == "seat":
-            # Walk down until the gels say the weight has gone. `seat_drop_mm`
-            # is how far the hand may look, not how far it goes.
+            # Descend until sustained gel shear confirms contact with support.
+            # The maximum search distance does not determine the release point.
             if ctx["seat_ref"] is None:
                 ctx["seat_ref"] = (float(h.tcp_pos()[2]), float(sig["mug_z"]))
+                if ctx["seat_feedback"] == "tactile":
+                    ctx["feedback"].start()
             eye = self._stage_eye(ctx)
             eye[1] = ctx["hang_y"]
             eye[2] -= float(knobs["seat_drop_mm"]) * 1e-3
@@ -394,15 +431,30 @@ class MugOnHookTask(Task):
             # where the rod is and lets go short of it.
             lift = SETTLE_LIFT + float(knobs["drop_mm"]) * 1e-3
             tcp = ctx["seat_tcp"] + _np.array([0.0, 0.0, lift])
-            return tcp.tolist(), (ow if name == "release" else cw), q
+            return tcp.tolist(), (ow if name == "release" and ctx["seated"] else cw), q
         # retreat and park: back out along the blade, the way the hand came
         # in. Withdrawing along the peg instead runs a finger the length of
         # the rod and takes the hung mug with it.
         base = ctx["seat_tcp"] if ctx["seat_tcp"] is not None else h.tcp_pos().astype(float)
+        if not ctx["seated"]:
+            # A timeout must not drag the mug out of the closed jaws and
+            # accidentally turn an unconfirmed attempt into a hanging success.
+            return base.tolist(), cw, q
         tcp = base + _np.array([0.0, 0.0, SETTLE_LIFT]) - self._blade(knobs) * RETREAT_BACKOFF
         return tcp.tolist(), ow, q
 
     def phase_done(self, h, ctx, name, t_phase, sig, target, knobs) -> bool:
+        if ctx["tactile_trace"] is not None and name in ("align", "thread", "seat", "settle", "release"):
+            ctx["tactile_trace"].append(
+                dict(
+                    phase=name,
+                    t=t_phase,
+                    tcp_z=float(h.tcp_pos()[2]),
+                    mug_z=sig["mug_z"],
+                    unload_mm=sig["unload_mm"],
+                    **{k: v for k, v in sig.items() if k.startswith("tactile_")},
+                )
+            )
         if name in ("lift", "carry"):
             ctx["held_area"].append(sum(sig["areas"].values()))
         if name == "park":
@@ -424,14 +476,28 @@ class MugOnHookTask(Task):
         if name == "close":
             return t_phase > 0.4 and sum(sig["areas"].values()) > 5.0
         if name == "thread":
-            # Done when the rod is through the eye and the mug has come as far
-            # as it was sent. The first is the state that matters; the second
-            # stops the phase ending the moment the rod first enters.
-            ctx["threaded"] = sig["eye_margin_mm"] > 0.0
-            gone = ctx["thread_ref"] - sig["mug_y"]
-            return ctx["threaded"] and gone >= ctx["thread_travel"] - THREAD_TOL
+            ctx["feedback"].observe_free(sig["tactile_shear"], sig["tactile_valid"])
+            # Reach the commanded threading endpoint using proprioception.
+            # True peg/eye intersection is recorded separately for evaluation.
+            eye = self._stage_eye(ctx)
+            eye[1] = ctx["hang_y"]
+            reached = h.tcp_err(self._tcp_for_eye(eye)) < THREAD_TOL
+            ctx["thread_target_reached"] = reached
+            if reached:
+                ctx["threaded"] = sig["eye_margin_mm"] > 0.0  # diagnostic only
+            return reached
         if name == "seat":
-            ctx["seated"] = ctx["unload"] >= UNLOAD_MIN
+            if ctx["seat_feedback"] == "fixed":
+                ctx["seated"] = (
+                    ctx["seat_ref"][0] - float(h.tcp_pos()[2]) >= float(knobs["fixed_seat_mm"]) * 1e-3
+                )
+            else:
+                ctx["seated"] = ctx["feedback"].update(
+                    sig["tactile_shear"],
+                    h.control_dt,
+                    valid=sig["tactile_valid"],
+                    held=sum(sig["areas"][p] for p in _GRASP_PADS) > 5.0,
+                )
             return ctx["seated"]
         if name == "settle":
             return t_phase > 0.5
@@ -472,15 +538,23 @@ class MugOnHookTask(Task):
             "aim_x_mm": round(ctx["aim_x"] * 1e3, 2),
             "aim_z_mm": round(ctx["aim_z"] * 1e3, 2),
             "rail_z_delta_mm": round(ctx["rail_z_delta"] * 1e3, 2),
-            # What the episode is really about: how far the hand came down
-            # before the weight went onto the peg.
+            # Travel when tactile contact was confirmed (or the fixed-depth
+            # ablation stopped). Full weight transfer is not inferred here.
             "seat_travel_mm": round(ctx["seat_travel"] * 1e3, 2),
             "threaded": bool(ctx["threaded"]),
+            "thread_target_reached": bool(ctx["thread_target_reached"]),
             "drop_mm": round(float(ctx["drop"]) * 1e3, 2),
             "seated": bool(ctx["seated"]),
+            "seat_feedback": ctx["seat_feedback"],
+            "seat_shear_baseline": ctx["feedback"].baseline,
+            "seat_shear_ratio": ctx["feedback"].ratio,
+            "seat_shear_on_ratio": ctx["feedback"].threshold,
+            "seat_shear_off_ratio": ctx["feedback"].reset_threshold,
+            "seat_contact_hold_s": ctx["feedback"].elapsed,
             "unload_mm": round(ctx["unload"] * 1e3, 2),
             "eye_margin_mm": round(float(final) * 1e3, 2),
             "held_area_median": float(_np.median(ha)) if ha else 0.0,
+            **({"tactile_trace": ctx["tactile_trace"]} if ctx["tactile_trace"] is not None else {}),
         }
 
 
