@@ -33,6 +33,12 @@ class TaskEntry:
 
 
 TASKS: dict[str, TaskEntry] = {
+    "glassware_tray_transfer": TaskEntry(
+        module="sim.tasks.glassware_tray_transfer",
+        scene="sim.envs.glassware_tray_transfer",
+        assets="benchmark/run/make_glassware_tray_transfer_assets.py",
+        manager_cfg="sim.manager_based.glassware_tray_transfer.env_cfg",
+    ),
     "stack_cube": TaskEntry(
         module="sim.tasks.stack_cube",
         scene="sim.envs.stack_cube",
@@ -49,12 +55,6 @@ TASKS: dict[str, TaskEntry] = {
         scene="sim.envs.texture_sort",
         assets="benchmark/run/make_texture_sort_assets.py",
         manager_cfg="sim.manager_based.texture_sort.env_cfg",
-    ),
-    "sleeve_on_shaft": TaskEntry(
-        module="sim.tasks.sleeve_on_shaft",
-        scene="sim.envs.sleeve_on_shaft",
-        assets="benchmark/run/make_sleeve_on_shaft_assets.py",
-        manager_cfg="sim.manager_based.sleeve_on_shaft.env_cfg",
     ),
     "handover": TaskEntry(
         module="sim.tasks.handover",
@@ -78,6 +78,12 @@ TASKS: dict[str, TaskEntry] = {
         scene="sim.envs.cap_unscrew",
         assets="benchmark/run/make_cap_unscrew_assets.py",
         manager_cfg="sim.manager_based.cap_unscrew.env_cfg",
+    ),
+    "drawer_latch": TaskEntry(
+        module="sim.tasks.drawer_latch",
+        scene="sim.envs.drawer_latch",
+        assets="benchmark/run/make_drawer_latch_assets.py",
+        manager_cfg="sim.manager_based.drawer_latch.env_cfg",
     ),
 }
 
