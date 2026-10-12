@@ -417,7 +417,30 @@ u16 = decode_data_frames(root / "videos" / key / "chunk-000/file-000.mkv",
 depth_mm = dequantize(u16, QuantProfile(**spec["info"]["quant"]))
 ```
 
-## 6. Simulation vs. the real robot (Pending)
+## 6. Real-robot recording
+
+```bash
+conda activate airseai
+pip install -e '.[codec,dataset,sensors,openarms]'
+pip install -e "$DM_TAC_SDK" --no-deps
+```
+
+```bash
+# Leader–follower teleoperation with dataset recording
+python openarms/record/record_openarms.py
+
+# Leader–follower teleoperation without recording
+python openarms/record/record_openarms.py --teleop-only
+```
+
+Type a command in the terminal and press Enter:
+
+1. `r`: Start leader–follower teleoperation; recording mode also collects data.
+2. `s`: End and save the episode; teleop-only mode returns the arms home.
+3. `d`: Discard the episode and return the arms home.
+4. `q`: Exit, discard unsaved data, and disable arm torque.
+
+## Simulation vs. the real robot
 
 The hardware the simulation models:
 
