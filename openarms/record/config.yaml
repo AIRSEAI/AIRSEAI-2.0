@@ -10,6 +10,7 @@ RECORD: true
 USE_TACTILE: true
 USE_DEPTH: false
 FRICTION_SCALE: 1.0
+GRAVITY_SCALE: 0.6
 
 CAN:
   interface: socketcan
