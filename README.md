@@ -4,8 +4,7 @@ An open-source embodied-AI platform: a dual-arm manipulator with vision-based ta
 data pipeline, and two places it runs — sim and the real robot.
 
 **In simulation, this repository.** A bimanual OpenArm with four tactile fingers in Isaac Sim, a
-scripted expert per task, LeRobot v3 datasets carrying the tactile channels, ACT training on them,
-and policy rollout in the same scenes.
+scripted expert per task, LeRobot v3 datasets with tactile channels, training for supported policies from the model zoo, and policy rollouts in the same scenes.
 
 **On the real robot.** The same arms, the same recorded keys, collected by leader-follower
 teleoperation. Sim and real do not line up everywhere, and quantifying where they part is why the
@@ -184,6 +183,7 @@ python benchmark/run/launch_env.py --env stack_cube --num_envs 4 \
 python benchmark/run/launch_env.py --env stack_cube --num_envs 4 \
     --snapshot "$OUTPUT_ROOT/preview/stack_cube.png"
 ```
+![16 texture-sort environments running](docs/media/texture_sort_vector_env.webp)
 
 ### Stage 2 — collect demonstrations
 
