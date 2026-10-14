@@ -62,18 +62,23 @@ SEARCH_SPACING = 0.0015  # m between lattice points
 SEARCH_R_MAX = 0.006  # m, radius of the search disc
 
 # --- press at one waypoint -------------------------------------------------
-# Each press descends from the hop height and ends on felt contact, not on a
-# commanded height. Reaching the floor with nothing felt means the hole.
+# After contact, keep pressing while the tip gains depth, up to the time limit.
 HOP_CLEAR = 0.003  # m the tip clears the board between presses
 SEARCH_LEVEL_TOL = 2.0  # deg of tilt that triggers a re-level during a hop
 PRESS_RATE = 0.020  # m/s descent speed
-PRESS_FLOOR = 0.003  # m below the board top the descent may reach
-PRESS_DWELL = 0.30  # s held after contact before lifting
+PRESS_FLOOR = 0.0045  # m below the board top the descent may reach
+PRESS_DWELL = 0.30  # s minimum after contact
 FOLLOW_MM = 0.002  # m the TCP follows through after contact
 FOLLOW_RATE = 0.008  # m/s of that follow-through
-WP_TIMEOUT = 0.6  # s after the hop; advance regardless
+WP_TIMEOUT = 0.6  # s minimum waypoint timeout after the hop
 UNREACH_WPS = 6  # blocked waypoints in a row before abandoning
 GRASP_CREEP_MAX = 0.012  # m the peg may walk up the gel before abandoning
+
+PRESS_PATIENCE = 0.30  # s of no tip progress that ends a press
+PRESS_PROGRESS_MM = 0.2  # mm of tip travel inside that window that counts as progress
+
+SEAT_TRIGGER_TIP_MM = 0.5  # mm above the board that still counts as being at the mouth
+SEAT_PROGRESS = 0.002  # m
 
 # --- contact detection -----------------------------------------------------
 # Two tactile signatures, either one decides: a shear SPIKE (impact) or an
@@ -93,7 +98,7 @@ LOST_N = 6  # frames the pads must stay empty to call it lost
 LOST_AREA_FRAC = 0.25  # empty: contact area below this fraction of its median
 
 # --- entry and jaws --------------------------------------------------------
-ENTRY_DEPTH = 0.0015  # m below the mouth that counts as entered
+ENTRY_DEPTH = 0.0035  # m; 0.5 mm past the 3 mm lead-in chamfer
 OPEN_WIDTH = 0.016  # m per jaw, approaching
 CLOSE_WIDTH = 0.0030  # m per jaw, gripping the peg
 
@@ -125,10 +130,10 @@ class BlindPegInsertionTask(Task):
     report_name = "blind_peg_insertion_scripted.json"
     knobs = {
         "clearance": Knob(DEFAULT_CLEARANCE, "radial clearance; must be one of the authored boards"),
-        "pose_err": Knob(0.009, "upper bound on the injected visual pose error, metres"),
+        "pose_err": Knob(0.006, "upper bound on the injected visual pose error, metres"),
         "light_scale": Knob(DEFAULT_LIGHT_SCALE, "multiplier on the dome and key lights"),
         "hole_side_offset": Knob(0.06, "hole offset toward the active arm's side, metres; 0 is the midline"),
-        "pose_err_min": Knob(0.006, "lower bound on the injected error's magnitude, metres"),
+        "pose_err_min": Knob(0.002, "lower bound on the injected error's magnitude, metres"),
         "hole_jitter": Knob(HOLE_JITTER, "per-episode board jitter on x and y, metres"),
         "search_spacing": Knob(
             None,
@@ -148,6 +153,21 @@ class BlindPegInsertionTask(Task):
         # on the board before the peg is fully in.
         "grasp_pitch_deg": Knob(30.0, "blade pitch below horizontal at the pick, deg"),
         "grasp_yaw_inward_deg": Knob(30.0, "blade heading at the pick, deg toward the midline"),
+        "press_dwell": Knob(PRESS_DWELL, "minimum seconds to press after contact"),
+        "press_dwell_max": Knob(1.5, "maximum seconds to press after contact"),
+        "seat_trigger_depth": Knob(
+            0.00005, "m; depth above which a failed press counts as wedged in the chamfer"
+        ),
+        "seat_press": Knob(0.0005, "m below the lowest tip height so far the sweep keeps pressing"),
+        "seat_r0": Knob(0.0002, "m; radius the seating sweep starts at"),
+        "seat_r_max": Knob(0.0015, "m; radius the seating sweep grows to"),
+        "seat_turn_s": Knob(1.6, "s per revolution of the seating sweep"),
+        "seat_max_s": Knob(6.0, "s before a seating attempt gives up"),
+        "seat_tilt_max": Knob(5.0, "deg of tilt that aborts a seating attempt"),
+        "seat_tries": Knob(3, "seating attempts allowed per episode", type=int),
+        "insert_hold_max_s": Knob(
+            10.0, "s to keep pressing an uncaptured peg inside the hole before giving up"
+        ),
     }
     phases = [
         # The episode starts at HOME; the first move from there is long.
@@ -163,7 +183,8 @@ class BlindPegInsertionTask(Task):
         # search is long: the lattice grows as the clearance shrinks.
         ("probe", 2.0),
         ("search", 300.0),
-        ("insert", 6.0),
+        ("seat", 10.0),
+        ("insert", 12.0),
         ("release", 0.6),
         ("retreat", 1.5),
     ]
@@ -280,7 +301,22 @@ class BlindPegInsertionTask(Task):
         h.select_arm(side)
         board = h.scene["board"].data.root_pos_w[0].detach().cpu().numpy()
         g = dict(self._geom(knobs), hole=tuple(board[:2]))
-        return self._new_ctx(h, side, _np.asarray(state["task_vars"]["pose_err"]), g, knobs)
+        err = _np.asarray(state["task_vars"]["pose_err"], dtype=float)
+        return self._new_ctx(h, side, err, g, knobs)
+
+    @staticmethod
+    def _check_state_reachable(ctx, knobs):
+        """Reject frozen belief errors outside the configured search disc."""
+        err_mm = float(_np.linalg.norm(ctx["pose_err"])) * 1e3
+        _, r_max = BlindPegInsertionTask._lattice(knobs)
+        disc_mm = r_max * 1e3
+        if err_mm > disc_mm + 1e-6:
+            raise ValueError(
+                f"this state carries a {err_mm:.1f} mm belief error but the search disc is "
+                f"only {disc_mm:.1f} mm, so the expert cannot reach the hole. Regenerate the "
+                "initial states with the current pose_err / pose_err_min, or increase "
+                "the search radius."
+            )
 
     def init_state_objects(self):
         return ("board", "peg")
@@ -378,7 +414,61 @@ class BlindPegInsertionTask(Task):
             "lat_by_phase": {},
             "area_by_phase": {},
             "depth_at_release_mm": 0.0,
+            "wp_tip_hist": [],
+            "wp_tip_best_mm": None,
+            "captured": False,
+            "insert_best_depth": 0.0,
+            "insert_holding": False,
+            "insert_gave_up": False,
+            "insert_s_total": 0.0,
+            "release_reason": None,
+            "state_checked": False,
+            "seat_requested": False,
+            "seat_from": "search",
+            "seat_anchor": None,
+            "seat_tries": 0,
+            "seat_tries_max": int(knobs["seat_tries"]),
+            "seat_result": None,
+            "seat_s": 0.0,
+            "seat_tip_min_mm": None,
         }
+
+    @staticmethod
+    def _next_waypoint(ctx):
+        """Advance the search and reset contact and progress measurements."""
+        ctx["wp_idx"] += 1
+        ctx["t_wp"] = 0.0
+        ctx["wp_contact_t"] = None
+        ctx["wp_contact_z"] = None
+        ctx["wp_shear_hop"] = []
+        ctx["wp_shear_win"] = []
+        ctx["wp_axial_hop"] = []
+        ctx["wp_axial_win"] = []
+        ctx["wp_err_win"] = []
+        ctx["wp_contact_kind"] = None
+        ctx["wp_tip_hist"] = []
+        ctx["wp_tip_best_mm"] = None
+
+    def _phase_cap(self, ctx, seconds, knob_name: str, phase_name: str) -> float:
+        """Limit a configured duration to leave time before the phase timeout."""
+        window = dict(self.phases)[phase_name]
+        cap = max(0.5, window - 1.0)
+        if seconds > cap:
+            if not ctx.get(f"warned_{knob_name}"):
+                ctx[f"warned_{knob_name}"] = True
+                print(
+                    f"STEP {knob_name}={seconds:.1f}s does not fit the {phase_name} phase "
+                    f"window ({window:.1f}s); using {cap:.1f}s",
+                    flush=True,
+                )
+            return cap
+        return seconds
+
+    def _seat_exit(self, ctx, result: str, t_phase: float) -> bool:
+        """Record the seating outcome and elapsed time."""
+        ctx["seat_result"] = result
+        ctx["seat_s"] = round(float(ctx.get("seat_s", 0.0)) + t_phase, 2)
+        return True
 
     # -- probes ---------------------------------------------------------------
     @staticmethod
@@ -572,8 +662,7 @@ class BlindPegInsertionTask(Task):
                 since = ctx["t_wp"] - ctx["wp_contact_t"]
                 follow = min(FOLLOW_MM, since * FOLLOW_RATE)
             else:
-                # Descend at a fixed rate from the hop clearance; the floor is
-                # a safety, not a target -- the press ends on contact.
+                # Descend at a fixed rate, bounded by the commanded depth limit.
                 tip_goal = max(HOP_CLEAR - (ctx["t_wp"] - hop_s) * PRESS_RATE, -PRESS_FLOOR)
             if tip_goal is None:
                 # After contact, steer the TCP over the tip rather than the
@@ -582,10 +671,31 @@ class BlindPegInsertionTask(Task):
                 tgt = [float(tip[0]), float(tip[1]), ctx["wp_contact_z"] - follow]
             else:
                 tgt = [xy[0] + dx + lever[0], xy[1] + dy + lever[1], tcp_z + (tip_goal - tip_above)]
+        elif name == "seat":
+            if int(ctx.get("seat_tries_max", 0)) <= 0:
+                tp = h.tcp_pos()
+                return [tp[0], tp[1], float(tp[2])], grip, quat
+            tip = self._tip(h)
+            tip_above = sig["tip_above_mm"] * 1e-3
+            if ctx.get("seat_anchor") is None:
+                ctx["seat_anchor"] = (float(tip[0]), float(tip[1]))
+                ctx["seat_depth0"] = max(0.0, -sig["tip_above_mm"] * 1e-3)
+                ctx["seat_tip_min_mm"] = round(sig["tip_above_mm"], 3)
+                ctx["upright"] = quat = h.level_wrist(h.scene["peg"])
+            ctx["seat_tip_min_mm"] = min(float(ctx["seat_tip_min_mm"]), round(sig["tip_above_mm"], 3))
+            turns = t_phase / max(float(knobs["seat_turn_s"]), 1e-3)
+            r_max = float(knobs["seat_r_max"])
+            r = min(float(knobs["seat_r0"]) + 0.5 * r_max * turns, r_max)
+            ang = 2.0 * _math.pi * turns
+            tip_goal = ctx["seat_tip_min_mm"] * 1e-3 - float(knobs["seat_press"])
+            tcp = h.tcp_pos()
+            tgt = [
+                ctx["seat_anchor"][0] + r * _math.cos(ang),
+                ctx["seat_anchor"][1] + r * _math.sin(ang),
+                float(tcp[2]) + (tip_goal - tip_above),
+            ]
         elif name in ("insert", "release") and not ctx.get("entered"):
-            # Lattice exhausted, peg still on solid board. Do not insert
-            # (would drive 27 mm into the face) and do not release (would
-            # drop it onto the board). Hold; `retreat` lifts it out.
+            # Without confirmed entry, hold the peg for retreat.
             tp = h.tcp_pos()
             tgt = [tp[0], tp[1], float(tp[2])]
         elif name == "insert":
@@ -603,13 +713,11 @@ class BlindPegInsertionTask(Task):
             tip = self._tip(h)
             tgt = [float(tip[0]), float(tip[1]), max(ctx["insert_goal_z"], float(tp[2]) - 0.010)]
         elif name == "release":
-            grip = OPEN_WIDTH
+            grip = OPEN_WIDTH if ctx.get("captured") else CLOSE_WIDTH
             tp = h.tcp_pos()
             tgt = [tp[0], tp[1], float(tp[2])]
         else:  # retreat
-            # Open only if the peg was placed. A peg that never entered is
-            # still in the jaws; opening at hover would drop it onto the board.
-            grip = OPEN_WIDTH if ctx.get("entered") else CLOSE_WIDTH
+            grip = OPEN_WIDTH if ctx.get("captured") else CLOSE_WIDTH
             tp = h.tcp_pos()
             tgt = [tp[0], tp[1], g["hover_tcp"]]
         return tgt, grip, quat
@@ -639,7 +747,35 @@ class BlindPegInsertionTask(Task):
             return t_phase > 1.1 and sum(areas.values()) > 5.0
         if name == "probe":
             return h.tcp_err(target) < 0.004
+        if name == "seat":
+            if int(ctx.get("seat_tries_max", 0)) <= 0:
+                ctx["seat_result"] = "disabled"
+                ctx["seat_s"] = round(float(ctx.get("seat_s", 0.0)) + t_phase, 2)
+                return True
+            depth0 = float(ctx.get("seat_depth0") or 0.0)
+            past_chamfer = depth > ENTRY_DEPTH and depth >= depth0 + SEAT_PROGRESS
+            if past_chamfer or depth >= TARGET_DEPTH - 0.002:
+                ctx["entered"] = True
+                ctx["entered_with_contact"] = True
+                print(
+                    f"STEP seated at {depth * 1e3:.2f} mm after {t_phase:.2f}s",
+                    flush=True,
+                )
+                return self._seat_exit(ctx, "seated", t_phase)
+            if sig["tilt"] > float(knobs["seat_tilt_max"]):
+                return self._seat_exit(ctx, "tilted", t_phase)
+            hgt_now = float(h.tcp_pos()[2] - self._tip(h)[2])
+            ctx["grasp_creep_mm"] = round((ctx["heights"]["grasp"] - hgt_now) * 1e3, 2)
+            if ctx["heights"]["grasp"] - hgt_now > GRASP_CREEP_MAX:
+                ctx["grasp_crept"] = True
+                return self._seat_exit(ctx, "crept", t_phase)
+            if t_phase >= self._phase_cap(ctx, float(knobs["seat_max_s"]), "seat_max_s", "seat"):
+                return self._seat_exit(ctx, "timeout", t_phase)
+            return False
         if name == "search":
+            if not ctx.get("state_checked"):
+                ctx["state_checked"] = True
+                self._check_state_reachable(ctx, knobs)
             ctx["t_wp"] += h.control_dt
             hop_s = float(knobs["search_hop_s"])
             shear, axial = sig["shear"], sig["axial"]
@@ -710,8 +846,7 @@ class BlindPegInsertionTask(Task):
             lost = ctx["lost_n"] >= LOST_N
             # Entered: the tip is below the hole mouth.
             felt_now = ctx.get("wp_contact_t") is not None
-            # ENTRY_DEPTH is deeper than the tip can sink into the rim, so a
-            # missed contact cannot count as entered.
+            # Entry requires depth past the chamfer, even if contact was not detected.
             if pressing and depth > ENTRY_DEPTH:
                 ctx["entered"] = True
                 ctx["wp_contacts"].append(felt_now)
@@ -730,13 +865,35 @@ class BlindPegInsertionTask(Task):
                 ctx["search_exhausted"] = True
                 return True
             felt = ctx.get("wp_contact_t") is not None
-            dwelt = felt and (ctx["t_wp"] - ctx["wp_contact_t"]) >= PRESS_DWELL
-            timed_out = ctx["t_wp"] >= hop_s + WP_TIMEOUT
+            held = ctx["t_wp"] - ctx["wp_contact_t"] if felt else 0.0
+            tip_hist = ctx["wp_tip_hist"]
+            best_tip = ctx.get("wp_tip_best_mm")
+            ctx["wp_tip_best_mm"] = (
+                sig["tip_above_mm"] if best_tip is None else min(best_tip, sig["tip_above_mm"])
+            )
+            # Only a new lowest tip height counts as progress through the board.
+            tip_hist.append(ctx["wp_tip_best_mm"])
+            del tip_hist[: -max(1, int(round(PRESS_PATIENCE / h.control_dt)))]
+            moving = len(tip_hist) >= 2 and tip_hist[0] - tip_hist[-1] > PRESS_PROGRESS_MM
+            dwell_floor = float(knobs["press_dwell"])
+            dwell_ceil = max(dwell_floor, float(knobs["press_dwell_max"]))
+            dwelt = felt and held >= dwell_floor and (not moving or held >= dwell_ceil)
+            timed_out = ctx["t_wp"] >= hop_s + max(WP_TIMEOUT, dwell_ceil)
+            trigger_depth = float(knobs["seat_trigger_depth"]) * 1e3
+            wedge = bool(
+                felt
+                and trigger_depth < depth * 1e3 < ENTRY_DEPTH * 1e3
+                and sig["tip_above_mm"] <= SEAT_TRIGGER_TIP_MM
+            )
+            can_seat = ctx.get("seat_tries", 0) < ctx.get("seat_tries_max", 0)
             if (dwelt or timed_out) and ctx["wp_idx"] >= len(ctx["offsets"]) - 1:
                 # Lattice exhausted without entering. End now rather than
                 # holding the last press until the phase timeout.
                 ctx["wp_contacts"].append(felt)
                 ctx["search_exhausted"] = True
+                if wedge and can_seat:
+                    ctx["seat_requested"] = True
+                    ctx["seat_from"] = "search"
                 return True
             if (dwelt or timed_out) and ctx["wp_idx"] < len(ctx["offsets"]) - 1:
                 ctx["wp_contacts"].append(felt)
@@ -745,6 +902,10 @@ class BlindPegInsertionTask(Task):
                 ctx["wp_tip_mm"].append(round(sig["tip_above_mm"], 2))
                 if not felt:
                     ctx["wp_no_contact"] += 1
+                if wedge and can_seat:
+                    ctx["seat_requested"] = True
+                    ctx["seat_from"] = "search"
+                    return True
                 # Unreachable: "blocked" with the tip still well above the
                 # board means joint limits, not contact. Several in a row
                 # and the rest of the lattice is out of reach too.
@@ -754,25 +915,18 @@ class BlindPegInsertionTask(Task):
                     ctx["search_unreachable"] = True
                     ctx["search_exhausted"] = True
                     return True
-                ctx["wp_idx"] += 1
-                ctx["t_wp"] = 0.0
-                ctx["wp_contact_t"] = None
-                ctx["wp_contact_z"] = None
-                ctx["wp_shear_hop"] = []
-                ctx["wp_shear_win"] = []
-                ctx["wp_axial_hop"] = []
-                ctx["wp_axial_win"] = []
-                ctx["wp_err_win"] = []
-                ctx["wp_contact_kind"] = None
+                self._next_waypoint(ctx)
             return False
         if name in ("insert", "release") and not ctx.get("entered"):
             return True
         if name == "insert":
+            ctx["insert_s_total"] = float(ctx.get("insert_s_total") or 0.0) + h.control_dt
+            ctx["insert_best_depth"] = max(float(ctx.get("insert_best_depth") or 0.0), depth)
+            ctx["captured"] = bool(ctx["insert_best_depth"] >= INSERT_CAPTURE_DEPTH)
             if depth >= TARGET_DEPTH - 0.002:
+                ctx["captured"] = True
+                ctx["release_reason"] = "target_reached"
                 return True
-            # Stall: no depth progress for INSERT_STALL_S, so release. Past
-            # capture depth the jam is the gripper holding the peg off-axis
-            # and gravity finishes the insertion.
             hist = ctx.setdefault("insert_hist", [])
             hist.append(depth)
             n = int(round(INSERT_STALL_S / h.control_dt))
@@ -781,11 +935,38 @@ class BlindPegInsertionTask(Task):
             best = max(hist[-n:]) if len(hist) > n else depth
             if len(hist) > n and (best - hist[-n - 1]) < INSERT_STALL_PROGRESS:
                 ctx["insert_stalled"] = True
-                ctx["released_early"] = True
+                if ctx["captured"]:
+                    ctx["released_early"] = True
+                    ctx["release_reason"] = "stall_captured"
+                    print(
+                        f"STEP insert stalled at {best * 1e3:.1f} mm (captured); releasing",
+                        flush=True,
+                    )
+                    return True
+                if ctx.get("seat_tries", 0) < ctx.get("seat_tries_max", 0):
+                    ctx["seat_requested"] = True
+                    ctx["seat_from"] = "insert"
+                    print(
+                        f"STEP insert stalled at {best * 1e3:.1f} mm (not captured); seating",
+                        flush=True,
+                    )
+                    return True
+                hold_cap = self._phase_cap(
+                    ctx, float(knobs["insert_hold_max_s"]), "insert_hold_max_s", "insert"
+                )
+                if ctx["insert_s_total"] < hold_cap:
+                    if not ctx.get("insert_holding"):
+                        ctx["insert_holding"] = True
+                        print(
+                            f"STEP insert stalled at {best * 1e3:.1f} mm (not captured); holding",
+                            flush=True,
+                        )
+                    return False
+                ctx["insert_gave_up"] = True
+                ctx["release_reason"] = "gave_up"
                 print(
-                    f"STEP insert stalled at {best * 1e3:.1f} mm "
-                    f"({'captured' if best >= INSERT_CAPTURE_DEPTH else 'not captured'}); "
-                    f"releasing",
+                    f"STEP insert gave up at {best * 1e3:.1f} mm (not captured);"
+                    " retreating with the peg held",
                     flush=True,
                 )
                 return True
@@ -794,6 +975,36 @@ class BlindPegInsertionTask(Task):
             timeout = dict(self.phases)[name]
             return t_phase > timeout * 0.8
         return False
+
+    def next_phase(self, ctx, name):
+        """Route seating attempts between search and insertion."""
+        if name in ("search", "insert") and ctx.get("seat_requested"):
+            ctx["seat_requested"] = False
+            ctx["seat_anchor"] = None
+            ctx["seat_result"] = None
+            ctx["seat_tip_min_mm"] = None
+            return "seat"
+        if name == "search":
+            return "insert"
+        if name == "seat":
+            src = ctx.get("seat_from", "search")
+            ctx["seat_from"] = "search"
+            ctx["seat_tries"] = int(ctx.get("seat_tries", 0)) + 1
+            if ctx.get("seat_result") == "seated":
+                ctx["insert_hist"] = []
+                return "insert"
+            if src == "insert":
+                ctx["insert_hist"] = []
+                return "insert"
+            if ctx.get("seat_result") in ("tilted", "crept"):
+                ctx["search_exhausted"] = True
+                return "insert"
+            if ctx["wp_idx"] < len(ctx["offsets"]) - 1:
+                self._next_waypoint(ctx)
+                return "search"
+            ctx["search_exhausted"] = True
+            return "insert"
+        return None
 
     def handover_ok(self, h, ctx, sig) -> bool:
         # Validate the grasp before the recorded / policy episode starts.
@@ -838,17 +1049,24 @@ class BlindPegInsertionTask(Task):
             "max_depth_mm": round(float(max(hist["depth"])) * 1e3, 2) if hist["depth"] else 0.0,
             "max_tilt_deg": round(float(max(hist["tilt"])), 2) if hist["tilt"] else 0.0,
             "depth_at_release_mm": ctx["depth_at_release_mm"],
-            # A stalled-then-released success is a correct outcome but not a
-            # clean demonstration.
+            # Record stalls even when seating later recovers the insertion.
             "insert_stalled": bool(ctx.get("insert_stalled", False)),
+            "captured": bool(ctx.get("captured", False)),
+            "release_reason": ctx.get("release_reason"),
+            "insert_holding": bool(ctx.get("insert_holding", False)),
+            "insert_gave_up": bool(ctx.get("insert_gave_up", False)),
+            "seat_tries": int(ctx.get("seat_tries", 0)),
+            "seat_result_last": ctx.get("seat_result"),
+            "seat_s": float(ctx.get("seat_s", 0.0)),
+            "seat_tip_min_mm": ctx.get("seat_tip_min_mm"),
             "search_relevels": int(ctx.get("search_relevels", 0)),
             "grasp_crept": bool(ctx.get("grasp_crept", False)),
             "search_unreachable": bool(ctx.get("search_unreachable", False)),
             "grasp_creep_mm": float(ctx.get("grasp_creep_mm", 0.0)),
             "search_contact_kinds": dict(ctx.get("contact_kinds", {})),
             "released_early": bool(ctx.get("released_early", False)),
-            "insert_s": (round(sum(1 for _ in ctx.get("insert_hist", [])) / 60.0, 2)),
-            "waypoints_tried": ctx["wp_idx"] + 1,
+            "insert_s": round(float(ctx.get("insert_s_total", 0.0)), 2),
+            "waypoints_tried": min(ctx["wp_idx"] + 1, len(ctx["offsets"])),
             "lattice_n": len(ctx["offsets"]),
             # Fraction of completed waypoints where the board was felt.
             "search_contact_frac": (
@@ -889,6 +1107,14 @@ class BlindPegInsertionTask(Task):
             "hole_diameter_m": self._hole_d,
             "light_scale": self._light,
             "pose_err_m": float(knobs["pose_err"]),
+            "pose_err_min_m": float(knobs["pose_err_min"]),
+            "press_dwell_s": float(knobs["press_dwell"]),
+            "press_dwell_max_s": float(knobs["press_dwell_max"]),
+            "seat_r_max_m": float(knobs["seat_r_max"]),
+            "seat_trigger_depth_m": float(knobs["seat_trigger_depth"]),
+            "seat_max_s": float(knobs["seat_max_s"]),
+            "seat_tries": int(knobs["seat_tries"]),
+            "insert_hold_max_s": float(knobs["insert_hold_max_s"]),
             "grasp_pitch_deg": float(knobs["grasp_pitch_deg"]),
             "grasp_yaw_inward_deg": float(knobs["grasp_yaw_inward_deg"]),
         }
