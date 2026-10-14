@@ -80,9 +80,17 @@ benchmark exists.
 | PyTorch   | 2.7.0+cu128                                                           |
 | lerobot   | 0.5.1, compatible source installed in `airseai` (dataset format v3.0) |
 
-See the [Isaac Sim 5.1 system
-requirements](https://docs.isaacsim.omniverse.nvidia.com/5.1.0/installation/requirements.html) for
-minimum hardware requirements and supported drivers.
+### Hardware
+
+This repository provides a leader–follower teleoperation example for real OpenArms hardware
+with tactile data recording (see [Real-robot recording](#6-real-robot-recording)).
+
+| Hardware | Quantity | Specification / role |
+| --- | --- | --- |
+| OpenArm follower / leader arms | 4 (2 followers + 2 leaders) | 7 DoF per arm; left and right arm pairs for bimanual leader–follower teleoperation. |
+| Head / base camera | 1 | RealSense D435; configured RGB stream: 640 × 480 at 30 fps. |
+| Wrist cameras | 2 | RealSense D405, one per follower wrist; configured RGB stream: 640 × 480 at 30 fps. Total external cameras: 3. |
+| Vision-based tactile sensors | 4 for the full setup | Daimon DM-Tac, one per follower gripper fingertip (2 per gripper); configured output: 384 × 288, acquisition capped at 35 fps and recording at 20 fps. Provides tactile images, depth, shear, deformation and resultant wrench through the DM-Tac SDK. |
 
 ## 2. Robot asset
 
@@ -442,17 +450,8 @@ Type a command in the terminal and press Enter:
 
 ## Simulation vs. the real robot
 
-The hardware the simulation models:
-
-| subsystem    | what it is                                                                 |
-| ---          | ---                                                                        |
-| arms         | OpenArm dual-arm, 7 DoF each, leader-follower teleoperation for collection |
-| end effector | two-finger electric gripper per arm                                        |
-| cameras      | RealSense D435 at the head, a D405 at each wrist                           |
-| tactile      | vision-based fingertips (Daimon DM-Tac), four of them                      |
-| compute      | Jetson AGX Orin on the robot, RTX workstation for training                 |
-
-It records the same cameras, state and action as the simulation, and these tactile keys per sensor:
+See [Hardware](#hardware) for the physical setup. The real robot records the same camera keys,
+state and action as the simulation, and these tactile keys per sensor:
 
 | key                                        | dtype   | shape     | sim                                                   | real                                    |
 | ---                                        | ---     | ---       | ---                                                   | ---                                     |
