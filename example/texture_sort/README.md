@@ -3,8 +3,7 @@
 This example uses `texture_sort` to show how demonstration diversity and dataset
 composition can affect task success. Varying layouts provides different starting
 conditions; pairing smooth and rough objects within the same layout helps avoid
-associating a placement decision with position alone. The effect should be measured
-on a separate, fixed evaluation set.
+associating a placement decision with position alone.
 
 ## 1. Dataset composition
 
