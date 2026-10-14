@@ -283,7 +283,8 @@ class Harness:
         quat_w=None,
         max_speed: float | None = None,
         max_ang_speed: float | None = None,
-    ) -> None:
+        max_joint_speed_deg_s: float | None = None,
+    ) -> bool | None:
         """One control step of the active arm: position IK (or pose IK when
         `quat_w` is given) toward the world target, gripper at `grip_m`.
 
@@ -296,7 +297,8 @@ class Harness:
         the step on the uncapped error, and the joint motion that serves
         orientation moves the TCP off the position goal.
 
-        Both caps are opt-in and off by default.
+        The optional per-joint target cap also enforces soft position limits.
+        All caps are opt-in and off by default.
         """
         r, ch = self.robot, self.ch
         if max_speed is not None:
@@ -351,10 +353,29 @@ class Harness:
         if bias is not None:
             qdes = qdes + self._null_space_step(jac, r.data.joint_pos[:, jids], *bias)
         target = (self._hold if self._hold is not None else r.data.joint_pos).clone()
+        if max_joint_speed_deg_s is not None:
+            from sim.joint_target_safety import bound_joint_target
+
+            joint_speed = float(max_joint_speed_deg_s)
+            if not math.isfinite(joint_speed) or joint_speed <= 0:
+                raise ValueError("max_joint_speed_deg_s must be finite and positive")
+            soft_limits = getattr(r.data, "soft_joint_pos_limits", None)
+            if soft_limits is None:
+                return False
+            qdes, accepted = bound_joint_target(
+                qdes,
+                target[:, jids],
+                soft_limits[:, jids, :],
+                math.radians(joint_speed) * self.control_dt,
+            )
+            if not accepted:
+                return False
         target[:, jids] = qdes
         target[:, ch["grip_ids"]] = grip_m
         r.set_joint_position_target(target)
         r.write_data_to_sim()
+        if max_joint_speed_deg_s is not None:
+            return True
 
     def set_posture_bias(self, joint_pos: dict | None, gain: float = 0.05) -> None:
         """Pull each arm's IK null space toward a rest posture.

@@ -88,8 +88,13 @@ class SlotHarness(Harness):
         self.sim, self.device = env.sim, env.device
         self.rows, self.cols = grid
         self.scene = SlotScene(env.scene, slot)
-        self.cams = {name: self.scene[f"{name}_camera"] for name in ("base", "left_wrist", "right_wrist")}
-        self.scene_cam = self.scene["review_camera"]
+        scene_keys = set(self.scene.keys())
+        self.cams = {
+            name: self.scene[f"{name}_camera"]
+            for name in ("base", "left_wrist", "right_wrist")
+            if f"{name}_camera" in scene_keys
+        }
+        self.scene_cam = self.scene["review_camera"] if "review_camera" in scene_keys else None
         self._hold, self._joint_idx = None, None
         self._posture, self._chains, self.ch = {}, {}, {}
         self._bind_scene()

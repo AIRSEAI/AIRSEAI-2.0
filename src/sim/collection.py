@@ -6,6 +6,7 @@ import copy
 import hashlib
 import json
 import math
+import os
 import signal
 import subprocess
 import sys
@@ -27,6 +28,7 @@ from sim.manager_based.common.states import prepare_restore, restore_states, sna
 from sim.recording import EpisodeRecorder
 from sim.teleop import make_device
 from sim.video import Mp4Writer, compose_grid_frame
+from sim.xr_idle import render_completed_scene, should_render_completed_scene
 
 CONTROL_DT = 1 / CTRL_FPS
 
@@ -110,6 +112,11 @@ class Collector:
     def __init__(self, args, task, knobs, app, *, teleop=False):
         self.args, self.task, self.knobs, self.app = args, task, knobs, app
         self.teleop = teleop
+        self.xr_state_only = bool(getattr(args, "xr_state_only", False))
+        if self.xr_state_only and (
+            not teleop or args.teleop_device != "vr" or args.dataset or getattr(args, "video", "")
+        ):
+            raise ValueError("XR state-only mode requires VR teleop without dataset or video")
         self.stop_requested = lambda: False
         self.num_envs = args.num_envs
         self.write_mode = getattr(args, "write_mode", None) or "background"
@@ -120,7 +127,9 @@ class Collector:
             or self.write_queue_size < 1
             or self.episode_write_workers < 1
         ):
-            raise ValueError("write_mode must be sync or background; queue size and worker count must be positive")
+            raise ValueError(
+                "write_mode must be sync or background; queue size and worker count must be positive"
+            )
         if self.num_envs < 1 or (teleop and self.num_envs != 1):
             raise ValueError("Teleoperation requires exactly one environment")
         if args.seed < 0 or args.episodes < 1:
@@ -176,10 +185,26 @@ class Collector:
             device=args.device,
             robot_usd=args.robot_usd,
             scene_cfg=cfg,
+            xr_state_only=self.xr_state_only,
             seed=args.seed,
             review_size=getattr(args, "video_size", (960, 720)),
         )
         self.env.reset(seed=args.seed)
+        if self.xr_state_only and os.environ.get("AIRSEAI_XR_DIAG") == "1":
+            import carb
+            from omni.kit.viewport.utility import get_active_viewport
+
+            settings = carb.settings.get_settings()
+            viewport = get_active_viewport()
+            print(
+                "[AIRSEAI_XR_RENDER] "
+                f"mode={self.env.sim.render_mode} "
+                f"xr_enabled={settings.get('/app/xr/enabled')} "
+                f"offscreen={settings.get('/isaaclab/render/offscreen')} "
+                f"active_viewport={settings.get('/isaaclab/render/active_viewport')} "
+                f"viewport_updates={getattr(viewport, 'updates_enabled', None)}",
+                flush=True,
+            )
         default = self.env.scene["robot"].data.default_joint_pos[0].cpu().tolist()
         self.robot_start = dict(joint_pos=default, joint_pos_target=default.copy())
         if self.document:
@@ -204,6 +229,30 @@ class Collector:
             self.out / "configuration.json",
             dict(
                 arguments=vars(args),
+                **(
+                    {
+                        "recording": dict(
+                            mode="xr_state_action_only",
+                            saved=[
+                                "initial_state.json",
+                                "trajectory.json:frames[].state (16D)",
+                                "trajectory.json:frames[].action (16D)",
+                                "trajectory.json:signals",
+                                "trajectory.json:frames[].xr_input",
+                                "terminal_state.json",
+                            ],
+                            omitted=[
+                                "LeRobot dataset",
+                                "RGB camera streams",
+                                "tactile RGB images",
+                                "tactile depth arrays",
+                                "tactile shear arrays",
+                            ],
+                        )
+                    }
+                    if self.xr_state_only
+                    else {}
+                ),
                 versions=versions,
                 python=sys.version,
                 rng="numpy.PCG64",
@@ -281,6 +330,7 @@ class Collector:
         attempt = Attempt(attempt_id, slot, state, folder)
         attempt.report = dict(
             attempt_id=attempt_id,
+            **({"recording_mode": "xr_state_action_only"} if self.xr_state_only else {}),
             episode=attempt_id,
             env_id=slot,
             run_seed=self.args.seed,
@@ -325,6 +375,14 @@ class Collector:
                     pos_speed=self.args.pos_speed,
                     rot_speed=self.args.rot_speed,
                     jaw_speed=self.args.jaw_speed,
+                    **(
+                        {
+                            "vr_joint_speed_deg_s": getattr(self.args, "vr_joint_speed_deg_s", 30.0),
+                            "vr_position_gain": getattr(self.args, "vr_position_gain", 1.0),
+                        }
+                        if self.args.teleop_device == "vr"
+                        else {}
+                    ),
                 )
             attempt.controller = self.controller
             attempt.controller.begin_episode(attempt.ctx)
@@ -373,6 +431,11 @@ class Collector:
                 phase=phase,
                 state=h.to16(h.robot.data.joint_pos[0]),
                 action=h.action16_recorded(),
+                **(
+                    {"xr_input": attempt.controller.diagnostics_snapshot()}
+                    if self.teleop and hasattr(attempt.controller, "diagnostics_snapshot")
+                    else {}
+                ),
             )
         )
         if attempt.recorder:
@@ -600,6 +663,18 @@ class Collector:
                 )
             self.close_recorders()
             self.report(status)
+            if should_render_completed_scene(
+                status=status,
+                teleop=self.teleop,
+                args=self.args,
+            ):
+                render_completed_scene(
+                    self.args.xr_keep_open_s,
+                    render=self.env.sim.render,
+                    is_running=self.app.is_running,
+                    stop_requested=self.stop_requested,
+                    log=lambda message: print(message, flush=True),
+                )
             return 0 if status == "complete" else 130
         except BaseException as error:
             self.collect_writes(drain=True, raise_errors=False)

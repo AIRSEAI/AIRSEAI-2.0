@@ -71,7 +71,7 @@ class TeleopDevice:
     def advance(self, t_ep: float) -> Command:
         raise NotImplementedError
 
-    def apply(self, cmd: Command) -> None:
+    def apply(self, cmd: Command) -> bool | None:
         """Apply a pose delta while holding the idle arm's last command."""
         h = self.h
         if cmd.side != self.side:
@@ -86,7 +86,12 @@ class TeleopDevice:
             self._cmd_quat = np.asarray(h.tcp_quat(), dtype=float).copy()
         self._cmd_pos = self._cmd_pos + cmd.delta_pos
         self._cmd_quat = rotate_quaternion(self._cmd_quat, cmd.delta_rot)
-        h.step_ik_toward(self._cmd_pos.tolist(), cmd.jaw, self._cmd_quat.tolist())
+        return h.step_ik_toward(
+            self._cmd_pos.tolist(), cmd.jaw, self._cmd_quat.tolist(), **self._ik_options()
+        )
+
+    def _ik_options(self) -> dict:
+        return {}
 
     def after_step(self, sig: dict) -> None:
         pass

@@ -64,6 +64,7 @@ def build_cfg(
     scene_cfg=None,
     seed=0,
     review_size=(960, 720),
+    xr_state_only=False,
 ):
     if num_envs < 1:
         raise ValueError("num_envs must be positive")
@@ -78,34 +79,39 @@ def build_cfg(
             name, value = item.split("=")
             scene.robot.init_state.joint_pos[name.strip()] = math.radians(float(value))
     spec = scene_module.PREVIEW
-    scene.review_camera = TiledCameraCfg(
-        prim_path="{ENV_REGEX_NS}/review_camera",
-        width=review_size[0],
-        height=review_size[1],
-        offset=TiledCameraCfg.OffsetCfg(
-            pos=spec.eye, rot=look_at(spec.eye, spec.look_at), convention="opengl"
-        ),
-        data_types=["rgb"],
-        spawn=PinholeCameraCfg(),
-    )
-    for name, link in [
-        ("base", "openarm_body_link/head_camera/camera"),
-        ("left_wrist", "openarm_left_hand/wrist_camera/camera"),
-        ("right_wrist", "openarm_right_hand/wrist_camera/camera"),
-    ]:
-        setattr(
-            scene,
-            f"{name}_camera",
-            TiledCameraCfg(
-                prim_path=f"{{ENV_REGEX_NS}}/Robot/{link}",
-                width=640,
-                height=480,
-                data_types=["rgb"],
-                spawn=None,
+    if not xr_state_only:
+        scene.review_camera = TiledCameraCfg(
+            prim_path="{ENV_REGEX_NS}/review_camera",
+            width=review_size[0],
+            height=review_size[1],
+            offset=TiledCameraCfg.OffsetCfg(
+                pos=spec.eye, rot=look_at(spec.eye, spec.look_at), convention="opengl"
             ),
+            data_types=["rgb"],
+            spawn=PinholeCameraCfg(),
         )
+        for name, link in [
+            ("base", "openarm_body_link/head_camera/camera"),
+            ("left_wrist", "openarm_left_hand/wrist_camera/camera"),
+            ("right_wrist", "openarm_right_hand/wrist_camera/camera"),
+        ]:
+            setattr(
+                scene,
+                f"{name}_camera",
+                TiledCameraCfg(
+                    prim_path=f"{{ENV_REGEX_NS}}/Robot/{link}",
+                    width=640,
+                    height=480,
+                    data_types=["rgb"],
+                    spawn=None,
+                ),
+            )
     for name in TACTILE_SENSORS:
-        getattr(scene, name).class_type = CompatibleTactileSensor
+        sensor = getattr(scene, name)
+        sensor.class_type = CompatibleTactileSensor
+        if xr_state_only:
+            sensor.enable_camera_tactile = False
+            sensor.camera_cfg = None
     events = EventsCfg()
     events.collisions.params = dict(
         sdf_prims=spec.sdf_prims, tri_prims=spec.tri_prims, sdf_resolution=spec.sdf_resolution
