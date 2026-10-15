@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Length-prefixed pickle messages between trusted localhost processes."""
 
 from __future__ import annotations

@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
 """Generate blind_peg_insertion's USDs: one hole board per clearance in the sweep.
 
 Each board is a BOARD_X x BOARD_Y x BOARD_THICKNESS plate with a through hole

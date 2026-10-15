@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Keyboard and scripted controls producing joint-position actions."""
 
 from __future__ import annotations

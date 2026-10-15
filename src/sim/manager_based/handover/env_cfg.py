@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Native batched handover scene and per-environment contacts."""
 
 from sim.envs import handover as scene

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """PhysX GPU buffer sizes for one bimanual robot and a handful of objects."""
 
 from __future__ import annotations

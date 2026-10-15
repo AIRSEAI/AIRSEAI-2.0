@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
 """Evaluate a policy checkpoint on a benchmark task.
 
 The task supplies reset, the scripted prologue, the handover gate and the

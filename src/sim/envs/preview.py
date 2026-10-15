@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Shared overview camera and collision settings for scene previews."""
 
 from __future__ import annotations

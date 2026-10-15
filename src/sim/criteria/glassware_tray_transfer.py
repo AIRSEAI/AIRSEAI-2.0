@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Check final tray placement and the standing state of all three cups."""
 
 from __future__ import annotations

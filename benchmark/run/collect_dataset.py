@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
 """Run a task's expert and record a LeRobot v3 dataset.
 
 Use native vector environments where available and combine accepted attempts.

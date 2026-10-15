@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Native batched drawer_latch scene and sliding joints."""
 
 from sim.envs import drawer_latch as scene

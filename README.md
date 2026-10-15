@@ -1,15 +1,17 @@
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 # AIRSEAI 2.0
 
 An open-source embodied-AI platform: a dual-arm manipulator with vision-based tactile sensors, one
 data pipeline, and two places it runs — sim and the real robot.
 
 **In simulation, this repository.** A bimanual OpenArm with four tactile fingers in Isaac Sim, a
-scripted expert per task, LeRobot v3 datasets carrying the tactile channels, ACT training on them,
-and policy rollout in the same scenes.
+scripted expert per task, LeRobot v3 datasets with tactile channels, training for supported policies from the model zoo, and policy rollouts in the same scenes.
 
 **On the real robot.** The same arms, the same recorded keys, collected by leader-follower
 teleoperation. Sim and real do not line up everywhere, and quantifying where they part is why the
 benchmark exists.
+
+![AIRSEAI 2.0 introduction](docs/media/airseai_2.0_intro.webp)
 
 ## The tasks
 
@@ -80,9 +82,17 @@ benchmark exists.
 | PyTorch   | 2.7.0+cu128                                                           |
 | lerobot   | 0.5.1, compatible source installed in `airseai` (dataset format v3.0) |
 
-See the [Isaac Sim 5.1 system
-requirements](https://docs.isaacsim.omniverse.nvidia.com/5.1.0/installation/requirements.html) for
-minimum hardware requirements and supported drivers.
+### Hardware
+
+This repository provides a leader–follower teleoperation example for real OpenArms hardware
+with tactile data recording (see [Real-robot recording](#6-real-robot-recording)).
+
+| Hardware | Quantity | Specification / role |
+| --- | --- | --- |
+| OpenArm follower / leader arms | 4 (2 followers + 2 leaders) | 7 DoF per arm; left and right arm pairs for bimanual leader–follower teleoperation. |
+| Head / base camera | 1 | RealSense D435; configured RGB stream: 640 × 480 at 30 fps. |
+| Wrist cameras | 2 | RealSense D405, one per follower wrist; configured RGB stream: 640 × 480 at 30 fps. Total external cameras: 3. |
+| Vision-based tactile sensors | 4 for the full setup | Daimon DM-Tac, one per follower gripper fingertip (2 per gripper); configured output: 384 × 288, acquisition capped at 35 fps and recording at 20 fps. Provides tactile images, depth, shear, deformation and resultant wrench through the DM-Tac SDK. |
 
 ## 2. Robot asset
 
@@ -184,6 +194,7 @@ python benchmark/run/launch_env.py --env stack_cube --num_envs 4 \
 python benchmark/run/launch_env.py --env stack_cube --num_envs 4 \
     --snapshot "$OUTPUT_ROOT/preview/stack_cube.png"
 ```
+![16 texture-sort environments running](docs/media/texture_sort_vector_env.webp)
 
 ### Stage 2 — collect demonstrations
 
@@ -417,19 +428,33 @@ u16 = decode_data_frames(root / "videos" / key / "chunk-000/file-000.mkv",
 depth_mm = dequantize(u16, QuantProfile(**spec["info"]["quant"]))
 ```
 
-## 6. Simulation vs. the real robot (Pending)
+## 6. Real-robot recording
 
-The hardware the simulation models:
+```bash
+conda activate airseai
+pip install -e '.[codec,dataset,sensors,openarms]'
+pip install -e "$DM_TAC_SDK" --no-deps
+```
 
-| subsystem    | what it is                                                                 |
-| ---          | ---                                                                        |
-| arms         | OpenArm dual-arm, 7 DoF each, leader-follower teleoperation for collection |
-| end effector | two-finger electric gripper per arm                                        |
-| cameras      | RealSense D435 at the head, a D405 at each wrist                           |
-| tactile      | vision-based fingertips (Daimon DM-Tac), four of them                      |
-| compute      | Jetson AGX Orin on the robot, RTX workstation for training                 |
+```bash
+# Leader–follower teleoperation with dataset recording
+python openarms/record/record_openarms.py
 
-It records the same cameras, state and action as the simulation, and these tactile keys per sensor:
+# Leader–follower teleoperation without recording
+python openarms/record/record_openarms.py --teleop-only
+```
+
+Type a command in the terminal and press Enter:
+
+1. `r`: Start leader–follower teleoperation; recording mode also collects data.
+2. `s`: End and save the episode; teleop-only mode returns the arms home.
+3. `d`: Discard the episode and return the arms home.
+4. `q`: Exit, discard unsaved data, and disable arm torque.
+
+## Simulation vs. the real robot
+
+See [Hardware](#hardware) for the physical setup. The real robot records the same camera keys,
+state and action as the simulation, and these tactile keys per sensor:
 
 | key                                        | dtype   | shape     | sim                                                   | real                                    |
 | ---                                        | ---     | ---       | ---                                                   | ---                                     |

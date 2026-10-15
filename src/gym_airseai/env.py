@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Gym client for an Isaac Sim subprocess using the active Python environment.
 
 Observations contain uint8 camera images and a 16-dimensional robot state.

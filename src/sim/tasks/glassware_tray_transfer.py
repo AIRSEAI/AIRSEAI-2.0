@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Dual-arm expert for carrying a tray with three glass cups."""
 
 from __future__ import annotations

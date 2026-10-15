@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """The task registry: the one place a task is registered.
 
 Read by the expert runner, the evaluator, the dataset collector, the
@@ -66,6 +67,7 @@ TASKS: dict[str, TaskEntry] = {
         module="sim.tasks.loose_parts_box_transfer",
         scene="sim.envs.loose_parts_box_transfer",
         assets="benchmark/run/make_loose_parts_box_transfer_assets.py",
+        manager_cfg="sim.manager_based.loose_parts_box_transfer.env_cfg",
     ),
     "mug_on_hook": TaskEntry(
         module="sim.tasks.mug_on_hook",

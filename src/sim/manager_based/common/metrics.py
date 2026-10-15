@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Sample whole-GPU memory, including RTX allocations outside PyTorch."""
 
 import subprocess

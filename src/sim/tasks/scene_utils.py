@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Helpers shared by the task experts.
 
 Camera and wrist orientation quaternions, tactile pad retargeting, the D6

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Combine compatible raw recordings without re-encoding their media."""
 
 from __future__ import annotations

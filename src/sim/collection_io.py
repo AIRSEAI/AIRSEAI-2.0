@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Save detached episodes with bounded background work."""
 
 from __future__ import annotations

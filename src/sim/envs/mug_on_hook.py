@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """mug_on_hook scene: a mug on the table and a wall rail with one peg.
 
 Layering::

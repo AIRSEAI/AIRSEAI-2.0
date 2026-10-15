@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 [build-system]
 requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
@@ -30,7 +31,16 @@ dataset = [
 ]
 # Real-robot visuotactile sensing via the Daimon DM-Tac SDK.
 sensors = [
-    "opencv-contrib-python>=4.6",
+    "opencv-python-headless==4.11.0.86",
+]
+openarms = [
+    "numpy>=2.0,<2.3",
+    "PyYAML>=6.0,<7",
+    "python-can>=4.6,<5",
+    "pin==3.7.0",
+    "cmeel-urdfdom>=4,<5",
+    "cmeel-tinyxml2>=10,<11",
+    "pyrealsense2>=2.55.1.6486,<2.57.0; sys_platform == 'linux'",
 ]
 # Tests, lint and plotting.
 dev = [
@@ -41,7 +51,7 @@ dev = [
 
 [tool.setuptools.packages.find]
 where = ["src"]
-include = ["sim*", "tactile_codec*", "lerobot_tactile_ext*", "gym_airseai*", "lerobot_airseai*"]
+include = ["sim*", "sensors*", "tactile_codec*", "lerobot_tactile_ext*", "gym_airseai*", "lerobot_airseai*"]
 
 [tool.ruff]
 line-length = 110

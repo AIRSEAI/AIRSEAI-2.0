@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Collect independent episodes on a shared simulation clock."""
 
 from __future__ import annotations

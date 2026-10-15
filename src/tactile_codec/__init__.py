@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Quantisation profiles for tactile fields, shared by sim and real robot.
 
 One table, both directions. `to_dict()` is what goes into the dataset's

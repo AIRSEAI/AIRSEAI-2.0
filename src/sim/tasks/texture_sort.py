@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """texture_sort expert.
 
 Phases::
@@ -515,7 +516,7 @@ class TextureSortTask(Task):
         if name == "open":
             return t_phase > 0.8 * self._timeout("open")
         if name == "retreat":
-            return h.tcp_err(target) < 0.025
+            return t_phase >= 1.1 and h.tcp_err(target) < 0.025
         return False
 
     # ---- scoring -----------------------------------------------------------

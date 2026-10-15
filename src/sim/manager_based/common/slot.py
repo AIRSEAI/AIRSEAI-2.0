@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Per-slot expert views over a shared scene; only the scheduler advances time."""
 
 import torch

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: Apache-2.0
 # Evaluate a checkpoint from frozen starts on the local simulation host.
 set -euo pipefail
 TASK="${1:?usage: run_eval.sh <task> <checkpoint_dir> [episodes] [seed]}"

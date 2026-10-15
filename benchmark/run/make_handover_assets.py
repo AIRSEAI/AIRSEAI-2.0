@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
 """Generate handover USD assets: sleeve half-shells and cups.
 
 python benchmark/run/make_handover_assets.py --headless

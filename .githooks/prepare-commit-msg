@@ -1,4 +1,5 @@
 #!/bin/sh
+# SPDX-License-Identifier: Apache-2.0
 # Add a DCO Signed-off-by trailer for the committer, unless it is already there.
 MSG_FILE="$1"
 IDENT="$(git var GIT_COMMITTER_IDENT | sed 's/>.*/>/')"

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Record demonstrations and review videos with a shared data schema."""
 
 from __future__ import annotations

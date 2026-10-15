@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """texture_sort scene: two pucks that differ only in surface, sorted by touch.
 
 Layering::

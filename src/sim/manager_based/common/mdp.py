@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Named degree/mm actions, observations and per-environment collision setup."""
 
 import math

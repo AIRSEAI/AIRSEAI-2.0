@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Dimensions of the open parts box and its loose contents."""
 
 BOX_LENGTH = 0.30

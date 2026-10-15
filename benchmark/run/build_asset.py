@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
 """(Re)build the simulation robot USD.
 
 Every entry point builds this automatically on first use, so this command is

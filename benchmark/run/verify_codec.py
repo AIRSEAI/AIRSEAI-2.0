@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
 """Check that the tactile codec round-trips data. No Kit, no GPU, no robot.
 
   bit_exact_*            uint16 in == uint16 out, for 1ch, 2ch and 3ch data.

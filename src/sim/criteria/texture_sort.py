@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Sustained puck placement. Reads object_pos target (mesh base position)."""
 
 from __future__ import annotations

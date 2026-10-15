@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """blind_peg_insertion dimensions: the peg, the board, and the clearance sweep.
 
 After editing, regenerate the assets::

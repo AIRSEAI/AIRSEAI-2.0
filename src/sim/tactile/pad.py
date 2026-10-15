@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Geometry of the GelSight R1.5 gel pad in the robot asset.
 
 A pad position that misses the gel produces an identically-zero force field

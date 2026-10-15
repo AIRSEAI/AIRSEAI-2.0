@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Generate base states, collect surface pairs, and publish complete successful pairs."""
 
 import argparse

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Post-spawn collider setup for tactile scenes: SDF, triangle mesh and CCD.
 
 TacSL needs the sensed object to be a mesh whose collision approximation is

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """handover dimensions: the spring-loaded split sleeve and the two cups.
 
 After editing, regenerate the assets::

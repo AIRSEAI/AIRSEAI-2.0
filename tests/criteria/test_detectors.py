@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """The shared failure detectors, exercised without any task criterion."""
 
 from __future__ import annotations
