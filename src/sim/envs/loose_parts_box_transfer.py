@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Open parts box, loose contents and a shelf on the shared tabletop scene."""
 
 from __future__ import annotations

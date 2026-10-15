@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Record source hashes and runtime metadata for reproducible runs."""
 
 import hashlib

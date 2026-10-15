@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Pose geometry the expert runner and the policy evaluator both compute.
 
 Plain numpy in metres and degrees; no torch, no scene handles.

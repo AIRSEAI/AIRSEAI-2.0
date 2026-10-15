@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """handover scene: a spring-loaded split sleeve standing compressed in a cup
 on one side, an empty cup with a key standing in it on the other.
 

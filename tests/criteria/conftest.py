@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Trace builders shared by the criteria tests.
 
 Hand-built traces, no Isaac and no GPU: every criterion is a pure function of

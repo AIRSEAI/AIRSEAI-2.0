@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """handover: the final seat decides; the fall and the gap window name a failure."""
 
 from __future__ import annotations

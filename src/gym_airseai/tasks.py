@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """The task ids this package registers.
 
 Read from the simulation's own registry when it is importable, which is the

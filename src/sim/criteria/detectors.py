@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Failure detectors: shared, task-independent, computed from state.
 
 Each detector answers one question about an episode and returns the evidence

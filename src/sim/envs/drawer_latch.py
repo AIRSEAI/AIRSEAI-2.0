@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """The standard workstation with one spring-return tool drawer."""
 
 from __future__ import annotations

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """blind_peg_insertion criterion: the peg ends in the occluded hole.
 
 Reads::

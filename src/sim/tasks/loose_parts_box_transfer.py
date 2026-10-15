@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Bimanual box transfer with contact-area grip feedback and synchronized transport."""
 
 from __future__ import annotations

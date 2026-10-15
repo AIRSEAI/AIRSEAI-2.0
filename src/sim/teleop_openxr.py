@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Isaac Lab OpenXR hand poses with keyboard recording controls."""
 
 import numpy as np

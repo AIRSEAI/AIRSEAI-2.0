@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """cap_unscrew: reaching the tray decides; the bottle's spin names a failure."""
 
 from __future__ import annotations

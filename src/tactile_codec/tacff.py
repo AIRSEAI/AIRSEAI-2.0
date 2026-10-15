@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """The tacff image: the native force-field channels packed as one RGB frame.
 
 Isaac-free, so dataset conversion and evaluation use the same scales.

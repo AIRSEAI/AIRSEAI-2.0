@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """The recorded quantities a verdict is computed from, and the verdict itself.
 
 `EpisodeTrace` holds privileged simulator state a policy does not observe

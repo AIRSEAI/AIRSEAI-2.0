@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
 """Add the human-viewable preview streams to a recorded dataset, in place.
 
 For each tactile ``data`` stream, writes an ``observation.images.*`` mp4 that

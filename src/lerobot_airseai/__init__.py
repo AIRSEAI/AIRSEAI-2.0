@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Register AIRSEAI environments with LeRobot.
 
     lerobot-eval --env.discover_packages_path=lerobot_airseai \

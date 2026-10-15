@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """The lerobot-facing side of the environment, checked without Isaac.
 
 `gym_airseai` is a client: it starts an Isaac process and talks to it over a

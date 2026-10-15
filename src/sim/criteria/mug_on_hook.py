@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """mug_on_hook criterion: the mug ends hanging on the rail's peg.
 
 Reads::

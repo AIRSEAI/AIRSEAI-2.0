@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """blind_peg_insertion scene: a peg and a board whose hole clearance is a knob.
 
 Layering::

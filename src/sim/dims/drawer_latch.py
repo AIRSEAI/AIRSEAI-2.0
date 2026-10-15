@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Dimensions of the compact tool drawer, in metres."""
 
 __all__ = [

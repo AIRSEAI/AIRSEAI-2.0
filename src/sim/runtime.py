@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Preserve a failing exit status when the simulator installs shutdown hooks."""
 
 import os

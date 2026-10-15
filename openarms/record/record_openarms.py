@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Record OpenArms leader/follower demonstrations with isolated tactile acquisition."""
 
 from __future__ import annotations

@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
 """Read back a recorded LeRobot v3 dataset and say whether it can be trained on.
 
 Checks that every file the manifest promises is on disk, decodes, and holds

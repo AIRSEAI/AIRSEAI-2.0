@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Freeze independent candidate starts and optionally select expert-solvable states."""
 
 from __future__ import annotations

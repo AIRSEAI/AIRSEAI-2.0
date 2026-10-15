@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """The criteria package's layering, checked mechanically.
 
 A task's criterion must be removable as one file: nothing shared may depend on

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Assemble a LeRobot **v3.0** dataset with tactile ``data`` features.
 
 Writes video features to mp4, tactile ``data`` features (float mm, quantised

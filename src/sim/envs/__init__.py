@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Scenes: the robot, and every task's furniture on top of it.
 
 `bimanual_tactile` is the robot plus its tactile pads. Each task module

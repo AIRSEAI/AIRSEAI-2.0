@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Expand texture-sort starts into matching smooth/rough surface variants."""
 
 import argparse

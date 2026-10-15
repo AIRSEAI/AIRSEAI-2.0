@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Acquire coherent DM-Tac samples inside the tactile worker."""
 
 import threading

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Build the glassware_tray_transfer environment."""
 
 from sim.envs import glassware_tray_transfer as scene

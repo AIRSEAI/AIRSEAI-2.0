@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Evaluate frozen starts with independent slots on a shared simulation clock."""
 
 import hashlib

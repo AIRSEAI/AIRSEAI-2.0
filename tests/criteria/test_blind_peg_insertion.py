@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """blind_peg_insertion: the final depth decides; tilt names a lost grasp."""
 
 from __future__ import annotations

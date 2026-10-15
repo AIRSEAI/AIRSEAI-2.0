@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
 """Convert successful raw episodes into vision, tacrgb or tacff LeRobot datasets.
 
 Preserve episode metadata and copy review videos outside policy features.

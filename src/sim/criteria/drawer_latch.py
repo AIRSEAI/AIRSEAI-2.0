@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """drawer_latch criterion: the drawer stays open after release.
 
 Reads::

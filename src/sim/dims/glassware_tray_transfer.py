@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Dimensions and asset colours for glassware_tray_transfer, in metres."""
 
 TRAY_LENGTH = 0.20

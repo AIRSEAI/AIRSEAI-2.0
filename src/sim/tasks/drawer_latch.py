@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Pull the tool drawer until its hidden detent holds it open."""
 
 from __future__ import annotations
