@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """texture_sort dimensions: the two puck classes, their surface relief, and the cup.
 
 After editing, regenerate the assets::

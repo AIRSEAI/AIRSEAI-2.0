@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Native batched blind_peg_insertion scene and per-environment contacts."""
 
 from sim.envs import blind_peg_insertion as scene

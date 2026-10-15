@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """mug_on_hook: whether the peg threads the handle's eye decides, at any lean."""
 
 from __future__ import annotations

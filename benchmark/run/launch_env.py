@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
 """Launch a tactile environment: interactive viewer, or an offscreen video.
 
 Preview a task or the minimal scene using a shared camera at 20 Hz.

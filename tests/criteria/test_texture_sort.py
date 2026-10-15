@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Cup placement uses the original XY radius with sustained completion."""
 
 import numpy as np

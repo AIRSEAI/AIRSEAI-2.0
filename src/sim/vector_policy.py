@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Share ACT weights while keeping an independent action queue per environment."""
 
 from collections import deque

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """loose_parts_box_transfer criterion: final shelf height without spilled parts.
 
 Reads::

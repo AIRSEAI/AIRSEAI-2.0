@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Locate or build the tactile robot USD after Isaac Sim has started.
 
 Vendor geometry is downloaded from openarm_isaac_lab and is not redistributed.

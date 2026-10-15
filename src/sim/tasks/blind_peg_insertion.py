@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """blind_peg_insertion expert.
 
 Phases::

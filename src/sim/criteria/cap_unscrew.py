@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """cap_unscrew criterion: the cap reaches the tray.
 
 Reads::

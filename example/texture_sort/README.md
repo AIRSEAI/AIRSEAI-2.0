@@ -1,3 +1,4 @@
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 # Texture sort: demonstration data design
 
 This example uses `texture_sort` to show how demonstration diversity and dataset

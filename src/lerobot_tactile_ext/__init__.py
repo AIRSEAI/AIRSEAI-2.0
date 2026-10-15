@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Tactile ``data`` dtype for LeRobot.
 
 ``data`` features are lossless 16-bit tactile fields stored as ffv1/mkv.

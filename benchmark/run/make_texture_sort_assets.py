@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
 """Generate texture_sort's USDs: the two pucks and the sorting cup.
 
 Each puck is a flat-capped cylinder whose side radius is

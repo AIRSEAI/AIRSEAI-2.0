@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Author a triangle mesh as a USD, with its winding checked first.
 
 `pxr` is imported inside `write_usd`, so this module imports without Kit;

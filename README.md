@@ -1,3 +1,4 @@
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 # AIRSEAI 2.0
 
 An open-source embodied-AI platform: a dual-arm manipulator with vision-based tactile sensors, one

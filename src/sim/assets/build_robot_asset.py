@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
 """Build the simulation robot USD: tactile fingers, wrist and head cameras.
 
 The stock finger geometry of the OpenArm USD is deactivated and a complete

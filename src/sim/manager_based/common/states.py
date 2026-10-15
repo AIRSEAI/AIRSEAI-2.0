@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Restore frozen episode starts into selected slots, in environment-local coordinates."""
 
 import copy

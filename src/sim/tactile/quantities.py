@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Geometric quantities derived from TacSL's per-taxel output.
 
 `contact_area` counts occupied taxels for touching/holding logic;

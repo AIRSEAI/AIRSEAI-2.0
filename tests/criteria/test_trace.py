@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """The verdict type's own invariants."""
 
 from __future__ import annotations

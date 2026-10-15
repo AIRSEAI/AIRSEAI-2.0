@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Publish tactile snapshots through double-buffered shared memory."""
 
 import multiprocessing as mp

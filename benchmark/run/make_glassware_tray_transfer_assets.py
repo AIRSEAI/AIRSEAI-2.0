@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
 """Generate a wooden tray with cutout handles and transparent glass cups.
 
 python benchmark/run/make_glassware_tray_transfer_assets.py --headless

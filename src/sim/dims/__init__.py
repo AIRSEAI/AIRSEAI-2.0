@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Task dimensions: plain numbers, no imports.
 
 One module per task, holding the sizes the asset generator builds from and the

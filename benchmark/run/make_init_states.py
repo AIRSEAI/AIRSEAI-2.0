@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
 """Generate frozen starts in vector environments, optionally checked by an expert."""
 
 import argparse

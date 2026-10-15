@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """stack_cube dimensions: the cube.
 
 The cubes are primitives, so there is nothing to regenerate.

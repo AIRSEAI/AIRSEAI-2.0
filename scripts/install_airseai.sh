@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: Apache-2.0
 # Install AIRSEAI and save its output root in the selected conda environment.
 # AIRSEAI_USE_DEFAULT=1 accepts defaults without prompting.
 # OUTPUT_ROOT overrides the default <repo dir>/outputs.

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """One environment construction path, including dataset and review cameras."""
 
 import math

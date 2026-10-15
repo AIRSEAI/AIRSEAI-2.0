@@ -1,4 +1,5 @@
 #!/bin/bash
+# SPDX-License-Identifier: Apache-2.0
 # Collect expert attempts; accepted episodes are combined into one dataset.
 #   bash scripts/run_collect.sh <task> [episodes] [dataset_out]
 # NUM_ENVS, GPUS, SEED, INIT_STATES, RENDER and PREVIEWS configure collection.

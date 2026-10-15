@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: Apache-2.0
 # Train a LeRobot policy on a converted dataset and save checkpoints and logs.
 set -euo pipefail
 DATASET="${DATASET:?set DATASET=<raw recording name, e.g. blind_peg_insertion_dataset>}"
