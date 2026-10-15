@@ -120,8 +120,10 @@ if _known.episodes < 1:
     parser.error("episodes must be positive")
 if _known.seed < 0:
     parser.error("seed must be nonnegative")
-if _known.horizon_s is not None and _known.horizon_s <= 0:
-    parser.error("horizon_s must be positive")
+if _known.horizon_s is not None and (
+    not math.isfinite(_known.horizon_s) or _known.horizon_s <= 0
+):
+    parser.error("horizon_s must be finite and positive")
 if min(_known.pos_speed, _known.rot_speed, _known.jaw_speed) <= 0:
     parser.error("control speeds must be positive")
 if not math.isfinite(_known.vr_joint_speed_deg_s) or _known.vr_joint_speed_deg_s <= 0:

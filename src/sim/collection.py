@@ -134,6 +134,10 @@ class Collector:
             raise ValueError("Teleoperation requires exactly one environment")
         if args.seed < 0 or args.episodes < 1:
             raise ValueError("seed must be nonnegative and episodes positive")
+        requested_horizon = getattr(args, "horizon_s", None)
+        self.horizon_s = task.horizon_s if requested_horizon is None else requested_horizon
+        if not math.isfinite(self.horizon_s) or self.horizon_s <= 0:
+            raise ValueError("horizon_s must be finite and positive")
         if getattr(args, "init_states_n", 0):
             raise ValueError("Vector collection uses a fixed attempt count; omit init_states_n")
         if getattr(args, "video_tactile", False):
@@ -229,6 +233,7 @@ class Collector:
             self.out / "configuration.json",
             dict(
                 arguments=vars(args),
+                effective_horizon_s=self.horizon_s,
                 **(
                     {
                         "recording": dict(
@@ -465,7 +470,7 @@ class Collector:
                 attempt.phase_frame = 0
                 if attempt.phase >= len(task.phases):
                     attempt.terminal_reason = "finished"
-        if attempt.frame * CONTROL_DT >= task.horizon_s and not attempt.terminal_reason:
+        if attempt.frame * CONTROL_DT >= self.horizon_s and not attempt.terminal_reason:
             attempt.terminal_reason = "timeout"
 
     def finish(self, attempt):
