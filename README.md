@@ -11,6 +11,8 @@ scripted expert per task, LeRobot v3 datasets with tactile channels, training fo
 teleoperation. Sim and real do not line up everywhere, and quantifying where they part is why the
 benchmark exists.
 
+![AIRSEAI 2.0 introduction](docs/media/airseai_2.0_intro.webp)
+
 ## The tasks
 
 <table width="100%">
