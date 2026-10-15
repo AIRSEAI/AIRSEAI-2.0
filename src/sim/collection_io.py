@@ -72,6 +72,8 @@ class EpisodeWrite:
         try:
             write_json(self.folder / "terminal_state.json", self.terminal)
             write_json(self.folder / "trajectory.json", self.trajectory)
+            if row.get("recording_mode") == "xr_state_action_only":
+                row["trajectory_saved"] = bool(self.trajectory.get("frames"))
             if self.observation is not None:
                 np.savez_compressed(self.folder / "terminal_observation.npz", **self.observation)
             if self.recorder:

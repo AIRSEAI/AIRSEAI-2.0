@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import signal
 import subprocess
@@ -37,6 +38,23 @@ parser.add_argument(
 )
 parser.add_argument("--dataset", default="", help="write the recording here")
 parser.add_argument("--out", default="", help="report dir, default <dataset>_run")
+parser.add_argument(
+    "--keep-unclean",
+    "--keep_unclean",
+    action="store_true",
+    help="retain failed native episodes with their original success labels",
+)
+parser.add_argument(
+    "--xr-state-only",
+    action="store_true",
+    help="save VR state/action in --out without cameras or a dataset",
+)
+parser.add_argument(
+    "--xr-keep-open-s",
+    type=float,
+    default=0.0,
+    help="seconds to display the final VR scene after recording completes",
+)
 parser.add_argument("--episodes", type=int, default=5)
 parser.add_argument("--num_envs", type=int, choices=(1,), default=1)
 parser.add_argument("--init_states", default="", help="Consume supplied starts in order")
@@ -49,6 +67,18 @@ parser.add_argument(
 )
 parser.add_argument("--rot_speed", type=float, default=0.6, help="rad/s the wrist turns at full deflection")
 parser.add_argument("--jaw_speed", type=float, default=0.02, help="m/s the jaws open and close at")
+parser.add_argument(
+    "--vr-joint-speed-deg-s",
+    type=float,
+    default=30.0,
+    help="maximum commanded arm-joint speed in VR, in degrees per second",
+)
+parser.add_argument(
+    "--vr-position-gain",
+    type=float,
+    default=1.0,
+    help="VR hand/controller translation multiplier before speed limiting",
+)
 parser.add_argument("--robot_usd", default="")
 parser.add_argument("--grid", type=int, nargs=2, default=(288, 384))
 parser.add_argument(
@@ -72,21 +102,46 @@ if _known.teleop_device == "vr":
     if not TASK_IDS[_known.task].manager_cfg:
         parser.error("VR requires a native vector environment")
     _known.xr = True
+if _known.xr_state_only:
+    if _known.teleop_device != "vr":
+        parser.error("--xr-state-only requires --teleop_device vr")
+    if _known.dataset or getattr(_known, "video", ""):
+        parser.error("--xr-state-only cannot record --dataset or --video")
+    if not _known.out:
+        parser.error("--xr-state-only requires a new --out directory")
+if not math.isfinite(_known.xr_keep_open_s) or _known.xr_keep_open_s < 0:
+    parser.error("--xr-keep-open-s must be finite and nonnegative")
+if _known.xr_keep_open_s > 0 and _known.teleop_device != "vr":
+    parser.error("--xr-keep-open-s requires --teleop_device vr")
 if _known.init_states and not TASK_IDS[_known.task].manager_cfg:
     parser.error("init_states requires a native vector environment")
+if _known.keep_unclean and not TASK_IDS[_known.task].manager_cfg:
+    parser.error("--keep-unclean requires a native vector environment")
 if _known.episodes < 1:
     parser.error("episodes must be positive")
 if _known.seed < 0:
     parser.error("seed must be nonnegative")
-if _known.horizon_s is not None and _known.horizon_s <= 0:
-    parser.error("horizon_s must be positive")
+if _known.horizon_s is not None and (
+    not math.isfinite(_known.horizon_s) or _known.horizon_s <= 0
+):
+    parser.error("horizon_s must be finite and positive")
 if min(_known.pos_speed, _known.rot_speed, _known.jaw_speed) <= 0:
     parser.error("control speeds must be positive")
+if not math.isfinite(_known.vr_joint_speed_deg_s) or _known.vr_joint_speed_deg_s <= 0:
+    parser.error("--vr-joint-speed-deg-s must be finite and positive")
+if not math.isfinite(_known.vr_position_gain) or _known.vr_position_gain <= 0:
+    parser.error("--vr-position-gain must be finite and positive")
 if _known.teleop_device == "keyboard" and _known.headless:
     parser.error("keyboard collection requires an interactive viewer")
 _known.enable_cameras = True
 app_launcher = AppLauncher(_known)
 simulation_app = app_launcher.app
+if _known.teleop_device == "vr" and os.environ.get("AIRSEAI_XR_FORCE_VIEWPORT") == "1":
+    # Keep the XR viewport active when offscreen rendering is enabled.
+    import carb
+
+    carb.settings.get_settings().set_bool("/isaaclab/render/active_viewport", True)
+    print("[AIRSEAI_XR_VIEWPORT] active_viewport=True", flush=True)
 
 # ---------------------------------------------------------------------------
 import numpy as np
@@ -101,6 +156,8 @@ TASK, PINS = load_task(_known.task)
 for kname, knob in TASK.knobs.items():
     parser.add_argument(f"--{kname}", type=knob.type, default=knob.default, help=knob.help)
 args_cli = parser.parse_args()
+args_cli.xr = _known.xr
+args_cli.enable_cameras = _known.enable_cameras
 KNOBS = {k: PINS.get(k, getattr(args_cli, k)) for k in TASK.knobs}
 
 REC_EVERY = int(round(1 / (CTRL_FPS * DT)))  # sim steps per dataset frame
