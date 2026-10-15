@@ -52,6 +52,13 @@ stationary targets, IK rejection, joint bounds, native device parameters,
 deadlines, and completed-scene rendering. They do not verify GPU rendering,
 actual controller tracking, network streaming, or physical contact behavior.
 
+The separate optional OpenArm SDK configuration integration test requires a
+runtime reporting LeRobot `0.5.1`. Source-only installations reporting `unknown`
+do not meet that precondition, so this integration test is explicitly skipped.
+CPU rejection tests still check that unknown, older, and newer versions are
+rejected before constructing any device. A skip is not hardware acceptance;
+the production version check is unchanged.
+
 ## Optional immersive state/action check
 
 Use a new output directory on every run. Start with low gains and a stable

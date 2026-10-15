@@ -2,6 +2,7 @@
 import importlib
 import sys
 import time
+import types
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -402,7 +403,39 @@ def test_control_timeout(config, monkeypatch):
         )
 
 
+@pytest.mark.parametrize("version", ["unknown", "0.5.0", "0.5.2"])
+def test_device_factory_rejects_unsupported_version_before_construction(monkeypatch, version):
+    def forbid_construction(*_args, **_kwargs):
+        pytest.fail("Unsupported SDK versions must be rejected before constructing devices or configs")
+
+    modules = {
+        "lerobot": {"__version__": version, "__path__": []},
+        "lerobot.robots": {"__path__": []},
+        "lerobot.robots.bi_openarm_follower": {
+            "BiOpenArmFollower": forbid_construction,
+            "BiOpenArmFollowerConfig": forbid_construction,
+        },
+        "lerobot.robots.openarm_follower": {"OpenArmFollowerConfigBase": forbid_construction},
+        "lerobot.teleoperators": {"__path__": []},
+        "lerobot.teleoperators.bi_openarm_leader": {
+            "BiOpenArmLeader": forbid_construction,
+            "BiOpenArmLeaderConfig": forbid_construction,
+        },
+        "lerobot.teleoperators.openarm_leader": {"OpenArmLeaderConfigBase": forbid_construction},
+    }
+    for name, attrs in modules.items():
+        module = types.ModuleType(name)
+        module.__dict__.update(attrs)
+        monkeypatch.setitem(sys.modules, name, module)
+    with pytest.raises(RuntimeError, match="Expected AIRSEAI LeRobot 0.5.1"):
+        record.make_devices({})
+
+
 def test_lerobot_device_configuration(config):
+    lerobot = pytest.importorskip("lerobot")
+    version = getattr(lerobot, "__version__", "unknown")
+    if version != "0.5.1":
+        pytest.skip(f"OpenArm SDK integration requires LeRobot 0.5.1; found {version}")
     pytest.importorskip("lerobot.robots.bi_openarm_follower")
     leader, follower = record.make_devices(config)
     for side in record.SIDES:
