@@ -116,6 +116,7 @@ def run_prologue(h, ctx, sig) -> tuple[bool, dict]:
             else:
                 h.step_ik_toward(target, grip, quat)
             h.step()
+            TASK.after_control_step(h, ctx, DT)
             t_phase += DT
             sig = TASK.signals(h, ctx)
             if TASK.phase_done(h, ctx, name, t_phase, sig, target, KNOBS) or t_phase >= timeout:
@@ -254,6 +255,7 @@ def main() -> int:
             for _ in range(STEPS_PER_CTRL):
                 h.apply_action16(a16)
                 h.step()
+            TASK.after_control_step(h, ctx, STEPS_PER_CTRL * DT)
 
             if TASK.policy_should_terminate(h, ctx, hist, KNOBS):
                 stopped_early = True

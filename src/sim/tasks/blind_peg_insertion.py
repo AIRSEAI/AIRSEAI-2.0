@@ -540,10 +540,12 @@ class BlindPegInsertionTask(Task):
         says whether a press reached the board."""
         return float(self._tip(h)[2] - ctx["geom"]["board_top"])
 
+    def after_control_step(self, h, ctx, dt):
+        ctx["depth_now"] = self._depth(h, ctx)
+
     def signals(self, h, ctx) -> dict:
         p, _ = self._peg_pq(h)
         d = self._depth(h, ctx)
-        ctx["depth_now"] = d
         return {
             "areas": h.pad_areas(),
             "depth": d,
@@ -701,7 +703,7 @@ class BlindPegInsertionTask(Task):
             # every step.
             tp = h.tcp_pos()
             if ctx.get("insert_goal_z") is None:
-                ctx["insert_goal_z"] = float(tp[2]) - (TARGET_DEPTH - ctx["depth_now"])
+                ctx["insert_goal_z"] = float(tp[2]) - (TARGET_DEPTH - sig["depth"])
                 ctx["insert_t0"] = t_phase
                 ctx["insert_hist"] = []
             # Keep the TCP over the peg tip (remote-centre-of-compliance):

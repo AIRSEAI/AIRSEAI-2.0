@@ -96,7 +96,10 @@ class Task:
         raise NotImplementedError
 
     def signals(self, h, ctx: dict) -> dict:
-        """Read-only per-step scalars. Must include 'areas' ({pad: mm2})."""
+        """Read scalars without changing ctx, task state, or scene physics.
+
+        Must include 'areas' ({pad: mm2}); state updates belong in after_control_step.
+        """
         return {"areas": h.pad_areas()}
 
     def after_control_step(self, h, ctx: dict, dt: float) -> None:

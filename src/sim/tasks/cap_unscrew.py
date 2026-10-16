@@ -408,18 +408,19 @@ class CapUnscrewTask(Task):
         }
 
     # ---- probes ------------------------------------------------------------
-    def signals(self, h, ctx) -> dict:
-        areas = h.pad_areas()
-        cp, cq = _pq(h, "cap")
-        bp, bq = _pq(h, "bottle")
-        # The thread: the cap's turn on the bottle, accumulated, and the
-        # joint let go once it reaches the drawn angle. World behaviour, run
-        # here so the expert and the evaluator share it.
+    def after_control_step(self, h, ctx, dt):
+        _, cq = _pq(h, "cap")
+        _, bq = _pq(h, "bottle")
         ctx["thread_deg"] = _unwrap(ctx["thread_deg"], _yaw_of(bq, cq))
         ctx["bottle_deg"] = _unwrap(ctx["bottle_deg"], _yaw_of(ctx["bottle_q0"], bq))
         if not ctx["freed"] and ctx["thread_deg"] >= ctx["thread_angle"]:
             set_joint_enabled(ctx["thread_joint"], False)
             ctx["freed"] = True
+
+    def signals(self, h, ctx) -> dict:
+        areas = h.pad_areas()
+        cp, cq = _pq(h, "cap")
+        bp, bq = _pq(h, "bottle")
         tray = (*ctx["layout"]["tray"], TABLE_TOP_Z)
         return {
             "areas": areas,

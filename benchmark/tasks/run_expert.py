@@ -367,6 +367,7 @@ def main() -> int:
                                 recorder.add_frame()
                         rec_i += 1
                     h.step()
+                    TASK.after_control_step(h, ctx, DT)
                     if vid is not None:
                         h.scene_cam.update(DT)
                         if frame_i % every == 0:
