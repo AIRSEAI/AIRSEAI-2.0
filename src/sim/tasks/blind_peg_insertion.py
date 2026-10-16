@@ -1,10 +1,7 @@
-"""blind_peg_insertion expert.
+"""Tactile-guided blind peg insertion expert.
 
-Phases::
-
-    home -> above_peg -> orient -> descend -> close -> lift -> measure
-        -> level -> above_hole -> probe -> search -> insert -> release
-        -> retreat
+Search for the hole, retry stalled insertion with a seating sweep, and release
+only after the peg is captured.
 """
 
 from __future__ import annotations
