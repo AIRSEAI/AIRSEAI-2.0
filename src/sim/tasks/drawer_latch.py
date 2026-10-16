@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import copy
 import math
+from collections import deque
+from math import isfinite
+from statistics import median
 
 import numpy as np
 import torch
@@ -25,6 +28,7 @@ from sim.envs.drawer_latch import (
     CUE_LEAD_RANGE,
     DRAWER_Z,
     JOINT_NAME,
+    MECHANISM_VERSION,
     PREVIEW,
     DrawerLatchSceneCfg,
     DrawerMechanism,
@@ -47,12 +51,6 @@ OPEN_WIDTH = 0.040
 RELEASE_WIDTH = 0.040
 CLOSE_WIDTH = 0.004
 PULL_SPEED = 0.020
-CUE_PULL_SPEED = 0.006
-FORCE_CUE_RISE = 30.0
-FORCE_BASELINE_SLOPE = 600.0
-LATCH_LOAD_DROP = 85.0
-LATCH_CONFIRM_DROP = 40.0
-LATCH_CONFIRM_FRAMES = 3
 GRASP_CONTACT_MM2 = 5.0
 GRASP_TCP_DEPTH_OFFSET = 0.010
 GRASP_LOCAL_X = HANDLE_OFFSET_X + GRASP_TCP_DEPTH_OFFSET
@@ -63,13 +61,80 @@ RETREAT_HEIGHT = 0.060
 RETREAT_CLEARANCE = 0.080
 
 
+EXPERT_VERSION = "tactile_baseline_confirm"
+
+
+class TactileStop:
+    def __init__(self, rise=50.0, confirm=2):
+        self.rise = rise
+        self.confirm = confirm
+        self.baseline = []
+        self.samples = deque(maxlen=3)
+        self.stability = deque(maxlen=7)
+        self.streak = 0
+        self.low_streak = 0
+        self.triggered = False
+        self.ready = False
+        self.rejected_count = 0
+
+    def update(self, signed_load, hand_travel, *, enabled=True):
+        if not isfinite(signed_load) or not isfinite(hand_travel):
+            self.samples.clear()
+            self.stability.clear()
+            self.streak = 0
+            self.triggered = self.ready = False
+            return False
+        if 0.015 <= hand_travel < 0.035 and not self.triggered:
+            self.baseline.append((hand_travel, signed_load))
+        if hand_travel < 0.035 or len(self.baseline) < 6 or not enabled:
+            self.samples.clear()
+            self.stability.clear()
+            self.streak = 0
+            self.triggered = self.ready = False
+            return False
+        # The normal sliding load slowly decreases as the fingers move. A
+        # per-episode offset prevents contact preload from masquerading as cue.
+        x_ref = median(x for x, _ in self.baseline)
+        load_ref = median(load + 600.0 * (x - x_ref) for x, load in self.baseline)
+        residual = signed_load - (load_ref - 600.0 * (hand_travel - x_ref))
+        self.samples.append(residual)
+        if len(self.samples) < 3:
+            return False
+        filtered = median(self.samples)
+        if not self.triggered:
+            self.streak = self.streak + 1 if filtered >= self.rise else 0
+            if self.streak >= self.confirm:
+                self.triggered = True
+                self.stability.clear()
+                self.low_streak = 0
+            return self.triggered
+        self.low_streak = self.low_streak + 1 if filtered < 20.0 else 0
+        if self.low_streak >= 3:
+            self.triggered = self.ready = False
+            self.streak = 0
+            self.stability.clear()
+            self.rejected_count += 1
+            return False
+        self.stability.append((hand_travel, filtered))
+        self.ready = (
+            len(self.stability) == self.stability.maxlen
+            and max(x for x, _ in self.stability) - min(x for x, _ in self.stability) <= 0.0005
+            and max(f for _, f in self.stability) - min(f for _, f in self.stability) <= 25.0
+            and filtered >= 20.0
+        )
+        return True
+
+
 class DrawerLatchTask(Task):
     name = "drawer_latch"
     instruction = (
         "pull the tool drawer until it settles into place, then release it and leave it open for use"
     )
     report_name = "drawer_latch_scripted.json"
-    knobs = {"detent_m": Knob(0.0, "hidden hold-open position; 0 samples one per episode")}
+    knobs = {
+        "detent_m": Knob(0.0, "hidden hold-open position; 0 samples one per episode"),
+        "tactile_stop": Knob(1.0, "enable tactile stopping; 0 is the stopping-signal ablation"),
+    }
     phases = [
         ("home", 4.0),
         ("pregrasp", 4.0),
@@ -208,18 +273,18 @@ class DrawerLatchTask(Task):
             "detent_m": detent,
             "cue_lead_m": cue_lead,
             "mechanism": mechanism,
+            "last_extension_m": 0.0,
+            "mechanism_speed_m_s": 0.0,
             "axis": axis,
             "case_pos": case.root_pos_w[0].detach().cpu().numpy().copy(),
             "yaw_deg": float(np.degrees(np.arctan2(axis[1], axis[0]))),
             "joint": path,
             "grasp_quat": None,
             "pull_cmd_m": None,
-            "force_baseline": [],
-            "force_cue_hits": [],
+            "tactile_stop": TactileStop(),
             "force_cue_x": None,
-            "recent_slide_loads": [],
-            "snap_candidate": None,
             "seat_extension_m": None,
+            "seat_source": None,
             "seat_hold_s": 0.0,
             "release_pos": None,
             "release_quat": None,
@@ -258,6 +323,21 @@ class DrawerLatchTask(Task):
             raise RetryReset("drawer did not settle closed")
         return self._new_ctx(h, self._detent(rng, knobs), float(rng.uniform(*CUE_LEAD_RANGE)))
 
+    def _slide_state(self, h, ctx):
+        axis = ctx["axis"][:2]
+        case_pos = h.scene["case"].data.root_pos_w[0, :2].detach().cpu().numpy()
+        drawer = h.scene["drawer"].data
+        drawer_pos = drawer.root_pos_w[0, :2].detach().cpu().numpy()
+        extension = float(np.dot(case_pos - drawer_pos, axis))
+        return extension
+
+    def after_control_step(self, h, ctx, dt):
+        extension = self._slide_state(h, ctx)
+        velocity = (extension - ctx["last_extension_m"]) / dt
+        ctx["last_extension_m"] = extension
+        ctx["mechanism_speed_m_s"] = velocity
+        set_drive(ctx["joint"], ctx["mechanism"].update(extension, velocity, dt))
+
     def signals(self, h, ctx):
         areas = h.pad_areas()
         shear = {}
@@ -287,15 +367,8 @@ class DrawerLatchTask(Task):
                 )
         tcp = h.tcp_pos()
         gels = h.gel_centres()
-        axis = ctx["axis"][:2]
-        case_pos = h.scene["case"].data.root_pos_w[0, :2].detach().cpu().numpy()
+        extension = self._slide_state(h, ctx)
         drawer = h.scene["drawer"].data
-        drawer_pos = drawer.root_pos_w[0, :2].detach().cpu().numpy()
-        extension = float(np.dot(case_pos - drawer_pos, axis))
-        drawer_velocity = drawer.root_lin_vel_w[0, :2].detach().cpu().numpy()
-        velocity = -float(np.dot(drawer_velocity, axis))
-        setting = ctx["mechanism"].update(extension, velocity, h.control_dt)
-        set_drive(ctx["joint"], setting)
         handle_pos = drawer.root_pos_w[0].detach().cpu().numpy().copy()
         handle_pos += HANDLE_OFFSET_X * ctx["axis"]
         handle_pos[2] += HANDLE_CENTER_Z
@@ -305,6 +378,14 @@ class DrawerLatchTask(Task):
             "slide_load": slide_load,
             "gel_sep_m": float(np.linalg.norm(gels[1] - gels[0])) if gels is not None else 0.0,
             "extension_m": extension,
+            "mechanism_speed_m_s": ctx["mechanism_speed_m_s"],
+            "mechanism_dwell_s": ctx["mechanism"].dwell_s,
+            "mechanism_force_n": ctx["mechanism"].force_n,
+            "mechanism_cue_resistance_n": ctx["mechanism"].cue_resistance_n,
+            "mechanism_potential_j": ctx["mechanism"].potential_j,
+            "mechanism_bypassed": ctx["mechanism"].bypassed,
+            "mechanism_escape_count": ctx["mechanism"].escape_count,
+            "mechanism_reset_count": ctx["mechanism"].reset_count,
             "hand_clearance_m": float(np.dot(handle_pos - tcp, ctx["axis"])),
         }
 
@@ -330,54 +411,27 @@ class DrawerLatchTask(Task):
         if name in ("pull", "seat"):
             if ctx["pull_cmd_m"] is None:
                 ctx["pull_cmd_m"] = max(0.0, float(np.dot(grip - h.tcp_pos(), axis)))
-            extension = sig["extension_m"]
-            if name == "pull" and ctx["force_cue_x"] is None:
-                if 0.015 <= extension <= 0.040:
-                    ctx["force_baseline"].append((extension, sig["slide_load"]))
-                baseline = ctx["force_baseline"]
-                if extension >= 0.040 and len(baseline) >= 6:
-                    x_ref = float(np.median([sample[0] for sample in baseline]))
-                    load_ref = float(
-                        np.median(
-                            [sample[1] - FORCE_BASELINE_SLOPE * (sample[0] - x_ref) for sample in baseline]
-                        )
-                    )
-                    expected_load = load_ref + FORCE_BASELINE_SLOPE * (extension - x_ref)
-                    if sig["slide_load"] > expected_load + FORCE_CUE_RISE:
-                        ctx["force_cue_hits"].append(extension)
-                    if len(ctx["force_cue_hits"]) >= 2:
-                        ctx["force_cue_x"] = ctx["force_cue_hits"][0]
-            seeking_latch = (
-                name == "pull" and ctx["force_cue_x"] is not None and ctx["seat_extension_m"] is None
+            hand_travel = max(0.0, float(np.dot(grip - h.tcp_pos(), axis)))
+            detected = ctx["tactile_stop"].update(
+                -float(sig["slide_load"]),
+                hand_travel,
+                enabled=bool(knobs["tactile_stop"]),
             )
-            if seeking_latch:
-                loads = ctx["recent_slide_loads"]
-                candidate = ctx["snap_candidate"]
-                if candidate is not None:
-                    candidate["age"] += 1
-                    if sig["slide_load"] > candidate["reference_load"] - LATCH_CONFIRM_DROP:
-                        ctx["snap_candidate"] = None
-                    elif candidate["age"] >= LATCH_CONFIRM_FRAMES:
-                        ctx["seat_extension_m"] = extension
-                if ctx["snap_candidate"] is None and ctx["seat_extension_m"] is None and len(loads) >= 3:
-                    reference = float(np.median(loads))
-                    snap = sig["slide_load"] < reference - LATCH_LOAD_DROP
-                else:
-                    snap = False
-                if snap:
-                    ctx["snap_candidate"] = {
-                        "age": 0,
-                        "reference_load": reference,
-                    }
-                loads.append(sig["slide_load"])
-                del loads[:-4]
-                if ctx["seat_extension_m"] is not None:
-                    ctx["pull_cmd_m"] = max(0.0, float(np.dot(grip - h.tcp_pos(), axis)))
-            seat = ctx["seat_extension_m"]
-            if name == "pull" and seat is None and extension < 0.105:
-                speed = CUE_PULL_SPEED if ctx["force_cue_x"] is not None else PULL_SPEED
-                ctx["pull_cmd_m"] += speed * h.control_dt
-            elif seat is not None:
+            if detected and ctx["seat_extension_m"] is None:
+                # Record drawer position after the tactile stop decision.
+                ctx["seat_extension_m"] = sig["extension_m"]
+                ctx["seat_source"] = "tactile_baseline_confirm"
+                ctx["pull_cmd_m"] = hand_travel + 0.001
+                ctx["seat_hold_s"] = 0.0
+            elif not detected and ctx["seat_extension_m"] is not None:
+                ctx["seat_extension_m"] = None
+                ctx["seat_source"] = None
+                ctx["seat_hold_s"] = 0.0
+                ctx["pull_cmd_m"] = hand_travel
+            if ctx["seat_extension_m"] is None:
+                if hand_travel < 0.115:
+                    ctx["pull_cmd_m"] += PULL_SPEED * h.control_dt
+            else:
                 ctx["seat_hold_s"] += h.control_dt
             return (grip - ctx["pull_cmd_m"] * axis).tolist(), CLOSE_WIDTH, q
         if ctx["release_pos"] is None:
@@ -404,9 +458,10 @@ class DrawerLatchTask(Task):
         if name == "close":
             return t_phase >= 0.4 and any(sig["areas"][p] > GRASP_CONTACT_MM2 for p in ctx["pads"])
         if name == "pull":
-            return ctx["seat_extension_m"] is not None and ctx["seat_hold_s"] >= 0.35
+            return ctx["tactile_stop"].ready and ctx["seat_hold_s"] >= 1.15
         if name == "seat":
-            return ctx["seat_extension_m"] is not None and ctx["seat_hold_s"] >= 0.65
+            # Confirm a stable tactile stop before opening the fingers.
+            return ctx["tactile_stop"].ready and ctx["seat_hold_s"] >= 1.15
         if name == "release":
             return t_phase > 1.2
         if name == "retreat":
@@ -420,6 +475,8 @@ class DrawerLatchTask(Task):
         return False
 
     def next_phase(self, ctx, name):
+        if name in ("pull", "seat") and not ctx["tactile_stop"].ready:
+            return "pull"
         if name == "orient" and not ctx["open_ready"]:
             return "release"
         if name == "approach" and not ctx["grasp_ready"]:
@@ -446,8 +503,15 @@ class DrawerLatchTask(Task):
             "yaw_deg": ctx["yaw_deg"],
             "force_cue_x": ctx["force_cue_x"],
             "seat_extension_m": ctx["seat_extension_m"],
+            "seat_source": ctx["seat_source"],
+            "expert_version": EXPERT_VERSION,
+            "tactile_rejected_stops": ctx["tactile_stop"].rejected_count,
             "final_extension_m": hist["extension_m"][-1] if hist["extension_m"] else None,
             "mechanism_mode": ctx["mechanism"].mode,
+            "mechanism_version": MECHANISM_VERSION,
+            "mechanism_escape_count": ctx["mechanism"].escape_count,
+            "mechanism_reset_count": ctx["mechanism"].reset_count,
+            "latched_extension_m": ctx["mechanism"].latched_extension_m,
         }
 
 

@@ -549,6 +549,9 @@ class Collector:
                     self.env.step(hold_action(self.env).clone())
                     self.tick += 1
                     for attempt in moving:
+                        self.task.after_control_step(
+                            self.handles[attempt.env_id], attempt.ctx, CONTROL_DT
+                        )
                         self.after_step(attempt)
                     for attempt in self.active:
                         if attempt and attempt.mode == "settling":

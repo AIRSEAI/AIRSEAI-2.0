@@ -12,9 +12,7 @@ from isaaclab.utils import configclass
 from sim.assets.provision import task_asset_dir
 from sim.dims.drawer_latch import (
     HANDLE_CENTER_Z,
-    LATCH_TOLERANCE,
     MAX_EXTENSION,
-    OVERRUN_MARGIN,
     YAW_CENTER_DEG,
 )
 from sim.envs.bimanual_tactile import (
@@ -66,15 +64,26 @@ ENV = "/World/envs/env_0"
 JOINT_NAME = "drawer_slide"
 
 RETURN_STIFFNESS = 28.0
-CUE_STIFFNESS = 85.0
-LATCH_STIFFNESS = 550.0
-RETURN_DAMPING = 2.0
-CUE_DAMPING = 3.2
-LATCH_DAMPING = 11.0
+RETURN_DAMPING = 30.0
+WELL_EXTRA_DAMPING = 100.0
+DRIVE_STIFFNESS = 500.0
 CUE_LEAD_RANGE = (0.010, 0.022)
-LATCH_SPEED = 0.018
-LATCH_DWELL = 0.20
-RESET_EXTENSION = 0.006
+MAX_FORCE_N = 20.0
+WELL_ENERGY_J = 0.025
+CUE_RESISTANCE_N = 4.0
+CUE_WIDTH_M = 0.008
+CUE_SPEED_SCALE_M_S = 0.002
+WELL_WIDTH_M = 0.006
+RESET_EXTENSION_M = 0.006
+MECHANISM_VERSION = "finite_engagement"
+
+
+def _bump(x: float, centre: float, half_width: float, energy: float) -> tuple[float, float]:
+    """Compact quartic potential and its negative gradient; both zero outside."""
+    u = (x - centre) / half_width
+    if abs(u) >= 1.0:
+        return 0.0, 0.0
+    return energy * (1.0 - u * u) ** 2, 4.0 * energy * u * (1.0 - u * u) / half_width
 
 
 @dataclass(frozen=True)
@@ -82,37 +91,86 @@ class DriveSetting:
     target_m: float
     stiffness_n_m: float
     damping_n_s_m: float
+    target_velocity_m_s: float = 0.0
+    max_force_n: float = MAX_FORCE_N
 
 
 class DrawerMechanism:
     def __init__(self, detent_m: float, cue_lead_m: float = 0.014):
         self.detent_m = float(detent_m)
         self.cue_lead_m = float(cue_lead_m)
+        if not (self.detent_m - self.cue_lead_m - CUE_WIDTH_M > RESET_EXTENSION_M):
+            raise ValueError("Cue support must lie beyond the closed-position reset zone")
+        if not (self.cue_lead_m + WELL_WIDTH_M > CUE_WIDTH_M):
+            raise ValueError("Cue support must end before the overtravel boundary")
+        self.bypassed = False
+        self.escape_count = 0
+        self.reset_count = 0
         self.mode = "search"
         self.dwell_s = 0.0
+        self.latched_extension_m: float | None = None
+        self.force_n = 0.0
+        self.cue_resistance_n = 0.0
+        self.potential_j = 0.0
+
+    def potential(self, x: float) -> float:
+        energy = 0.5 * RETURN_STIFFNESS * x * x
+        if self.bypassed:
+            return energy
+        well, _ = _bump(x, self.detent_m, WELL_WIDTH_M, -WELL_ENERGY_J)
+        return energy + well
+
+    def conservative_force(self, x: float) -> float:
+        force = -RETURN_STIFFNESS * x
+        if self.bypassed:
+            return force
+        _, well = _bump(x, self.detent_m, WELL_WIDTH_M, -WELL_ENERGY_J)
+        return force + well
+
+    def cue_resistance(self, x: float, velocity_m_s: float) -> float:
+        """Outward-only dissipative load, smoothly zero at rest and cue edges."""
+        if self.bypassed or velocity_m_s <= 0.0:
+            return 0.0
+        u = (x - (self.detent_m - self.cue_lead_m)) / CUE_WIDTH_M
+        if abs(u) >= 1.0:
+            return 0.0
+        envelope = (1.0 - u * u) ** 2
+        return CUE_RESISTANCE_N * envelope * velocity_m_s / (velocity_m_s + CUE_SPEED_SCALE_M_S)
+
+    def damping(self, x: float) -> float:
+        """Localized contact damping dissipates entry energy without a capture gate."""
+        if self.bypassed:
+            return RETURN_DAMPING
+        u = (x - self.detent_m) / WELL_WIDTH_M
+        if abs(u) >= 1.0:
+            return RETURN_DAMPING
+        return RETURN_DAMPING + WELL_EXTRA_DAMPING * (1.0 - u * u) ** 2
 
     def update(self, extension_m: float, velocity_m_s: float, dt: float) -> DriveSetting:
-        x = float(extension_m)
-        if x > self.detent_m + OVERRUN_MARGIN:
-            self.mode = "overrun"
-            self.dwell_s = 0.0
-        elif self.mode == "overrun" and x < RESET_EXTENSION:
-            self.mode = "search"
-
-        if self.mode == "search":
-            if abs(x - self.detent_m) <= LATCH_TOLERANCE and abs(velocity_m_s) <= LATCH_SPEED:
-                self.dwell_s += dt
-                if self.dwell_s >= LATCH_DWELL:
-                    self.mode = "latched"
-            else:
-                self.dwell_s = 0.0
-
-        if self.mode == "latched":
-            return DriveSetting(-self.detent_m, LATCH_STIFFNESS, LATCH_DAMPING)
-        in_cue = self.detent_m - self.cue_lead_m <= x <= self.detent_m + OVERRUN_MARGIN
-        if self.mode == "search" and in_cue:
-            return DriveSetting(0.0, CUE_STIFFNESS, CUE_DAMPING)
-        return DriveSetting(0.0, RETURN_STIFFNESS, RETURN_DAMPING)
+        x, v = float(extension_m), float(velocity_m_s)
+        # Overtravel stays bypassed until the drawer returns to the reset zone.
+        if self.bypassed and x <= RESET_EXTENSION_M:
+            self.bypassed = False
+            self.reset_count += 1
+        elif not self.bypassed and x >= self.detent_m + WELL_WIDTH_M:
+            self.bypassed = True
+            self.escape_count += 1
+        force = self.conservative_force(x)
+        self.cue_resistance_n = self.cue_resistance(x, v)
+        damping = self.damping(x)
+        self.force_n = max(-MAX_FORCE_N, min(MAX_FORCE_N, force - damping * v - self.cue_resistance_n))
+        self.potential_j = self.potential(x)
+        # Dwell is diagnostic only; no threshold enables engagement.
+        in_well = not self.bypassed and abs(x - self.detent_m) < WELL_WIDTH_M
+        self.mode = "bypassed" if self.bypassed else ("engaged" if in_well else "search")
+        self.dwell_s = self.dwell_s + dt if in_well else 0.0
+        self.latched_extension_m = x if in_well else None
+        # Joint transX is minus extension; bound the drive target in concave regions.
+        return DriveSetting(
+            -x - (force - self.cue_resistance_n) / DRIVE_STIFFNESS,
+            DRIVE_STIFFNESS,
+            damping,
+        )
 
 
 def create_joint(env_path: str) -> str:
@@ -142,7 +200,8 @@ def create_joint(env_path: str) -> str:
     drive.CreateStiffnessAttr(RETURN_STIFFNESS)
     drive.CreateDampingAttr(RETURN_DAMPING)
     drive.CreateTargetPositionAttr(0.0)
-    drive.CreateMaxForceAttr(float("inf"))
+    drive.CreateTargetVelocityAttr(0.0)
+    drive.CreateMaxForceAttr(MAX_FORCE_N)
     return path
 
 
@@ -155,6 +214,8 @@ def set_drive(path: str, setting: DriveSetting) -> None:
     drive.GetTargetPositionAttr().Set(float(setting.target_m))
     drive.GetStiffnessAttr().Set(float(setting.stiffness_n_m))
     drive.GetDampingAttr().Set(float(setting.damping_n_s_m))
+    drive.GetTargetVelocityAttr().Set(float(setting.target_velocity_m_s))
+    drive.GetMaxForceAttr().Set(float(setting.max_force_n))
 
 
 def set_joint_frame(env_path: str, yaw_deg: float) -> None:

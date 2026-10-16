@@ -96,8 +96,11 @@ class Task:
         raise NotImplementedError
 
     def signals(self, h, ctx: dict) -> dict:
-        """Per-step scalars. Must include 'areas' ({pad: mm2})."""
+        """Read-only per-step scalars. Must include 'areas' ({pad: mm2})."""
         return {"areas": h.pad_areas()}
+
+    def after_control_step(self, h, ctx: dict, dt: float) -> None:
+        """Update a running episode after its control step, excluding reset and settling."""
 
     def phase_target(self, h, ctx: dict, name: str, t_phase: float, sig: dict, knobs: dict):
         """-> (target, grip_m, wrist_quat | None) for the active arm.
