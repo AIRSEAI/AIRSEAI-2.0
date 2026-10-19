@@ -56,19 +56,21 @@ def features(rows: int, cols: int) -> dict:
 class EpisodeRecorder:
     """Save or discard episodes together with their review videos."""
 
-    def __init__(self, h, task, root: str, fps: int = CTRL_FPS, *, disk_buffer=False):
+    def __init__(self, h, task, root: str, fps: int = CTRL_FPS, *, disk_buffer=False, durable=False):
         from lerobot_tactile_ext.writer import LeRobotTactileWriter
 
         if not task.instruction:
             raise SystemExit(f"task '{task.name}' has no `instruction`; the dataset needs a language label")
         self.h = h
         self.root = Path(os.path.expanduser(root))
+        self.durable = bool(durable)
         self.writer = LeRobotTactileWriter(
             str(self.root),
             fps=fps,
             features=features(h.rows, h.cols),
             task=task.instruction,
             disk_buffer=disk_buffer,
+            durable=self.durable,
         )
         self.fps = fps
         self._review_dir = self.root.joinpath(*REVIEW_DIRNAME) if h.scene_cam is not None else None
@@ -155,3 +157,9 @@ class EpisodeRecorder:
 
     def finalize(self) -> dict:
         return self.writer.finalize()
+
+    def checkpoint_recovery(self, *, decision=None, scalars=None, **context):
+        if self.durable:
+            self.writer.set_recovery_context(**context)
+            if decision is not None:
+                self.writer.set_recovery_decision(decision, scalars)

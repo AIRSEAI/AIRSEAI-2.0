@@ -72,7 +72,7 @@ class TeleopDevice:
     def advance(self, t_ep: float) -> Command:
         raise NotImplementedError
 
-    def apply(self, cmd: Command) -> None:
+    def apply(self, cmd: Command) -> bool | None:
         """Apply a pose delta while holding the idle arm's last command."""
         h = self.h
         if cmd.side != self.side:
@@ -87,7 +87,12 @@ class TeleopDevice:
             self._cmd_quat = np.asarray(h.tcp_quat(), dtype=float).copy()
         self._cmd_pos = self._cmd_pos + cmd.delta_pos
         self._cmd_quat = rotate_quaternion(self._cmd_quat, cmd.delta_rot)
-        h.step_ik_toward(self._cmd_pos.tolist(), cmd.jaw, self._cmd_quat.tolist())
+        return h.step_ik_toward(
+            self._cmd_pos.tolist(), cmd.jaw, self._cmd_quat.tolist(), **self._ik_options()
+        )
+
+    def _ik_options(self) -> dict:
+        return {}
 
     def after_step(self, sig: dict) -> None:
         pass
@@ -148,7 +153,8 @@ class KeyboardDevice(TeleopDevice):
         side = ("left" if self.side == "right" else "right") if flags["switch"] else self.side
         opening = float(self.knobs.get("open_width", 0.04))
         if flags["grip"]:
-            self._jaw_targets[side] = 0.0 if self._jaw_targets[side] > opening / 2 else opening
+            closing = float(self.knobs.get("close_width", 0.0))
+            self._jaw_targets[side] = closing if self._jaw_targets[side] > opening / 2 else opening
         step = self.jaw_speed * self.h.control_dt
         self._jaws[side] += float(np.clip(self._jaw_targets[side] - self._jaws[side], -step, step))
         return Command(
