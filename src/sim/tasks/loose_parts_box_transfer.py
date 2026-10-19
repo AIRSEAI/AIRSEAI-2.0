@@ -275,19 +275,29 @@ class LoosePartsBoxTransferTask(Task):
             )
         return result
 
+    def _escaped_parts(self, h):
+        box = h.scene["parts_box"].data
+        pos = box.root_pos_w[0].detach().cpu().numpy()
+        quat = box.root_quat_w[0].detach().cpu().numpy()
+        radii = {name: spec[2] for name, spec in zip(self.ball_names, self.ball_specs, strict=True)}
+        return [
+            name for name in self.loose_names
+            if part_escaped(pos, quat, _part_pose(h, name), radii.get(name, NUT_FLATS / 2))
+        ]
+
+    def after_control_step(self, h, ctx, dt):
+        escaped = self._escaped_parts(h)
+        if escaped:
+            if ctx["first_spill_object"] is None:
+                ctx["first_spill_object"] = escaped[0]
+            ctx["spilled"] = True
+
     def signals(self, h, ctx):
         box = h.scene["parts_box"].data
         pos = box.root_pos_w[0].detach().cpu().numpy().copy()
         quat = box.root_quat_w[0].detach().cpu().numpy().copy()
         rotation = _mat_from_quat(quat)
-        radii = {name: spec[2] for (name, spec) in zip(self.ball_names, self.ball_specs, strict=True)}
-        escaped_count = 0
-        for name in self.loose_names:
-            if part_escaped(pos, quat, _part_pose(h, name), radii.get(name, NUT_FLATS / 2)):
-                escaped_count += 1
-                if ctx["first_spill_object"] is None:
-                    ctx["first_spill_object"] = name
-        ctx["spilled"] |= escaped_count > 0
+        escaped_count = len(self._escaped_parts(h))
         return {
             **self._alignment(h, ctx),
             "areas": h.pad_areas(),

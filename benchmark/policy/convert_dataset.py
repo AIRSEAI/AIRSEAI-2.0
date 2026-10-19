@@ -89,7 +89,7 @@ def fast_decode_mkv(path: Path, original_channels: int, frames: int, output: Pat
     fmt = "gray16le" if single else "gbrp16le"
     with output.open("xb") as raw:
         subprocess.run(
-            ["ffmpeg", "-v", "error", "-i", str(path), "-f", "rawvideo", "-pix_fmt", fmt, "-"],
+            ["ffmpeg", "-nostdin", "-v", "error", "-i", str(path), "-f", "rawvideo", "-pix_fmt", fmt, "-"],
             stdout=raw,
             check=True,
         )
@@ -104,24 +104,23 @@ def fast_decode_mkv(path: Path, original_channels: int, frames: int, output: Pat
         raise ValueError(f"{path}: decoded byte count does not match {frames} frames")
     planes = np.memmap(output, mode="r", dtype=np.uint16, shape=(frames, 3, h, w))
 
-    # calibrate plane order against PyAV on the first frame
+    # Resolve ambiguous empty frames using subsequent frames before selecting an order.
+    candidates = list(itertools.permutations(range(3)))
     with av.open(str(path)) as c:
-        ref = None
-        for f in c.decode(c.streams.video[0]):
-            ref = f.to_ndarray(format="gbrp16le")
-            break
-    ref = np.asarray(ref).astype(np.uint16)
-    if ref.ndim == 3 and ref.shape[0] == 3:  # (3,H,W) planar
-        ref = ref.transpose(1, 2, 0)
-    order = tuple(range(3))
-    first = np.asarray(planes[0]).transpose(1, 2, 0)
-    if not np.array_equal(first, ref):
-        for perm in itertools.permutations(range(3)):
-            if np.array_equal(first[..., list(perm)], ref):
-                order = perm
+        for index, frame in enumerate(c.decode(c.streams.video[0])):
+            ref = np.asarray(frame.to_ndarray(format="gbrp16le"), dtype=np.uint16)
+            if ref.ndim == 3 and ref.shape[0] == 3:
+                ref = ref.transpose(1, 2, 0)
+            current = np.asarray(planes[index]).transpose(1, 2, 0)
+            candidates = [perm for perm in candidates if np.array_equal(current[..., list(perm)], ref)]
+            if not candidates:
+                raise RuntimeError(f"{path}: cannot align ffmpeg/PyAV plane order at frame {index}")
+            if len(candidates) == 1:
                 break
-        else:
-            raise RuntimeError(f"{path}: cannot align ffmpeg/PyAV plane order")
+    if not candidates:
+        raise RuntimeError(f"{path}: no matching channel order")
+    # Remaining orders are equivalent on every decoded frame.
+    order = candidates[0]
     return PlanarFrames(planes, order, original_channels)
 
 

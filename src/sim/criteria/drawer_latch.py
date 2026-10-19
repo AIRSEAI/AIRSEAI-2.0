@@ -74,6 +74,9 @@ def verdict(
             success_time = float(t[i])
     metrics = {
         "final_extension_m": float(x[-1]),
+        "max_extension_m": float(np.max(x)),
+        "peak_to_final_retraction_m": float(np.max(x) - x[-1]),
+        "never_pulled_5mm": bool(np.max(x) < 0.005),
         "detent_m": float(detent_m),
         "position_tolerance_m": float(position_tolerance_m),
         "released_hold_s": longest_release,
