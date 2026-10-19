@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
+import os
 
 __all__ = [
     "EpisodeWrite",
@@ -52,7 +53,11 @@ def write_json(path, value):
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_suffix(path.suffix + ".tmp")
-    temporary.write_text(json.dumps(value, indent=2, default=_plain) + "\n")
+    with temporary.open("w", encoding="utf-8") as output:
+        output.write(json.dumps(value, indent=2, default=_plain) + "\n")
+        if os.environ.get("AIRSEAI_RECORDING_DURABLE") == "1":
+            output.flush()
+            os.fsync(output.fileno())
     temporary.replace(path)
 
 
@@ -79,9 +84,19 @@ class EpisodeWrite:
             if self.recorder:
                 if self.keep:
                     self.recorder.save_episode(0, row["criterion_success"], is_intervention=self.intervention)
+                elif (getattr(self.recorder, "durable", False)
+                      and row.get("frames", 0) > 0
+                      and row.get("status") not in ("discarded", "reset")):
+                    # Interrupted fragments retain committed modalities for offline recovery.
+                    # An explicit Y/reset remains an intentional discard.
+                    self.recorder.checkpoint_recovery(terminal_reason=row.get("status"),
+                                                      frames=row.get("frames", 0))
+                    self.recorder.abort()
+                    row.update(recovery_available=True, needs_review=True)
                 else:
                     self.recorder.discard_episode()
-                self.recorder.finalize()
+                if not row.get("recovery_available"):
+                    self.recorder.finalize()
                 if self.keep:
                     annotation = dict(row, saved=True, write_status="complete", episode_index=0)
                     write_json(self.recorder.root / "meta/episode_annotations.json", [annotation])
@@ -90,6 +105,10 @@ class EpisodeWrite:
             write_json(self.folder / "result.json", row)
         except Exception as error:
             row.update(saved=False, write_status="failed", error=f"{type(error).__name__}: {error}")
+            if (self.recorder and getattr(self.recorder, "durable", False)
+                    and row.get("frames", 0) > 0
+                    and row.get("status") not in ("discarded", "reset")):
+                row.update(recovery_available=True, needs_review=True)
             if self.recorder:
                 try:
                     self.recorder.abort()

@@ -30,6 +30,7 @@ from sim.recording import EpisodeRecorder
 from sim.teleop import make_device
 from sim.video import Mp4Writer, compose_grid_frame
 from sim.xr_idle import render_completed_scene, should_render_completed_scene
+from sim.recording_health import RecordingHeartbeat
 
 CONTROL_DT = 1 / CTRL_FPS
 
@@ -115,7 +116,10 @@ class Collector:
         self.teleop = teleop
         self.xr_state_only = bool(getattr(args, "xr_state_only", False))
         if self.xr_state_only and (
-            not teleop or args.teleop_device != "vr" or args.dataset or getattr(args, "video", "")
+            not teleop
+            or args.teleop_device != "vr"
+            or args.dataset
+            or getattr(args, "video", "")
         ):
             raise ValueError("XR state-only mode requires VR teleop without dataset or video")
         self.stop_requested = lambda: False
@@ -128,9 +132,7 @@ class Collector:
             or self.write_queue_size < 1
             or self.episode_write_workers < 1
         ):
-            raise ValueError(
-                "write_mode must be sync or background; queue size and worker count must be positive"
-            )
+            raise ValueError("write_mode must be sync or background; queue size and worker count must be positive")
         if self.num_envs < 1 or (teleop and self.num_envs != 1):
             raise ValueError("Teleoperation requires exactly one environment")
         if args.seed < 0 or args.episodes < 1:
@@ -182,6 +184,11 @@ class Collector:
         if video and Path(video).expanduser().with_suffix(".frames.json").exists():
             raise FileExistsError("Video metadata already exists; choose a new video path")
         cfg = task.make_scene_cfg(knobs)
+        if teleop and args.teleop_device == "vr" and task.name == "blind_peg_insertion":
+            # Closed finger mimic constraints compete with peg contacts. Native
+            # hand-input replay needs more TGS position iterations to avoid wrist
+            # drift under a stationary target; keep gains, forces and dt intact.
+            cfg.robot.spawn.articulation_props.solver_position_iteration_count = 128
         for pad in TACTILE_SENSORS:
             getattr(cfg, pad).tactile_array_size = tuple(args.grid)
         self.env = make_env(
@@ -224,6 +231,12 @@ class Collector:
         self.video = Mp4Writer(self.video_path, CTRL_FPS) if self.video_path else None
         self.video_frames = []
         self.out.mkdir(parents=True, exist_ok=True)
+        self.durable_recording = bool(
+            self.teleop and self.args.teleop_device == "vr" and self.dataset
+            and os.environ.get("AIRSEAI_RECORDING_DURABLE") == "1"
+        )
+        self.health = RecordingHeartbeat(self.out / "heartbeat.json", enabled=self.durable_recording)
+        self.heartbeat("initializing", force=True)
         versions = {}
         for package in ("isaaclab", "isaacsim", "torch", "numpy", "lerobot"):
             try:
@@ -236,30 +249,35 @@ class Collector:
                 arguments=vars(args),
                 effective_horizon_s=self.horizon_s,
                 **(
-                    {
-                        "recording": dict(
-                            mode="xr_state_action_only",
-                            saved=[
-                                "initial_state.json",
-                                "trajectory.json:frames[].state (16D)",
-                                "trajectory.json:frames[].action (16D)",
-                                "trajectory.json:signals",
-                                "trajectory.json:frames[].xr_input",
-                                "terminal_state.json",
-                            ],
-                            omitted=[
-                                "LeRobot dataset",
-                                "RGB camera streams",
-                                "tactile RGB images",
-                                "tactile depth arrays",
-                                "tactile shear arrays",
-                            ],
-                        )
-                    }
+                    {"recording": dict(
+                        mode="xr_state_action_only",
+                        saved=[
+                            "initial_state.json",
+                            "trajectory.json:frames[].state (16D)",
+                            "trajectory.json:frames[].action (16D)",
+                            "trajectory.json:signals",
+                            "trajectory.json:frames[].xr_input",
+                            "terminal_state.json",
+                        ],
+                        omitted=[
+                            "LeRobot dataset",
+                            "RGB camera streams",
+                            "tactile RGB images",
+                            "tactile depth arrays",
+                            "tactile shear arrays",
+                        ],
+                    )}
                     if self.xr_state_only
                     else {}
                 ),
                 versions=versions,
+                physics=dict(
+                    physics_dt_s=float(self.env.physics_dt),
+                    control_dt_s=CONTROL_DT,
+                    solver_type=self.env.cfg.sim.physx.solver_type,
+                    robot_position_iterations=cfg.robot.spawn.articulation_props.solver_position_iteration_count,
+                    robot_velocity_iterations=cfg.robot.spawn.articulation_props.solver_velocity_iteration_count,
+                ),
                 python=sys.version,
                 rng="numpy.PCG64",
                 scene_stream=getattr(self, "scene_stream", "[seed, attempt_id, 0]"),
@@ -370,7 +388,10 @@ class Collector:
         write_json(attempt.folder / "initial_state.json", actual)
         self.snapshots.append((attempt.attempt_id, actual))
         if self.dataset:
-            attempt.recorder = EpisodeRecorder(h, self.task, str(attempt.folder / "raw"), disk_buffer=True)
+            attempt.recorder = EpisodeRecorder(h, self.task, str(attempt.folder / "raw"),
+                                               disk_buffer=True, durable=self.durable_recording)
+            attempt.recorder.checkpoint_recovery(task=self.task.name, attempt_id=attempt.attempt_id,
+                                                 run_seed=self.args.seed)
         if self.teleop:
             if self.controller is None:
                 self.controller = make_device(
@@ -386,8 +407,7 @@ class Collector:
                             "vr_joint_speed_deg_s": getattr(self.args, "vr_joint_speed_deg_s", 30.0),
                             "vr_position_gain": getattr(self.args, "vr_position_gain", 1.0),
                         }
-                        if self.args.teleop_device == "vr"
-                        else {}
+                        if self.args.teleop_device == "vr" else {}
                     ),
                 )
             attempt.controller = self.controller
@@ -413,6 +433,15 @@ class Collector:
                 attempt.terminal_reason = (
                     "discarded" if cmd.discard else "reset" if cmd.reset_episode else "finished"
                 )
+                if self.durable_recording and attempt.recorder:
+                    # The next render/step may fail: persist the accepted button
+                    # decision here, before returning to any GPU operation.
+                    attempt.recorder.checkpoint_recovery(
+                        decision="discard" if cmd.discard or cmd.reset_episode else "save",
+                        terminal_reason=attempt.terminal_reason,
+                        operator_finished=not (cmd.discard or cmd.reset_episode),
+                        frames=attempt.frame,
+                    )
                 return False
             if attempt.paused or not cmd.tracking_valid:
                 return False
@@ -439,8 +468,7 @@ class Collector:
                 action=h.action16_recorded(),
                 **(
                     {"xr_input": attempt.controller.diagnostics_snapshot()}
-                    if self.teleop and hasattr(attempt.controller, "diagnostics_snapshot")
-                    else {}
+                    if self.teleop and hasattr(attempt.controller, "diagnostics_snapshot") else {}
                 ),
             )
         )
@@ -475,6 +503,7 @@ class Collector:
             attempt.terminal_reason = "timeout"
 
     def finish(self, attempt):
+        self.heartbeat("saving", force=True)
         self.collect_writes()
         while self.writes.full:
             self.collect_writes(block=True)
@@ -510,6 +539,18 @@ class Collector:
                 or getattr(self.args, "keep_unclean", False)
             )
         )
+        if self.durable_recording:
+            # Persist the user's keep/discard intent BEFORE any GPU terminal read.
+            write_json(attempt.folder / "write_intent.json", dict(row=row, keep=keep))
+            if attempt.recorder:
+                decision = "discard" if attempt.terminal_reason in ("discarded", "reset") else "save" if keep else None
+                attempt.recorder.checkpoint_recovery(
+                    decision=decision,
+                    scalars={"is_success": int(row["criterion_success"]),
+                             "is_intervention": int(self.teleop), "control_mode": int(self.teleop)},
+                    terminal_reason=attempt.terminal_reason, frames=attempt.frame,
+                    criterion_success=bool(row["criterion_success"]), intended_keep=bool(keep),
+                )
         terminal = snapshot_slot(self.env, attempt.env_id, self.task.init_state_objects())
         observation = None
         if attempt.recorder:
@@ -536,7 +577,9 @@ class Collector:
         self.report("running")
 
     def collect_writes(self, *, block=False, drain=False, raise_errors=True):
-        rows = self.writes.collect(block=block, drain=drain)
+        rows = self.health.run_io("saving", lambda: self.writes.collect(block=block, drain=drain)) if (
+            block or drain
+        ) else self.writes.collect()
         self.reports.extend(rows)
         failed = [row for row in rows if row.get("write_status") == "failed"]
         if failed and raise_errors:
@@ -592,6 +635,7 @@ class Collector:
         try:
             self.report("running")
             while not self.stop_requested() and self.app.is_running():
+                self.heartbeat()
                 self.collect_writes()
                 self.schedule()
                 if not any(self.active):
@@ -646,9 +690,9 @@ class Collector:
             self.collect_writes(drain=True)
             kept = self.saved_rows()
             if kept and self.dataset:
-                merge_recordings(
+                self.health.run_io("merging", lambda: merge_recordings(
                     [self.out / "attempts" / f"{r['attempt_id']:06d}" / "raw" for r in kept], self.dataset
-                )
+                ))
                 for index, row in enumerate(kept):
                     row["dataset_episode_index"] = index
                     write_json(self.out / "attempts" / f"{row['attempt_id']:06d}" / "result.json", row)
@@ -669,6 +713,15 @@ class Collector:
                 )
             self.close_recorders()
             self.report(status)
+            if self.durable_recording and any(row.get("recovery_available") for row in self.reports):
+                from sim.collection_recovery import recover_session
+
+                recovery_session = (self.dataset.parent if self.dataset and self.out == self.dataset / "run"
+                                    else self.out.parent)
+                self.health.run_io("recovering", lambda: recover_session(
+                    recovery_session, report_dir=self.out, dataset_dir=self.dataset
+                ))
+            self.heartbeat("complete", force=True)
             if should_render_completed_scene(
                 status=status,
                 teleop=self.teleop,
@@ -735,6 +788,17 @@ class Collector:
                 errors.append(error)
         if errors:
             raise ExceptionGroup("Recording cleanup failed", errors)
+
+    def heartbeat(self, phase=None, *, force=False):
+        attempt = next((a for a in self.active if a is not None), None)
+        if phase is None:
+            phase = "idle" if attempt is None else (
+                attempt.mode if attempt.mode != "running" else "paused" if attempt.paused else "recording"
+            )
+        self.health.emit(phase, force=force, tick=self.tick,
+                         active_attempt_id=attempt.attempt_id if attempt else None,
+                         frames=attempt.frame if attempt else 0)
+
 
 
 def run_collection(args, task, knobs, app, *, teleop=False):

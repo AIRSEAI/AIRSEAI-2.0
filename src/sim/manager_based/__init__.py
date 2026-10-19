@@ -18,6 +18,7 @@ def make_env(task, **kwargs):
 
     xr_state_only = bool(kwargs.get("xr_state_only", False))
     cfg = make_env_cfg(task, **kwargs)
+    cfg.wait_for_textures = False
     env = ManagerBasedEnv(cfg)
     if not xr_state_only:
         # Capture optical zero-contact references before any task motion/restore.

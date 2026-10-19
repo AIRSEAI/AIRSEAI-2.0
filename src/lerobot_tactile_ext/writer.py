@@ -103,6 +103,7 @@ class LeRobotTactileWriter:
         robot_type: str = "openarm_bimanual_tactile",
         *,
         disk_buffer=False,
+        durable=False,
     ):
         """`task` is the natural-language instruction stored in
         meta/tasks.parquet and handed to a language-conditioned policy."""
@@ -112,6 +113,10 @@ class LeRobotTactileWriter:
         self.task = task
         self.robot_type = robot_type
         self.disk_buffer = disk_buffer
+        self.durable = durable
+        self._durable_failed = False
+        if durable and not disk_buffer:
+            raise ValueError("durable=True requires disk_buffer=True")
         self._episode = 0
         self._total_frames = 0
         self._buffers: dict[str, list] = {}
@@ -123,12 +128,28 @@ class LeRobotTactileWriter:
         if self.root.exists() and any(self.root.iterdir()):
             raise FileExistsError(f"{self.root} exists and is not empty")
         (self.root / "meta").mkdir(parents=True, exist_ok=True)
+        self._spool = None
+        if durable:
+            from .recovery import DurableSpool
+
+            self._spool = DurableSpool(self.root, fps, features, task, robot_type)
 
     # ------------------------------------------------------------------
     def _frame_keys(self):
         return [k for k, s in self.features.items() if s["dtype"] != "int64"]
 
     def add_frame(self, frame: dict) -> None:
+        if self._spool is not None:
+            self._check_durable()
+            try:
+                self._spool.append(frame)
+            except BaseException:
+                # A failure after publication but before count metadata is
+                # written must never permit finalize to delete that raw frame.
+                self._durable_failed = True
+                raise
+            self._buffers = {key: self._spool.frames(key) for key in self._frame_keys()}
+            return
         for key in self._frame_keys():
             if key not in frame:
                 raise KeyError(f"frame missing feature {key!r}")
@@ -142,8 +163,10 @@ class LeRobotTactileWriter:
         reach them in `save_episode` -- so this is a buffer clear, and the
         episode index is not consumed."""
         n = len(next(iter(self._buffers.values()), []))
+        if self._spool is not None:
+            self._spool.discard()
         self._buffers.clear()
-        if self.disk_buffer:
+        if self.disk_buffer and not self.durable:
             shutil.rmtree(self.root / ".pending", ignore_errors=True)
         return n
 
@@ -162,78 +185,24 @@ class LeRobotTactileWriter:
     def save_episode(self, scalars: dict | None = None) -> dict:
         """Close out the buffered episode. `scalars` supplies the int64
         per-episode constants declared in features (e.g. is_success)."""
-        ep = self._episode
-        n = len(next(iter(self._buffers.values())))
-        row: dict = {
-            "episode_index": ep,
-            "tasks": [self.task],
-            "length": n,
-            "data/chunk_index": 0,
-            "data/file_index": 0,
-            "dataset_from_index": self._total_frames,
-            "dataset_to_index": self._total_frames + n,
-        }
-        stats = {"episode_index": ep, "length": n, "saturated": 0}
-        ep_stats: dict[str, dict] = {}
-
-        for key, spec in self.features.items():
-            if spec["dtype"] == "int64":
-                if scalars is None or key not in scalars:
-                    raise KeyError(f"save_episode needs int64 scalar {key!r}")
-                col = np.full(n, int(scalars[key]), dtype=np.int64)
-                self._data_cols.setdefault(key, []).append(col)
-                ep_stats[key] = _vector_stats(col)
-                continue
-            if spec["dtype"] == "video" or spec["dtype"] == "data":
-                stream = self._stream_for(key, spec)
-                t0 = self._stream_frames[key]
-                if spec["dtype"] == "video":
-                    for f in self._buffers[key]:
-                        stream.add(f)
-                    ep_stats[key] = _image_stats(self._buffers[key])
-                else:
-                    prof: QuantProfile = spec["profile"]
-                    for frame in self._buffers[key]:
-                        u16, sat = quantize(frame, prof)
-                        stats["saturated"] += sat
-                        stream.add(u16)
-                self._stream_frames[key] += n
-                row[f"videos/{key}/chunk_index"] = 0
-                row[f"videos/{key}/file_index"] = 0
-                row[f"videos/{key}/from_timestamp"] = t0 / self.fps
-                row[f"videos/{key}/to_timestamp"] = (t0 + n) / self.fps
-                continue
-            # float32 vectors -> aggregated parquet
-            arr = np.stack(list(self._buffers[key])).astype(np.float32)
-            self._data_cols.setdefault(key, []).append(arr)
-            ep_stats[key] = _vector_stats(arr)
-
-        # bookkeeping columns
-        book = {
-            "timestamp": (np.arange(n) / self.fps).astype(np.float32),
-            "frame_index": np.arange(n, dtype=np.int64),
-            "episode_index": np.full(n, ep, dtype=np.int64),
-            "index": np.arange(self._total_frames, self._total_frames + n, dtype=np.int64),
-            "task_index": np.zeros(n, dtype=np.int64),
-        }
-        for k, v in book.items():
-            self._data_cols.setdefault(k, []).append(v)
-            ep_stats[k] = _vector_stats(v)
-
-        for feat, st in ep_stats.items():
-            for sname, val in st.items():
-                row[f"stats/{feat}/{sname}"] = np.asarray(val)
-        row["meta/episodes/chunk_index"] = 0
-        row["meta/episodes/file_index"] = 0
-
-        self._episode_rows.append(row)
-        self._saturation_total += stats["saturated"]
-        self._total_frames += n
-        self._buffers = {}
-        if self.disk_buffer:
-            shutil.rmtree(self.root / ".pending")
-        self._episode += 1
-        return stats
+        if self._spool is None:
+            return self._save_episode(scalars)
+        self._check_durable()
+        if not self._buffers:
+            raise ValueError("Cannot save an empty episode")
+        self._spool.set_decision("save", scalars)
+        self._spool.set_status("encoding")
+        try:
+            result = self._save_episode(scalars)
+            self._spool.saved(scalars)
+            return result
+        except BaseException as error:
+            self._durable_failed = True
+            try:
+                self._spool.set_status("encoding_failed")
+            except Exception as journal_error:
+                error.add_note(f"Could not persist failure status: {journal_error}")
+            raise
 
     # ------------------------------------------------------------------
     def _aggregate_stats(self) -> dict:
@@ -273,6 +242,13 @@ class LeRobotTactileWriter:
     def abort(self) -> None:
         """Close every encoder while retaining pending data for inspection."""
         errors = []
+        if self._spool is not None:
+            self._durable_failed = True
+            try:
+                if not self._spool.closed:
+                    self._spool.abort()
+            except Exception as error:
+                errors.append(error)
         for stream in self._streams.values():
             try:
                 stream.abort()
@@ -283,6 +259,25 @@ class LeRobotTactileWriter:
             raise ExceptionGroup("Encoder cleanup failed", errors)
 
     def finalize(self) -> dict:
+        if self._spool is None:
+            return self._finalize()
+        self._check_durable()
+        if self._buffers:
+            raise RuntimeError("Save or discard pending frames before finalize")
+        try:
+            self._spool.session_status("finalizing")
+            result = self._finalize()
+            self._spool.complete()
+            return result
+        except BaseException as error:
+            self._durable_failed = True
+            try:
+                self._spool.session_status("finalization_failed")
+            except Exception as journal_error:
+                error.add_note(f"Could not persist failure status: {journal_error}")
+            raise
+
+    def _finalize(self) -> dict:
         import pyarrow as pa
         import pyarrow.parquet as pq
 
@@ -392,3 +387,101 @@ class LeRobotTactileWriter:
             "saturated_total": self._saturation_total,
             "streams": stream_stats,
         }
+
+
+    def _save_episode(self, scalars: dict | None = None) -> dict:
+        ep = self._episode
+        n = len(next(iter(self._buffers.values())))
+        row: dict = {
+            "episode_index": ep,
+            "tasks": [self.task],
+            "length": n,
+            "data/chunk_index": 0,
+            "data/file_index": 0,
+            "dataset_from_index": self._total_frames,
+            "dataset_to_index": self._total_frames + n,
+        }
+        stats = {"episode_index": ep, "length": n, "saturated": 0}
+        ep_stats: dict[str, dict] = {}
+
+        for key, spec in self.features.items():
+            if spec["dtype"] == "int64":
+                if scalars is None or key not in scalars:
+                    raise KeyError(f"save_episode needs int64 scalar {key!r}")
+                col = np.full(n, int(scalars[key]), dtype=np.int64)
+                self._data_cols.setdefault(key, []).append(col)
+                ep_stats[key] = _vector_stats(col)
+                continue
+            if spec["dtype"] == "video" or spec["dtype"] == "data":
+                stream = self._stream_for(key, spec)
+                t0 = self._stream_frames[key]
+                if spec["dtype"] == "video":
+                    for f in self._buffers[key]:
+                        stream.add(f)
+                    ep_stats[key] = _image_stats(self._buffers[key])
+                else:
+                    prof: QuantProfile = spec["profile"]
+                    for frame in self._buffers[key]:
+                        u16, sat = quantize(frame, prof)
+                        stats["saturated"] += sat
+                        stream.add(u16)
+                self._stream_frames[key] += n
+                row[f"videos/{key}/chunk_index"] = 0
+                row[f"videos/{key}/file_index"] = 0
+                row[f"videos/{key}/from_timestamp"] = t0 / self.fps
+                row[f"videos/{key}/to_timestamp"] = (t0 + n) / self.fps
+                continue
+            # float32 vectors -> aggregated parquet
+            arr = np.stack(list(self._buffers[key])).astype(np.float32)
+            self._data_cols.setdefault(key, []).append(arr)
+            ep_stats[key] = _vector_stats(arr)
+
+        # bookkeeping columns
+        book = {
+            "timestamp": (np.arange(n) / self.fps).astype(np.float32),
+            "frame_index": np.arange(n, dtype=np.int64),
+            "episode_index": np.full(n, ep, dtype=np.int64),
+            "index": np.arange(self._total_frames, self._total_frames + n, dtype=np.int64),
+            "task_index": np.zeros(n, dtype=np.int64),
+        }
+        for k, v in book.items():
+            self._data_cols.setdefault(k, []).append(v)
+            ep_stats[k] = _vector_stats(v)
+
+        for feat, st in ep_stats.items():
+            for sname, val in st.items():
+                row[f"stats/{feat}/{sname}"] = np.asarray(val)
+        row["meta/episodes/chunk_index"] = 0
+        row["meta/episodes/file_index"] = 0
+
+        self._episode_rows.append(row)
+        self._saturation_total += stats["saturated"]
+        self._total_frames += n
+        self._buffers = {}
+        if self.disk_buffer and not self.durable:
+            shutil.rmtree(self.root / ".pending")
+        self._episode += 1
+        return stats
+
+
+    def _check_durable(self):
+        if self._durable_failed:
+            raise RuntimeError("Durable writer failed; abort and recover into a new directory")
+        if self._spool is not None:
+            self._spool.check_open()
+
+
+    def set_recovery_decision(self, decision: str, scalars: dict | None = None) -> None:
+        """Persist ``save`` or irreversible ``discard`` before GPU finish work.
+
+        A save decision is intent, never evidence of a complete/successful episode.
+        Discarded frames cannot become recovery candidates, even after a crash.
+        """
+        if self._spool is not None:
+            self._spool.set_decision(decision, scalars)
+
+
+    def set_recovery_context(self, **context) -> None:
+        """Persist JSON context before GPU capture/finish; durable mode only."""
+        if self._spool is not None:
+            self._spool.set_context(context)

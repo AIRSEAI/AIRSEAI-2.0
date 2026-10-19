@@ -18,6 +18,10 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# Controller-only position-priority IK; Isaac/OpenXR are supplied by the runtime.
+vr = [
+    "scipy>=1.11,<2",
+]
 # Lossless uint16 tactile codec: ffv1/mkv encode-decode plus quantization specs.
 codec = [
     "av>=12.0",

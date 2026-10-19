@@ -153,7 +153,8 @@ class KeyboardDevice(TeleopDevice):
         side = ("left" if self.side == "right" else "right") if flags["switch"] else self.side
         opening = float(self.knobs.get("open_width", 0.04))
         if flags["grip"]:
-            self._jaw_targets[side] = 0.0 if self._jaw_targets[side] > opening / 2 else opening
+            closing = float(self.knobs.get("close_width", 0.0))
+            self._jaw_targets[side] = closing if self._jaw_targets[side] > opening / 2 else opening
         step = self.jaw_speed * self.h.control_dt
         self._jaws[side] += float(np.clip(self._jaw_targets[side] - self._jaws[side], -step, step))
         return Command(
