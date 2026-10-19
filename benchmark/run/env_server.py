@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
 """Serve a task through a localhost socket in the AIRSEAI Python environment.
 
 The client and server use the same Python 3.11 environment, including the

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 NUM_EPISODES: 10
 FPS: 20
 EPISODE_TIME_SEC: 30

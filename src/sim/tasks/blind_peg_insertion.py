@@ -1,4 +1,5 @@
-"""Tactile-guided blind peg insertion expert.
+# SPDX-License-Identifier: Apache-2.0
+"""blind_peg_insertion expert.
 
 Search for the hole, retry stalled insertion with a seating sweep, and release
 only after the peg is captured.

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Sustained stack completion. Reads object_pos cube_a and cube_b."""
 
 from __future__ import annotations

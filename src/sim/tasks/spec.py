@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """The `Task` interface: one object that defines a task's episode for both
 the expert runner and the evaluator.
 

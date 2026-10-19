@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """cap_unscrew scene: a capped bottle standing free to spin at the centreline,
 and a tray beside it for the cap.
 

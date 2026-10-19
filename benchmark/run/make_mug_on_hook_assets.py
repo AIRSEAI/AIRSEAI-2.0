@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
 """Generate mug_on_hook USD assets: mug and rail.
 
 python benchmark/run/make_mug_on_hook_assets.py --headless

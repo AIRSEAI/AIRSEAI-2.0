@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
 """Generate the two rigid bodies of the tool drawer.
 
 python benchmark/run/make_drawer_latch_assets.py --headless

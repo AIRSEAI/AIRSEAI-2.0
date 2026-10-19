@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Native batched mug_on_hook scene and per-environment contacts."""
 
 from sim.envs import mug_on_hook as scene

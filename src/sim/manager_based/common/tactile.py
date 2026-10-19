@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Batched TacSL contact views with independently selected targets per slot."""
 
 import torch

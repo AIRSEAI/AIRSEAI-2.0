@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Encode RGB videos and lossless uint16 tactile streams for LeRobot datasets.
 
 Two-channel tactile fields use three stored planes and retain their original

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """float field (mm) <-> uint16, per named, frozen profile.
 
 Two profiles exist and neither may drift:

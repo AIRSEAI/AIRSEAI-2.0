@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
 """Generate cap_unscrew USD assets: bottle, cap and tray.
 
 python benchmark/run/make_cap_unscrew_assets.py --headless

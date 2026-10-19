@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """cap_unscrew dimensions: the bottle, its screw cap, and the tray.
 
 After editing, regenerate the assets::

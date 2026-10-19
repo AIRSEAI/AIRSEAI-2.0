@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
 """Run a task's scripted expert and, optionally, record a LeRobot v3 dataset.
 
     python benchmark/tasks/run_expert.py --task blind_peg_insertion \\

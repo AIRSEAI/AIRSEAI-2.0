@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
 """Loads a lerobot checkpoint and serves `select_action` over a localhost
 TCP socket.
 

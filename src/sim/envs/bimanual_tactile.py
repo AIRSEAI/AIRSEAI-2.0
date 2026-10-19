@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Robot layer: a bimanual OpenArm with four tactile pads, and nothing else.
 
 Layering::

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """A wooden tray carrying three glass tumblers to a placemat."""
 
 from __future__ import annotations

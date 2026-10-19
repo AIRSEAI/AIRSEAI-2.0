@@ -1,3 +1,4 @@
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 # AIRSEAI 2.0
 
 An open-source embodied-AI platform: a dual-arm manipulator with vision-based tactile sensors, one
@@ -9,6 +10,8 @@ scripted expert per task, LeRobot v3 datasets with tactile channels, training fo
 **On the real robot.** The same arms, the same recorded keys, collected by leader-follower
 teleoperation. Sim and real do not line up everywhere, and quantifying where they part is why the
 benchmark exists.
+
+![AIRSEAI 2.0 introduction](docs/media/airseai_2.0_intro.webp)
 
 ## The tasks
 

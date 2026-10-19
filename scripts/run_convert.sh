@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: Apache-2.0
 # Convert one or more compatible recordings into LeRobot input variants.
 set -euo pipefail
 [ "$#" -gt 0 ] || { echo "usage: run_convert.sh <raw_dataset_dir> [...]" >&2; exit 64; }

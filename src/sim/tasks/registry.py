@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """The task registry: the one place a task is registered.
 
 Read by the expert runner, the evaluator, the dataset collector, the

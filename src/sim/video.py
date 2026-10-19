@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Write RGB videos and compose fixed-camera review grids."""
 
 from __future__ import annotations

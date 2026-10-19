@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Register AIRSEAI tasks as Gym environments backed by an Isaac Sim subprocess.
 
 import gym_airseai

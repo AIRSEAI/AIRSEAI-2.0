@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Tactile support code on top of TacSL, without modifying it.
 
 Holds the geometry the envs, experts and criteria need around TacSL's tactile

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """How lerobot builds and reads an AIRSEAI environment."""
 
 from __future__ import annotations

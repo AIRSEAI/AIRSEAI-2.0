@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Save and restore frozen robot, object and task states.
 
 Robot states include measured joint positions and controller targets;

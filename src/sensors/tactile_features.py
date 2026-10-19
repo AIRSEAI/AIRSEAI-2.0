@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Physical tactile fields and their LeRobot dataset schema."""
 
 import numpy as np

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """The Isaac-side plumbing every runner needs, defined once.
 
 Scene bring-up, both arms' IK chains, the 16-dim named state/action mapping,

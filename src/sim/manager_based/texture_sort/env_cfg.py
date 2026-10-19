@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """texture_sort uses the shared native-batch environment configuration."""
 
 from sim.envs import texture_sort as scene

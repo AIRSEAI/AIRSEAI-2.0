@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
 """Record keyboard, VR or scripted demonstrations with success labels.
 
     python benchmark/teleop/run_teleop.py --task stack_cube --episodes 5 \

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """mug_on_hook dimensions: the mug and its handle, and the rail's peg.
 
 After editing, regenerate the assets::
