@@ -17,6 +17,7 @@ import os
 
 from isaaclab.app import AppLauncher
 
+from sim.environment import add_environment_argument, select_environment
 from sim.tasks.registry import TASKS
 
 VARIANTS = ("vision", "tacff", "tacrgb")
@@ -33,8 +34,10 @@ parser.add_argument("--grid", type=int, nargs=2, default=(288, 384))
 parser.add_argument(
     "--scene_cam", action="store_true", help="also spawn the third-person camera, for render()"
 )
+add_environment_argument(parser)
 AppLauncher.add_app_launcher_args(parser)
 _known, _rest = parser.parse_known_args()
+select_environment(_known)
 app_launcher = AppLauncher(_known)
 simulation_app = app_launcher.app
 

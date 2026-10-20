@@ -23,6 +23,14 @@ from isaaclab.sensors import TiledCamera, TiledCameraCfg
 from isaaclab.utils.math import quat_from_angle_axis, quat_mul, subtract_frame_transforms
 
 from sim.assets.provision import ensure_robot_asset
+from sim.environment import (
+    CAMERA_PATHS,
+    Calibration,
+    apply_stage,
+    camera_size,
+    contact_transform,
+    load_environment,
+)
 from sim.envs.bimanual_tactile import SENSOR_FEATURE_NAME, TACTILE_SENSORS
 from sim.physx_settings import small_scene_physx_cfg
 from sim.tactile import contact_area, taxel_pitch
@@ -94,6 +102,7 @@ class Harness:
         robot_usd: str = "",
         scene_cam: tuple | None = None,
         cameras: bool = True,
+        environment_yaml: str | None = None,
     ):
         """`cfg` is a fully-configured scene cfg (knobs already applied).
         `scene_cam=(eye, target)` adds a third-person debug camera.
@@ -102,6 +111,10 @@ class Harness:
         and physics; without cameras this class does not depend on the RTX
         renderer."""
         self.device = device
+        self.environment_spec = load_environment(environment_yaml)
+        self.calibration = None
+        if self.environment_spec and self.environment_spec["cameras"] and not cameras:
+            raise ValueError("Environment YAML defines cameras but cameras=False")
         self.rows, self.cols = grid
         self.sim = sim_utils.SimulationContext(
             sim_utils.SimulationCfg(dt=DT, device=device, physx=small_scene_physx_cfg())
@@ -111,25 +124,25 @@ class Harness:
             getattr(cfg, pad).tactile_array_size = (self.rows, self.cols)
         self.cfg = cfg
         self.scene = InteractiveScene(cfg)
+        if self.environment_spec:
+            import omni.usd
+
+            changes = apply_stage(omni.usd.get_context().get_stage(),
+                                  ["/World/envs/env_0/Robot"], self.environment_spec)
+            self.calibration = Calibration(self.environment_spec, changes)
 
         # Dataset cameras: the head camera is the `base` stream; the two D405s
         # ride the hand links. All are prims welded in by the asset builder.
         self.cams: dict[str, TiledCamera] = {}
-        for key, prim in (
-            ()
-            if not cameras
-            else (
-                ("base", "openarm_body_link/head_camera/camera"),
-                ("left_wrist", "openarm_left_hand/wrist_camera/camera"),
-                ("right_wrist", "openarm_right_hand/wrist_camera/camera"),
-            )
-        ):
+        for key, prim in (CAMERA_PATHS.items() if cameras else ()):
+            width, height = camera_size(self.environment_spec, key)
             self.cams[key] = TiledCamera(
                 TiledCameraCfg(
                     prim_path=f"/World/envs/env_0/Robot/{prim}",
                     offset=TiledCameraCfg.OffsetCfg(convention="opengl"),
-                    width=640,
-                    height=480,
+                    width=width,
+                    height=height,
+                    update_latest_camera_pose=bool(self.environment_spec),
                     data_types=["rgb"],
                     spawn=None,
                 )
@@ -143,6 +156,7 @@ class Harness:
                     offset=TiledCameraCfg.OffsetCfg(pos=eye, rot=look_at(eye, target), convention="opengl"),
                     width=960,
                     height=720,
+                    update_latest_camera_pose=bool(self.environment_spec),
                     data_types=["rgb"],
                     spawn=sim_utils.PinholeCameraCfg(),
                 )
@@ -162,6 +176,14 @@ class Harness:
     def start(self) -> None:
         self.sim.reset()
         self._bind_scene()
+        if self.calibration:
+            self.calibration.bind(self.cams)
+
+    def contact_transform(self, name, relative_to="openarm_body_link0"):
+        """Current T_reference_from_contact, from YAML and live robot FK."""
+        if not self.environment_spec:
+            raise ValueError("Load environment YAML before querying contact frames")
+        return contact_transform(self.robot, self.environment_spec, name, relative_to)
 
     def _bind_scene(self) -> None:
         """Bind controllers to an already initialized scene."""
@@ -550,11 +572,13 @@ class Harness:
 
     def cam_rgb(self, key: str) -> np.ndarray:
         cam = self.scene_cam if key == "scene" else self.cams[key]
-        return cam.data.output["rgb"][0, ..., :3].detach().cpu().numpy().astype(np.uint8)
+        image = cam.data.output["rgb"][0, ..., :3].detach().cpu().numpy().astype(np.uint8)
+        return self.calibration.rgb(key, image, getattr(self, "slot", 0)) if self.calibration else image
 
     def image_batch(self, key: str) -> torch.Tensor:
         """(1,3,H,W) float32 in [0,1] on device."""
-        rgb = self.cams[key].data.output["rgb"][0, ..., :3]
+        rgb = (torch.as_tensor(self.cam_rgb(key), device=self.device) if self.calibration
+               else self.cams[key].data.output["rgb"][0, ..., :3])
         return (rgb.permute(2, 0, 1).unsqueeze(0).float() / 255.0).to(self.device)
 
     def tactile_raw(self, pad: str):

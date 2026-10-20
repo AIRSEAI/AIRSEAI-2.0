@@ -1,0 +1,264 @@
+{
+  "asset_family": "official NVIDIA GelSight R1.5, AIRSEAI default graft",
+  "definition": "front visual mesh central XZ line intersection, minimum Y",
+  "units": "m",
+  "status": "asset_geometry_derived_not_real_calibration",
+  "hardware_access": false,
+  "layers": {
+    "C:/Users/zhongyuxuan/Desktop/airship/SimHarness/experiments/airseai-official-four-fingers-20261020/assets/gelsight/configuration/gelsight_r15_finger_robot.usd": "10b78cc44126d2944b32fe4dab329f5b316bedaccdd2405a0dae5761420df149",
+    "C:/Users/zhongyuxuan/Desktop/airship/SimHarness/experiments/airseai-official-four-fingers-20261020/assets/gelsight/configuration/gelsight_r15_finger_base.usd": "7f751764e9653020606973d78992465951425bf333b853b4e61379cfc4beb9bb",
+    "C:/Users/zhongyuxuan/Desktop/airship/SimHarness/experiments/airseai-official-four-fingers-20261020/assets/configuration/openarm_bimanual_physics.usd": "db2cf98b145655632e23961c914bf1f202b1519738a555bb0f10433d41e06a45",
+    "C:/Users/zhongyuxuan/Desktop/airship/SimHarness/experiments/airseai-official-four-fingers-20261020/assets/configuration/openarm_bimanual_sensor.usd": "be7bed93ad1d4950223434004ffba28637f3bafaa47a746cafd4fd71ab60a8f0",
+    "C:/Users/zhongyuxuan/Desktop/airship/SimHarness/experiments/airseai-official-four-fingers-20261020/assets/gelsight/gelsight_r15_finger.usd": "92139f53c8cff8d70ee7668dddc4912b6b15b549cf2eaacf0f85e635ae93aa43",
+    "C:/Users/zhongyuxuan/Desktop/airship/SimHarness/experiments/airseai-official-four-fingers-20261020/assets/gelsight/configuration/gelsight_r15_finger_sensor.usd": "3e63aa6b44df45cf624f66aaa07db98caf29469328b7ed810106c7ef3bef7271",
+    "C:/Users/zhongyuxuan/Desktop/airship/SimHarness/experiments/airseai-official-four-fingers-20261020/assets/configuration/openarm_bimanual_base.usd": "55d129950a453f859f1e795ab06b2c2d810f71e66051ca6d4f57ef0f0e887532",
+    "C:/Users/zhongyuxuan/Desktop/airship/SimHarness/experiments/airseai-official-four-fingers-20261020/assets/official-local.usda": "b4289c61c46858f89c9f8a5022fce717b1615b00bf70373c3e6b20785f46b982",
+    "C:/Users/zhongyuxuan/Desktop/airship/SimHarness/experiments/airseai-official-four-fingers-20261020/assets/gelsight/configuration/gelsight_r15_finger_physics.usd": "5d8b0b54169d5b5133da6fb015b6e88f1d85002af90e01bfdbb79de537ee0efd"
+  },
+  "fingertips": {
+    "right_hand_right_finger": {
+      "parent_frame": "openarm_right_right_finger",
+      "T_parent_from_child": [
+        [
+          -1.0,
+          0.0,
+          0.0,
+          -5.00120222568512e-07
+        ],
+        [
+          0.0,
+          3.5762786863933493e-06,
+          0.9999999999936051,
+          0.008058268949423658
+        ],
+        [
+          0.0,
+          0.9999999999936051,
+          -3.5762786863933493e-06,
+          0.07800000259889552
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "mesh": "/openarm/openarm_right_right_finger_tactile/elastomer/visuals/gelsight_r15_finger_gelpad_front_only_rot_z/mesh",
+      "mesh_centre_m": [
+        5.00120222568512e-07,
+        -0.002561989999639606,
+        0.06776000000536442
+      ],
+      "T_asset_world_from_contact": [
+        [
+          -1.0,
+          0.0,
+          0.0,
+          -5.00120222568512e-07
+        ],
+        [
+          0.0,
+          0.0,
+          -1.0,
+          -0.15655601851639472
+        ],
+        [
+          0.0,
+          -1.0,
+          0.0,
+          0.06889950483500956
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ]
+    },
+    "right_hand_left_finger": {
+      "parent_frame": "openarm_right_left_finger",
+      "T_parent_from_child": [
+        [
+          1.0,
+          0.0,
+          0.0,
+          5.00120222568512e-07
+        ],
+        [
+          0.0,
+          3.5762786863933493e-06,
+          -0.9999999999936051,
+          -0.008057711049830468
+        ],
+        [
+          0.0,
+          0.9999999999936051,
+          3.5762786863933493e-06,
+          0.0780000304318089
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "mesh": "/openarm/openarm_right_left_finger_tactile/elastomer/visuals/gelsight_r15_finger_gelpad_front_only_rot_z/mesh",
+      "mesh_centre_m": [
+        5.00120222568512e-07,
+        -0.002561989999639606,
+        0.06776000000536442
+      ],
+      "T_asset_world_from_contact": [
+        [
+          1.0,
+          0.0,
+          0.0,
+          5.00120222568512e-07
+        ],
+        [
+          0.0,
+          0.0,
+          1.0,
+          -0.15044004388156212
+        ],
+        [
+          0.0,
+          -1.0,
+          0.0,
+          0.06889950483500956
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ]
+    },
+    "left_hand_right_finger": {
+      "parent_frame": "openarm_left_right_finger",
+      "T_parent_from_child": [
+        [
+          -1.0,
+          0.0,
+          0.0,
+          -5.00120222568512e-07
+        ],
+        [
+          0.0,
+          -3.5762786863933493e-06,
+          0.9999999999936051,
+          0.008057711049830468
+        ],
+        [
+          0.0,
+          0.9999999999936051,
+          3.5762786863933493e-06,
+          0.0780000304318089
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "mesh": "/openarm/openarm_left_right_finger_tactile/elastomer/visuals/gelsight_r15_finger_gelpad_front_only_rot_z/mesh",
+      "mesh_centre_m": [
+        5.00120222568512e-07,
+        -0.002561989999639606,
+        0.06776000000536442
+      ],
+      "T_asset_world_from_contact": [
+        [
+          -1.0,
+          0.0,
+          0.0,
+          -5.00120222568512e-07
+        ],
+        [
+          0.0,
+          0.0,
+          -1.0,
+          0.15044004388156212
+        ],
+        [
+          0.0,
+          -1.0,
+          0.0,
+          0.06889950483500956
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ]
+    },
+    "left_hand_left_finger": {
+      "parent_frame": "openarm_left_left_finger",
+      "T_parent_from_child": [
+        [
+          1.0,
+          0.0,
+          0.0,
+          5.00120222568512e-07
+        ],
+        [
+          0.0,
+          -3.5762786863933493e-06,
+          -0.9999999999936051,
+          -0.008058268949423658
+        ],
+        [
+          0.0,
+          0.9999999999936051,
+          -3.5762786863933493e-06,
+          0.07800000259889552
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "mesh": "/openarm/openarm_left_left_finger_tactile/elastomer/visuals/gelsight_r15_finger_gelpad_front_only_rot_z/mesh",
+      "mesh_centre_m": [
+        5.00120222568512e-07,
+        -0.002561989999639606,
+        0.06776000000536442
+      ],
+      "T_asset_world_from_contact": [
+        [
+          1.0,
+          0.0,
+          0.0,
+          5.00120222568512e-07
+        ],
+        [
+          0.0,
+          0.0,
+          1.0,
+          0.15655601851639472
+        ],
+        [
+          0.0,
+          -1.0,
+          0.0,
+          0.06889950483500956
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ]
+    }
+  }
+}

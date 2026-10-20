@@ -22,6 +22,7 @@ from pathlib import Path
 from isaaclab.app import AppLauncher
 
 from sim.collection_io import add_write_arguments
+from sim.environment import add_environment_argument, select_environment
 from sim.runtime import install_error_handler
 from sim.tasks.registry import TASKS as TASK_IDS
 
@@ -58,8 +59,10 @@ parser.add_argument(
     help="include derived tactile preview streams",
 )
 add_write_arguments(parser)
+add_environment_argument(parser)
 AppLauncher.add_app_launcher_args(parser)
 _known, _rest = parser.parse_known_args()
+select_environment(_known)
 if _known.write_queue_size < 1:
     parser.error("write_queue_size must be positive")
 if _known.episode_write_workers < 1:

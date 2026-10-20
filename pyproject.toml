@@ -18,6 +18,11 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# Optional environment YAML and SDK-compatible RGB remapping (no RealSense hardware needed).
+environment = [
+    "PyYAML>=6.0,<7",
+    "opencv-python-headless==4.11.0.86",
+]
 # Lossless uint16 tactile codec: ffv1/mkv encode-decode plus quantization specs.
 codec = [
     "av>=12.0",

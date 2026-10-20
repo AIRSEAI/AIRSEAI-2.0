@@ -85,6 +85,8 @@ class SlotHarness(Harness):
 
     def __init__(self, env, slot, grid):
         self.env, self.slot = env, slot
+        self.calibration = env.calibration
+        self.environment_spec = getattr(env, "environment_spec", None)
         self.env_path = f"/World/envs/env_{slot}"
         self.sim, self.device = env.sim, env.device
         self.rows, self.cols = grid

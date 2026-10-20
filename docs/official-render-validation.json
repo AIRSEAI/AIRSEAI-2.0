@@ -1,0 +1,822 @@
+{
+  "isaac_kit_executed": true,
+  "hardware_access": false,
+  "asset": "/home/yuxuan/AIRSHIP-2.0/AIRSEAI-2.0/assets/usds/openarm_bimanual/openarm_tactile.usd",
+  "image_batch_equals_recording": true,
+  "frames": {
+    "home": {
+      "T_world_from_contact": {
+        "right_hand_right_finger": [
+          [
+            0.1644662618637085,
+            0.98638254617181,
+            0.0005941433864896351,
+            0.2839025830805229
+          ],
+          [
+            0.001032857340760529,
+            0.000430130023542773,
+            -0.999999405498212,
+            -0.13847235867434873
+          ],
+          [
+            -0.9863821268081665,
+            0.16446679491607039,
+            -0.0009480505157252443,
+            0.4635959654054631
+          ],
+          [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ]
+        ],
+        "right_hand_left_finger": [
+          [
+            -0.1644662618637085,
+            0.98638254617181,
+            -0.0005941433864896351,
+            0.28392030661769463
+          ],
+          [
+            -0.001032857340760529,
+            0.000430130023542773,
+            0.999999405498212,
+            -0.1683580620467526
+          ],
+          [
+            0.9863821268081665,
+            0.16446679491607039,
+            0.0009480505157252443,
+            0.4635686548910872
+          ],
+          [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ]
+        ],
+        "left_hand_right_finger": [
+          [
+            0.16444897651672363,
+            0.9863855838197286,
+            1.793557288443263e-05,
+            0.2839113797662705
+          ],
+          [
+            -0.0004938582424074411,
+            0.00010051852544204425,
+            -0.9999998804376231,
+            0.1684426912136164
+          ],
+          [
+            -0.9863854646682739,
+            0.16444885550723995,
+            0.000503664821021802,
+            0.46356817176803794
+          ],
+          [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ]
+        ],
+        "left_hand_left_finger": [
+          [
+            -0.16444897651672363,
+            0.9863855838197286,
+            -1.793557288443263e-05,
+            0.283911626177254
+          ],
+          [
+            0.0004938582424074411,
+            0.00010051852544204425,
+            0.9999998804376231,
+            0.13856015608439692
+          ],
+          [
+            0.9863854646682739,
+            0.16444885550723995,
+            -0.000503664821021802,
+            0.46358417284162295
+          ],
+          [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ]
+        ]
+      },
+      "joint_names": [
+        "openarm_left_joint1",
+        "openarm_right_joint1",
+        "openarm_left_joint2",
+        "openarm_right_joint2",
+        "openarm_left_joint3",
+        "openarm_right_joint3",
+        "openarm_left_joint4",
+        "openarm_right_joint4",
+        "openarm_left_joint5",
+        "openarm_right_joint5",
+        "openarm_left_joint6",
+        "openarm_right_joint6",
+        "openarm_left_joint7",
+        "openarm_right_joint7",
+        "openarm_left_finger_joint1",
+        "openarm_left_finger_joint2",
+        "openarm_right_finger_joint1",
+        "openarm_right_finger_joint2"
+      ],
+      "joint_pos": [
+        0.5187530517578125,
+        -0.5187556147575378,
+        -1.7823465896071866e-05,
+        1.4868652215227485e-05,
+        9.349663741886616e-05,
+        -1.4834432477073278e-05,
+        1.7343387603759766,
+        1.7343538999557495,
+        -0.0004761685850098729,
+        0.000689130334649235,
+        -6.591292913071811e-05,
+        0.0008716674637980759,
+        -0.5204100012779236,
+        0.5204150080680847,
+        0.017999274656176567,
+        0.017999256029725075,
+        0.018000755459070206,
+        0.018000958487391472
+      ],
+      "camera_pose_max_abs_error": {
+        "base": 1.6332189751999682e-07,
+        "left_wrist": 8.497063885837264e-08,
+        "right_wrist": 1.8527119122549451e-07
+      }
+    },
+    "moved": {
+      "T_world_from_contact": {
+        "right_hand_right_finger": [
+          [
+            0.2902613878250122,
+            0.9569473862650347,
+            -1.6458011343735194e-06,
+            0.30873135813327157
+          ],
+          [
+            5.687171778845368e-06,
+            -3.4448780609026384e-06,
+            -0.9999999999940751,
+            -0.13155727963143518
+          ],
+          [
+            -0.956947386264801,
+            0.2902612685945396,
+            -6.442239055032119e-06,
+            0.5026745665460238
+          ],
+          [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ]
+        ],
+        "right_hand_left_finger": [
+          [
+            -0.2902613878250122,
+            0.9569473862650347,
+            1.6458011343735194e-06,
+            0.308731185015825
+          ],
+          [
+            -5.687171778845368e-06,
+            -3.4448780609026384e-06,
+            0.9999999999940751,
+            -0.1754413914290189
+          ],
+          [
+            0.956947386264801,
+            0.2902612685945396,
+            6.442239055032119e-06,
+            0.502675291070493
+          ],
+          [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ]
+        ],
+        "left_hand_right_finger": [
+          [
+            0.05453610420227051,
+            0.9985118508242478,
+            4.4824515582384e-06,
+            0.2534784384140106
+          ],
+          [
+            -1.9789695215877146e-06,
+            4.597218207754656e-06,
+            -0.9999999999899539,
+            0.17544155581355741
+          ],
+          [
+            -0.9985118508338928,
+            0.05453604459001105,
+            2.2267385730655534e-06,
+            0.4348995112397151
+          ],
+          [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ]
+        ],
+        "left_hand_left_finger": [
+          [
+            -0.05453598499298096,
+            0.998511791219487,
+            -4.514878980763153e-06,
+            0.253478381176736
+          ],
+          [
+            1.9465419427433517e-06,
+            4.627922862573151e-06,
+            0.9999999999898441,
+            0.13155744641855652
+          ],
+          [
+            0.998511791229248,
+            0.05453604459012086,
+            -2.196033577186545e-06,
+            0.43490056538524624
+          ],
+          [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ]
+        ]
+      },
+      "joint_names": [
+        "openarm_left_joint1",
+        "openarm_right_joint1",
+        "openarm_left_joint2",
+        "openarm_right_joint2",
+        "openarm_left_joint3",
+        "openarm_right_joint3",
+        "openarm_left_joint4",
+        "openarm_right_joint4",
+        "openarm_left_joint5",
+        "openarm_right_joint5",
+        "openarm_left_joint6",
+        "openarm_right_joint6",
+        "openarm_left_joint7",
+        "openarm_right_joint7",
+        "openarm_left_finger_joint1",
+        "openarm_left_finger_joint2",
+        "openarm_right_finger_joint1",
+        "openarm_right_finger_joint2"
+      ],
+      "joint_pos": [
+        0.6435458064079285,
+        -0.4036507308483124,
+        1.4796141556416842e-07,
+        9.837616943286775e-08,
+        -1.5735011071882354e-09,
+        3.2897844448598335e-08,
+        1.745313286781311,
+        1.74534273147583,
+        6.546944177898695e-07,
+        1.477724822507298e-06,
+        1.559317865940102e-06,
+        1.99270516532124e-06,
+        -0.5235928893089294,
+        0.523604691028595,
+        0.02500004507601261,
+        0.02500004507601261,
+        0.02500004507601261,
+        0.02500004507601261
+      ],
+      "camera_pose_max_abs_error": {
+        "base": 1.6332189751999682e-07,
+        "left_wrist": 4.0151694950807393e-07,
+        "right_wrist": 7.006175765933431e-08
+      }
+    }
+  },
+  "calibration": {
+    "source": "/home/yuxuan/tac_judge/alignment/airseai-official-four-fingers-20261020/project/config/environment.example.yaml",
+    "yaml_sha256": "06c616037982be402e7548f82b581d8dfb39452ac3e404f0d52bac0f17786f8a",
+    "configuration": {
+      "cameras": {
+        "base": {
+          "intrinsics": {
+            "image_domain": "raw",
+            "width_px": 640,
+            "height_px": 480,
+            "fx_px": 606.493408203125,
+            "fy_px": 606.1640625,
+            "cx_px": 328.5949401855469,
+            "cy_px": 249.757568359375,
+            "distortion_model": "realsense_inverse_brown_conrady",
+            "distortion_coeffs": [
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0
+            ]
+          },
+          "extrinsics": {
+            "parent_frame": "openarm_body_link0",
+            "T_parent_from_child": [
+              [
+                0.05275992990057177,
+                -0.925650901910385,
+                0.3746822621760705,
+                0.07425725114722942
+              ],
+              [
+                -0.997578437427682,
+                -0.06588196465415186,
+                -0.022289636889223224,
+                0.03311181009373838
+              ],
+              [
+                0.04531722604298599,
+                -0.3725989459536888,
+                -0.9268853081681515,
+                0.8757179625788252
+              ],
+              [
+                0.0,
+                0.0,
+                0.0,
+                1.0
+              ]
+            ]
+          }
+        },
+        "left_wrist": {
+          "intrinsics": {
+            "image_domain": "raw",
+            "width_px": 640,
+            "height_px": 480,
+            "fx_px": 392.3583068847656,
+            "fy_px": 391.9634094238281,
+            "cx_px": 314.39410400390625,
+            "cy_px": 239.71051025390625,
+            "distortion_model": "realsense_inverse_brown_conrady",
+            "distortion_coeffs": [
+              -0.05096643790602684,
+              0.05746210739016533,
+              0.0006658897618763149,
+              0.0002838929940480739,
+              -0.018531350418925285
+            ]
+          },
+          "extrinsics": {
+            "parent_frame": "openarm_left_hand",
+            "T_parent_from_child": [
+              [
+                -0.02487116404471923,
+                -0.9039404597520035,
+                -0.4269345036681821,
+                0.09759310287548079
+              ],
+              [
+                0.9970895883340374,
+                0.008356810625147704,
+                -0.07577939398039091,
+                -0.003294151722092727
+              ],
+              [
+                0.07206787103085921,
+                -0.42757667024699997,
+                0.901101777284657,
+                -0.015712851898300437
+              ],
+              [
+                0.0,
+                0.0,
+                0.0,
+                1.0
+              ]
+            ]
+          }
+        },
+        "right_wrist": {
+          "intrinsics": {
+            "image_domain": "raw",
+            "width_px": 640,
+            "height_px": 480,
+            "fx_px": 392.01416015625,
+            "fy_px": 391.6002502441406,
+            "cx_px": 318.5299072265625,
+            "cy_px": 230.2693634033203,
+            "distortion_model": "realsense_inverse_brown_conrady",
+            "distortion_coeffs": [
+              -0.050279732793569565,
+              0.054645344614982605,
+              0.0010979588842019439,
+              0.00038884050445631146,
+              -0.01773371361196041
+            ]
+          },
+          "extrinsics": {
+            "parent_frame": "openarm_right_hand",
+            "T_parent_from_child": [
+              [
+                -0.007889088716103831,
+                -0.887435552586044,
+                -0.46086429920914007,
+                0.09139581545494051
+              ],
+              [
+                0.9997362702815813,
+                0.0029406100889588505,
+                -0.022775923598781667,
+                -0.002439703117433088
+              ],
+              [
+                0.021567386552437673,
+                -0.4609224368791424,
+                0.8871783107237746,
+                -0.0073459090328007685
+              ],
+              [
+                0.0,
+                0.0,
+                0.0,
+                1.0
+              ]
+            ]
+          }
+        }
+      },
+      "fingertips": {
+        "right_hand_right_finger": {
+          "parent_frame": "openarm_right_right_finger",
+          "T_parent_from_child": [
+            [
+              -1.0,
+              0.0,
+              0.0,
+              -5.00120222568512e-07
+            ],
+            [
+              0.0,
+              3.5762786863933493e-06,
+              0.9999999999936051,
+              0.008058268949423658
+            ],
+            [
+              0.0,
+              0.9999999999936051,
+              -3.5762786863933493e-06,
+              0.07800000259889552
+            ],
+            [
+              0.0,
+              0.0,
+              0.0,
+              1.0
+            ]
+          ]
+        },
+        "right_hand_left_finger": {
+          "parent_frame": "openarm_right_left_finger",
+          "T_parent_from_child": [
+            [
+              1.0,
+              0.0,
+              0.0,
+              5.00120222568512e-07
+            ],
+            [
+              0.0,
+              3.5762786863933493e-06,
+              -0.9999999999936051,
+              -0.008057711049830468
+            ],
+            [
+              0.0,
+              0.9999999999936051,
+              3.5762786863933493e-06,
+              0.0780000304318089
+            ],
+            [
+              0.0,
+              0.0,
+              0.0,
+              1.0
+            ]
+          ]
+        },
+        "left_hand_right_finger": {
+          "parent_frame": "openarm_left_right_finger",
+          "T_parent_from_child": [
+            [
+              -1.0,
+              0.0,
+              0.0,
+              -5.00120222568512e-07
+            ],
+            [
+              0.0,
+              -3.5762786863933493e-06,
+              0.9999999999936051,
+              0.008057711049830468
+            ],
+            [
+              0.0,
+              0.9999999999936051,
+              3.5762786863933493e-06,
+              0.0780000304318089
+            ],
+            [
+              0.0,
+              0.0,
+              0.0,
+              1.0
+            ]
+          ]
+        },
+        "left_hand_left_finger": {
+          "parent_frame": "openarm_left_left_finger",
+          "T_parent_from_child": [
+            [
+              1.0,
+              0.0,
+              0.0,
+              5.00120222568512e-07
+            ],
+            [
+              0.0,
+              -3.5762786863933493e-06,
+              -0.9999999999936051,
+              -0.008058268949423658
+            ],
+            [
+              0.0,
+              0.9999999999936051,
+              -3.5762786863933493e-06,
+              0.07800000259889552
+            ],
+            [
+              0.0,
+              0.0,
+              0.0,
+              1.0
+            ]
+          ]
+        }
+      },
+      "source": "/home/yuxuan/tac_judge/alignment/airseai-official-four-fingers-20261020/project/config/environment.example.yaml",
+      "sha256": "06c616037982be402e7548f82b581d8dfb39452ac3e404f0d52bac0f17786f8a"
+    },
+    "stage_changes": [
+      {
+        "kind": "camera",
+        "name": "base",
+        "path": "/World/envs/env_0/Robot/openarm_body_link/head_camera/camera",
+        "parent": "/World/envs/env_0/Robot/openarm_body_link"
+      },
+      {
+        "kind": "camera",
+        "name": "left_wrist",
+        "path": "/World/envs/env_0/Robot/openarm_left_hand/wrist_camera/camera",
+        "parent": "/World/envs/env_0/Robot/openarm_left_hand"
+      },
+      {
+        "kind": "camera",
+        "name": "right_wrist",
+        "path": "/World/envs/env_0/Robot/openarm_right_hand/wrist_camera/camera",
+        "parent": "/World/envs/env_0/Robot/openarm_right_hand"
+      },
+      {
+        "kind": "contact_frame",
+        "name": "right_hand_right_finger",
+        "path": "/World/envs/env_0/Robot/openarm_right_right_finger/calibrated_contact_right_hand_right_finger",
+        "parent": "/World/envs/env_0/Robot/openarm_right_right_finger"
+      },
+      {
+        "kind": "contact_frame",
+        "name": "right_hand_left_finger",
+        "path": "/World/envs/env_0/Robot/openarm_right_left_finger/calibrated_contact_right_hand_left_finger",
+        "parent": "/World/envs/env_0/Robot/openarm_right_left_finger"
+      },
+      {
+        "kind": "contact_frame",
+        "name": "left_hand_right_finger",
+        "path": "/World/envs/env_0/Robot/openarm_left_right_finger/calibrated_contact_left_hand_right_finger",
+        "parent": "/World/envs/env_0/Robot/openarm_left_right_finger"
+      },
+      {
+        "kind": "contact_frame",
+        "name": "left_hand_left_finger",
+        "path": "/World/envs/env_0/Robot/openarm_left_left_finger/calibrated_contact_left_hand_left_finger",
+        "parent": "/World/envs/env_0/Robot/openarm_left_left_finger"
+      }
+    ],
+    "cameras": {
+      "base": [
+        {
+          "image_domain": "raw",
+          "distortion_model": "realsense_inverse_brown_conrady",
+          "distortion_coeffs": [
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "target_K": [
+            [
+              606.493408203125,
+              0.0,
+              328.5949401855469
+            ],
+            [
+              0.0,
+              606.1640625,
+              249.757568359375
+            ],
+            [
+              0.0,
+              0.0,
+              1.0
+            ]
+          ],
+          "source_K": [
+            [
+              576.414794921875,
+              0.0,
+              320.0
+            ],
+            [
+              0.0,
+              576.414794921875,
+              240.0
+            ],
+            [
+              0.0,
+              0.0,
+              1.0
+            ]
+          ],
+          "output_size": [
+            640,
+            480
+          ],
+          "source_size": [
+            640,
+            480
+          ],
+          "implementation": "librealsense-2.56.5-inverse-brown-deproject-10iter-v1",
+          "distortion_applied": false,
+          "backend": "cpu_opencv_inverse_sampling_rgb",
+          "native_lens_distortion": false,
+          "valid_fraction": 1.0,
+          "border": "constant_black_invalid_mask",
+          "interpolation": "bilinear",
+          "map_sha256": "83ca6526b77d2ff1dd255db981c118ed054f10c91686954b26195b9caee42caf"
+        }
+      ],
+      "left_wrist": [
+        {
+          "image_domain": "raw",
+          "distortion_model": "realsense_inverse_brown_conrady",
+          "distortion_coeffs": [
+            -0.05096643790602684,
+            0.05746210739016533,
+            0.0006658897618763149,
+            0.0002838929940480739,
+            -0.018531350418925285
+          ],
+          "target_K": [
+            [
+              392.3583068847656,
+              0.0,
+              314.39410400390625
+            ],
+            [
+              0.0,
+              391.9634094238281,
+              239.71051025390625
+            ],
+            [
+              0.0,
+              0.0,
+              1.0
+            ]
+          ],
+          "source_K": [
+            [
+              378.66668701171875,
+              0.0,
+              320.0
+            ],
+            [
+              0.0,
+              378.66668701171875,
+              240.0
+            ],
+            [
+              0.0,
+              0.0,
+              1.0
+            ]
+          ],
+          "output_size": [
+            640,
+            480
+          ],
+          "source_size": [
+            640,
+            480
+          ],
+          "implementation": "librealsense-2.56.5-inverse-brown-deproject-10iter-v1",
+          "distortion_applied": true,
+          "backend": "cpu_opencv_inverse_sampling_rgb",
+          "native_lens_distortion": false,
+          "valid_fraction": 1.0,
+          "border": "constant_black_invalid_mask",
+          "interpolation": "bilinear",
+          "map_sha256": "f6a8d5bc1710afed71f99339d4359d160e0bc9c28cfab9e96d44fce15a3fe6b5"
+        }
+      ],
+      "right_wrist": [
+        {
+          "image_domain": "raw",
+          "distortion_model": "realsense_inverse_brown_conrady",
+          "distortion_coeffs": [
+            -0.050279732793569565,
+            0.054645344614982605,
+            0.0010979588842019439,
+            0.00038884050445631146,
+            -0.01773371361196041
+          ],
+          "target_K": [
+            [
+              392.01416015625,
+              0.0,
+              318.5299072265625
+            ],
+            [
+              0.0,
+              391.6002502441406,
+              230.2693634033203
+            ],
+            [
+              0.0,
+              0.0,
+              1.0
+            ]
+          ],
+          "source_K": [
+            [
+              369.2979736328125,
+              0.0,
+              320.0
+            ],
+            [
+              0.0,
+              369.2979736328125,
+              240.0
+            ],
+            [
+              0.0,
+              0.0,
+              1.0
+            ]
+          ],
+          "output_size": [
+            640,
+            480
+          ],
+          "source_size": [
+            640,
+            480
+          ],
+          "implementation": "librealsense-2.56.5-inverse-brown-deproject-10iter-v1",
+          "distortion_applied": true,
+          "backend": "cpu_opencv_inverse_sampling_rgb",
+          "native_lens_distortion": false,
+          "valid_fraction": 1.0,
+          "border": "constant_black_invalid_mask",
+          "interpolation": "bilinear",
+          "map_sha256": "a724f62476a3a650d3227df039e85b921046f38d54929b52e1a7b1304dc1d1a7"
+        }
+      ]
+    },
+    "contact_scope": "reference_frames_only"
+  }
+}
