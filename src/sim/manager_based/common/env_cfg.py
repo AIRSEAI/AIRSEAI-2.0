@@ -11,7 +11,6 @@ from isaaclab.sim import PinholeCameraCfg, RenderCfg, SimulationCfg
 from isaaclab.utils import configclass
 
 from sim.assets.provision import ensure_robot_asset
-from sim.environment import CAMERA_PATHS, camera_size, load_environment, prepare_manager
 from sim.envs.bimanual_tactile import TACTILE_SENSORS
 from sim.harness import look_at
 from sim.physx_settings import small_scene_physx_cfg
@@ -66,7 +65,6 @@ def build_cfg(
     scene_cfg=None,
     seed=0,
     review_size=(960, 720),
-    environment_yaml=None,
 ):
     if num_envs < 1:
         raise ValueError("num_envs must be positive")
@@ -91,17 +89,18 @@ def build_cfg(
         data_types=["rgb"],
         spawn=PinholeCameraCfg(),
     )
-    calibration = load_environment(environment_yaml)
-    for name, link in CAMERA_PATHS.items():
-        width, height = camera_size(calibration, name)
+    for name, link in [
+        ("base", "openarm_body_link/head_camera/camera"),
+        ("left_wrist", "openarm_left_hand/wrist_camera/camera"),
+        ("right_wrist", "openarm_right_hand/wrist_camera/camera"),
+    ]:
         setattr(
             scene,
             f"{name}_camera",
             TiledCameraCfg(
                 prim_path=f"{{ENV_REGEX_NS}}/Robot/{link}",
-                width=width,
-                height=height,
-                update_latest_camera_pose=bool(calibration),
+                width=640,
+                height=480,
                 data_types=["rgb"],
                 spawn=None,
             ),
@@ -109,9 +108,6 @@ def build_cfg(
     for name in TACTILE_SENSORS:
         getattr(scene, name).class_type = CompatibleTactileSensor
     events = EventsCfg()
-    if calibration:
-        events.environment = EventTermCfg(func=prepare_manager, mode="prestartup",
-                                          params={"spec": calibration})
     events.collisions.params = dict(
         sdf_prims=spec.sdf_prims, tri_prims=spec.tri_prims, sdf_resolution=spec.sdf_resolution
     )

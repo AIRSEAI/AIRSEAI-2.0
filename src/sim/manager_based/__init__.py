@@ -17,13 +17,6 @@ def make_env(task, **kwargs):
     from isaaclab.envs import ManagerBasedEnv
 
     env = ManagerBasedEnv(make_env_cfg(task, **kwargs))
-    from sim.environment import CAMERA_PATHS, Calibration
-
-    env.calibration = None
-    if getattr(env, "environment_spec", None):
-        env.calibration = Calibration(env.environment_spec, env.environment_changes).bind(
-            {name: env.scene[f"{name}_camera"] for name in CAMERA_PATHS}
-        )
     # Capture optical zero-contact references before any task motion/restore.
     # Nominal objects are on the table, away from the home-position fingers.
     from sim.envs.bimanual_tactile import TACTILE_SENSORS

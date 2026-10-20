@@ -1,11 +1,6 @@
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 # AIRSEAI 2.0
 
-**Optional environment calibration:** use `--environment-yaml config/environment.example.yaml`
-to configure camera intrinsics/extrinsics, raw-image distortion, and fingertip reference frames.
-See the [integration and configuration manual](docs/ENVIRONMENT.md) for installation,
-supported entry points, offline validation and Isaac rendering checks.
-
 An open-source embodied-AI platform: a dual-arm manipulator with vision-based tactile sensors, one
 data pipeline, and two places it runs — sim and the real robot.
 

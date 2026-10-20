@@ -1,17 +1,16 @@
-# 相机内外参与四指接触面外参。说明书：../docs/ENVIRONMENT.md
-# 用 --environment-yaml 或 AIRSEAI_ENVIRONMENT_YAML 加载；不指定时保留原行为。
-# fingertips创建随指节运动的接触参考帧，不修改胶面/碰撞/触觉ROI。
-# 全部矩阵采用列向量：p_parent = T_parent_from_child @ p_child；平移单位m。
-# 相机：2026-10-15历史候选；指尖：官方GelSight R1.5资产胶面中心；均不是当前实体验收参数。
-# 本文件不包含机器人资产、关节状态、世界放置、物体或动力学；这些由场景程序提供。
+# AIRSEAI 最小原生 LUT 示例。填写说明：../docs/ENVIRONMENT.md
+# 启动：benchmark/run/yaml_scene.py --environment-yaml 本文件 --robot_usd 官方USD --out 输出目录
+# 列向量：p_parent = T_parent_from_child @ p_child；矩阵平移单位 m。
+# 相机外参仍为 2026-10-15 历史候选；四指为官方 GelSight R1.5 胶面几何推导，非实物验收。
+# 机器人资产、关节状态、世界放置、灯光和动力学由原场景提供，不在此文件重复配置。
 
 cameras:
   # 光学系：X右/Y下/Z前；像素(0,0)为左上像素中心，u右/v下。
   # intrinsics适用于实际输入/输出图像域；fx/fy/cx/cy单位px，尺寸为正整数。
-  # distortion_model: none | opencv_brown_conrady | opencv_fisheye | realsense_inverse_brown_conrady
-  # image_domain: raw=匹配真实原图（省略时默认）；ideal=针孔域，真实图需另行校正。
-  # inverse Brown按librealsense 2.56.5实现；原生镜头畸变须关闭，避免二次处理。
-  # 系数：Brown/inverse Brown=[k1,k2,p1,p2,k3]；fisheye=[k1,k2,k3,k4]；none=[]。
+  # distortion_model: none | realsense_inverse_brown_conrady（精简版仅支持这两种）
+  # image_domain: raw=匹配真实原图；ideal=针孔域，真实图需另行正确校正。
+  # inverse Brown 按 librealsense 2.56.5 生成原生 LUT；RTX 直接输出，不再执行图像后处理。
+  # 系数：inverse Brown=[k1,k2,p1,p2,k3]，无量纲；none=[]。
   # T是父坐标系_from_光学系，未乘USD换基；最后一列是光心，绝非相机外壳中心。
   # R的三列是光学XYZ轴在parent中的方向，R.T@R=I，det(R)=+1，末行[0,0,0,1]。
   base:

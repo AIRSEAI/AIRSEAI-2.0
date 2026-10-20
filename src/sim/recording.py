@@ -23,18 +23,12 @@ REVIEW_DIRNAME = ("review", "third_person")
 CAMERAS = ("base", "left_wrist", "right_wrist")
 
 
-def features(rows: int, cols: int, cameras=None) -> dict:
+def features(rows: int, cols: int) -> dict:
     """The recording's columns: three cameras, four tactile pads in three
     encodings each, the 16-dim state and action, and the episode flags."""
     from tactile_codec import PROFILES
 
-    feats = {
-        f"observation.images.{k}": {
-            "dtype": "video",
-            "shape": (cameras[k].cfg.height, cameras[k].cfg.width, 3) if cameras else (480, 640, 3),
-        }
-        for k in CAMERAS
-    }
+    feats = {f"observation.images.{k}": {"dtype": "video", "shape": (480, 640, 3)} for k in CAMERAS}
     for pn in TACTILE_SENSORS:
         sname = SENSOR_FEATURE_NAME[pn]
         feats[f"observation.images.{sname}_tactile"] = {"dtype": "video", "shape": (288, 384, 3)}
@@ -72,13 +66,11 @@ class EpisodeRecorder:
         self.writer = LeRobotTactileWriter(
             str(self.root),
             fps=fps,
-            features=features(h.rows, h.cols, h.cams),
+            features=features(h.rows, h.cols),
             task=task.instruction,
             disk_buffer=disk_buffer,
         )
         self.fps = fps
-        if h.calibration:
-            h.calibration.write_receipt(self.root / "meta" / "environment-receipt.json")
         self._review_dir = self.root.joinpath(*REVIEW_DIRNAME) if h.scene_cam is not None else None
         self._review = None
         self._review_path = None

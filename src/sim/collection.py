@@ -195,8 +195,6 @@ class Collector:
         self.video = Mp4Writer(self.video_path, CTRL_FPS) if self.video_path else None
         self.video_frames = []
         self.out.mkdir(parents=True, exist_ok=True)
-        if self.env.calibration:
-            self.env.calibration.write_receipt(self.out / "environment-receipt.json")
         versions = {}
         for package in ("isaaclab", "isaacsim", "torch", "numpy", "lerobot"):
             try:

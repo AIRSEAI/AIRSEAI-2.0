@@ -1,0 +1,67 @@
+{
+  "date": "2026-10-20",
+  "provenance": {
+    "python": "3.11.17",
+    "gpu": "NVIDIA GeForce RTX 4090, 580.178.04, 24564 MiB",
+    "isaac_sim": "5.1.0.0",
+    "isaac_lab_git": "v2.3.2",
+    "sha256": {
+      "project/src/sim/yaml_scene.py": "2cd800a87a5921e5b285773ade1c0fefd3a1e764f4f2774adf30a6b2960cd774",
+      "project/benchmark/run/yaml_scene.py": "d9032c045eb63f3e7426f5d9f3e2056a046eba70ecfa314a00b7a9e8ccef973e",
+      "project/src/sim/harness.py": "f75559ebdab485f7796b8b8eb2da8746f9a77ff6fc850f95f4089e92a68c5ed7",
+      "project/config/environment.example.yaml": "77171c1ce701c341c2b721ae9a81aaa9a27f67810d0fca95521865704e3ed098",
+      "probe_lut.py": "cdf6dd26fd9b6a200f81e459a172779c7e96bb9cdebe4c84ee229c19fbeb67dc",
+      "verify_robot.py": "9e1a923a48d8f861226ac4d425a4b8e6c5b8ac201b0353063775b9fdfa33f0cd"
+    },
+    "robot_usd_sha256": "b3e7adce3c3dbbbc7131f6446a9b71b34c6fee248ea10f407f9e2b3a8fa72d03",
+    "hardware_access": false
+  },
+  "backend": "isaac_rtx_generalizedProjection_lut",
+  "image_postprocessing": false,
+  "offline_tests": {
+    "passed": 9,
+    "skipped": 0
+  },
+  "projection": {
+    "base": {
+      "points": 63,
+      "native_max_px": 0.28204204233106206,
+      "native_rms_px": 0.16869601168866438,
+      "zero_distortion_vs_raw_max_px": 0.2842644834625862,
+      "motion_max_error_px": 0.009530381123204893
+    },
+    "left_wrist": {
+      "points": 63,
+      "native_max_px": 0.3146924802529413,
+      "native_rms_px": 0.1941725789755883,
+      "zero_distortion_vs_raw_max_px": 5.601182233893311,
+      "motion_max_error_px": 0.006778657468279621
+    },
+    "right_wrist": {
+      "points": 63,
+      "native_max_px": 0.305053207002763,
+      "native_rms_px": 0.1942686070445784,
+      "zero_distortion_vs_raw_max_px": 6.272907283523103,
+      "motion_max_error_px": 0.006724232869832187
+    }
+  },
+  "thresholds": {
+    "max_px": 0.65,
+    "rms_px": 0.35
+  },
+  "robot_validation": {
+    "poses": [
+      "home",
+      "moved"
+    ],
+    "official_fingers": 4,
+    "image_batch_equals_cam_rgb": true
+  },
+  "successful_runs": [
+    "projection-12",
+    "robot-03",
+    "entry-02"
+  ],
+  "physical_calibration_accepted": false,
+  "hardware_access": false
+}

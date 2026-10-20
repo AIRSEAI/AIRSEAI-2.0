@@ -32,16 +32,6 @@ from isaaclab.app import AppLauncher
 from PIL import Image
 
 from lerobot_tactile_ext.codec import Mp4Stream
-from sim.environment import (
-    CAMERA_PATHS,
-    Calibration,
-    add_environment_argument,
-    apply_stage,
-    camera_size,
-    load_environment,
-    save_camera_images,
-    select_environment,
-)
 from sim.manager_based import make_env
 from sim.manager_based.common.mdp import hold_action
 from sim.manager_based.common.metrics import GPUMemoryMonitor
@@ -91,12 +81,7 @@ parser.add_argument(
     help="initial joint override, 'name=deg,...' (e.g. openarm_right_joint7=90)",
 )
 AppLauncher.add_app_launcher_args(parser)
-add_environment_argument(parser)
-parser.add_argument("--camera-snapshots", default="", help="Write calibrated camera PNGs and receipt here")
 args_cli = parser.parse_args()
-select_environment(args_cli)
-if args_cli.camera_snapshots and not load_environment():
-    parser.error("--camera-snapshots requires environment YAML")
 
 if args_cli.num_envs < 1:
     parser.error("--num_envs must be positive")
@@ -166,21 +151,6 @@ def legacy_main() -> int:
             print(f"STEP joint override {name.strip()} = {deg} deg", flush=True)
     cfg.robot.spawn.usd_path = usd
     scene = InteractiveScene(cfg)
-    calibration, calibrated_cameras = None, {}
-    environment = load_environment()
-    if environment:
-        import omni.usd
-
-        changes = apply_stage(omni.usd.get_context().get_stage(),
-                              ["/World/envs/env_0/Robot"], environment)
-        calibration = Calibration(environment, changes)
-        for name in environment["cameras"]:
-            width, height = camera_size(environment, name)
-            calibrated_cameras[name] = TiledCamera(TiledCameraCfg(
-                prim_path=f"/World/envs/env_0/Robot/{CAMERA_PATHS[name]}",
-                width=width, height=height, data_types=["rgb"], spawn=None,
-                update_latest_camera_pose=True,
-            ))
     for prim in spec.sdf_prims:
         n = apply_sdf_collision(f"/World/envs/env_0/{prim}", sdf_resolution=spec.sdf_resolution)
         print(f"[launch_env] sdf on {prim}: {len(n)} mesh(es)", flush=True)
@@ -204,8 +174,6 @@ def legacy_main() -> int:
         )
 
     sim.reset()
-    if calibration:
-        calibration.bind(calibrated_cameras)
     if args_cli.gui:
         from omni.kit.viewport.utility import get_active_viewport
         from pxr import Sdf
@@ -239,8 +207,6 @@ def legacy_main() -> int:
         robot.write_data_to_sim()
         sim.step(render=True)
         scene.update(1 / PHYSICS_HZ)
-        for sensor in calibrated_cameras.values():
-            sensor.update(1 / PHYSICS_HZ)
         if cam is not None:
             cam.update(1 / PHYSICS_HZ)
             if writer is not None and i % every == 0:
@@ -278,11 +244,6 @@ def legacy_main() -> int:
         rgb = cam.data.output["rgb"][0, ..., :3].detach().cpu().numpy()
         Image.fromarray(rgb.astype("uint8")).save(path)
         print(f"[launch_env] wrote {path}", flush=True)
-    if calibration:
-        if args_cli.camera_snapshots:
-            save_camera_images(calibrated_cameras, calibration, args_cli.camera_snapshots)
-        if args_cli.report:
-            calibration.write_receipt(args_cli.report)
     return 0
 
 
@@ -379,13 +340,7 @@ def manager_main(cleanup) -> int:
         sensors={name: type(sensor).__name__ for name, sensor in env.scene.sensors.items()},
         cuda_peak_allocated_bytes=torch.cuda.max_memory_allocated(env.device),
         gpu_memory=memory.finish(),
-        environment=env.calibration.receipt if env.calibration else None,
     )
-    if args_cli.camera_snapshots:
-        save_camera_images(
-            {name: env.scene[f"{name}_camera"] for name in CAMERA_PATHS},
-            env.calibration, args_cli.camera_snapshots, max(0, args_cli.view_env),
-        )
     if args_cli.report:
         path = Path(args_cli.report).expanduser()
         path.parent.mkdir(parents=True, exist_ok=True)

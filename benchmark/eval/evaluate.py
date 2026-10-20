@@ -25,7 +25,6 @@ import time
 
 from isaaclab.app import AppLauncher
 
-from sim.environment import add_environment_argument, select_environment
 from sim.tasks.registry import TASKS as TASK_IDS
 
 parser = argparse.ArgumentParser(description="Policy evaluation in Isaac.")
@@ -54,10 +53,8 @@ parser.add_argument("--grid", type=int, nargs=2, default=(288, 384))
 parser.add_argument(
     "--video_dir", default="", help="if set, write per-episode mp4s (base, active wrist, third-person) here"
 )
-add_environment_argument(parser)
 AppLauncher.add_app_launcher_args(parser)
 _known, _rest = parser.parse_known_args()
-select_environment(_known)
 if _known.num_envs < 1:
     parser.error("num_envs must be positive")
 if _known.horizon_s is not None and _known.horizon_s <= 0:
