@@ -131,6 +131,9 @@ def legacy_main() -> int:
 
     from sim.assets.provision import ensure_robot_asset
     from sim.physx_settings import small_scene_physx_cfg
+    from sim.yaml_scene import apply_startup_environment, load_startup_environment
+
+    environment = load_startup_environment()
 
     scene_module = (
         importlib.import_module("sim.envs.bimanual_tactile")
@@ -151,6 +154,7 @@ def legacy_main() -> int:
             print(f"STEP joint override {name.strip()} = {deg} deg", flush=True)
     cfg.robot.spawn.usd_path = usd
     scene = InteractiveScene(cfg)
+    apply_startup_environment(scene, environment)
     for prim in spec.sdf_prims:
         n = apply_sdf_collision(f"/World/envs/env_0/{prim}", sdf_resolution=spec.sdf_resolution)
         print(f"[launch_env] sdf on {prim}: {len(n)} mesh(es)", flush=True)

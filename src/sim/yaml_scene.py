@@ -1,12 +1,14 @@
 # SPDX-License-Identifier: Apache-2.0
 """YAML -> USD camera/contact transforms and native RTX LUT lenses.
 
-No image postprocessing, hardware IO, global environment variables, or changes
-of the original Harness. Call apply_environment before creating image sensors.
+Native lens generation plus one shared, fail-closed startup adapter.
+No image postprocessing or hardware IO. Apply before sensor initialization/reset.
 """
 
 import hashlib
 import json
+import os
+import tempfile
 from numbers import Real
 from pathlib import Path
 
@@ -305,8 +307,10 @@ def apply_lut(camera, k, directory):
     digest = hashlib.sha256(json.dumps(k, sort_keys=True).encode()).hexdigest()[:16]
     enter_path = directory / f"{digest}-enter.exr"
     exit_path = directory / f"{digest}-exit.exr"
-    _write_exr(enter_path, direction_table(k))
-    _write_exr(exit_path, exit_table(k))
+    # Startup creates a private directory; identical cameras across slots share textures.
+    if not enter_path.exists() or not exit_path.exists():
+        _write_exr(enter_path, direction_table(k))
+        _write_exr(exit_path, exit_table(k))
     # Isaac Sim 5.1's RTX delegate implements the native generalized projection
     # texture path. The exposed Lut API schema is not consumed by this delegate.
     attrs = {
@@ -358,3 +362,79 @@ def apply_environment(stage, robot_root, spec, lut_directory):
         fingertip_scope="reference_frames_only",
         hardware_access=False,
     )
+
+
+OFFICIAL_FINGERS = {
+    f"{hand}_hand_{finger}_finger": f"openarm_{hand}_{finger}_finger"
+    for hand in ("right", "left")
+    for finger in ("right", "left")
+}
+
+
+def load_startup_environment(path=None):
+    """Default is mandatory; an explicitly invalid path never falls back."""
+    if path is None:
+        path = os.environ.get(
+            "AIRSEAI_ENVIRONMENT_YAML",
+            str(Path(__file__).resolve().parents[2] / "config/environment.example.yaml"),
+        )
+    if not str(path).strip():
+        raise ValueError("AIRSEAI_ENVIRONMENT_YAML must name a file; empty does not disable calibration")
+    spec = load_environment(path)
+    if set(spec["cameras"]) != set(CAMERA_PATHS):
+        raise ValueError("Startup YAML must define all three robot cameras")
+    if set(spec["fingertips"]) != set(OFFICIAL_FINGERS):
+        raise ValueError("Startup YAML must define all four official fingertip frames")
+    for name, parent in OFFICIAL_FINGERS.items():
+        if spec["fingertips"][name]["parent_frame"] != parent:
+            raise ValueError(f"{name} must belong to official finger link {parent}")
+    return spec
+
+
+def apply_startup_environment(scene, spec):
+    """One-time stage overrides after cloning, before first physics reset.
+
+    Shared by Harness, manager prestartup and the legacy preview. No reset hook:
+    task resets preserve these local installations and never regenerate lenses.
+    """
+    stage = scene.stage
+    roots = [str(path) + "/Robot" for path in scene.env_prim_paths]
+    if not roots or len(set(roots)) != scene.num_envs:
+        raise ValueError("Could not resolve every environment's robot root")
+    output = Path(os.environ.get("AIRSEAI_ENVIRONMENT_OUTPUT", "outputs/environment")).expanduser().resolve()
+    output.mkdir(parents=True, exist_ok=True)
+    run = Path(tempfile.mkdtemp(prefix="startup-", dir=output))
+    # Apply every transform first: clones may inherit properties from env_0.
+    changes = apply_stage(stage, roots, spec)
+    cameras = {}
+    for root in roots:
+        cameras[root] = {}
+        for name, item in spec["cameras"].items():
+            camera = stage.GetPrimAtPath(root + "/" + CAMERA_PATHS[name])
+            cameras[root][name] = apply_lut(camera, intrinsics(item), run / "lut")
+    receipt = dict(
+        status="applied_before_first_reset",
+        yaml_sha256=spec["sha256"],
+        configuration=spec,
+        robot_roots=roots,
+        num_envs=len(roots),
+        stage_changes=changes,
+        cameras=cameras,
+        fingertip_scope="reference_frames_only",
+        hardware_access=False,
+        image_postprocessing=False,
+        receipt_path=str(run / "environment-receipt.json"),
+    )
+    Path(receipt["receipt_path"]).write_text(json.dumps(receipt, indent=2) + "\n", encoding="utf-8")
+    scene.environment_receipt = receipt
+    print(
+        f"[environment] APPLIED {spec['source']} sha256={spec['sha256']} "
+        f"num_envs={len(roots)} receipt={receipt['receipt_path']}",
+        flush=True,
+    )
+    return receipt
+
+
+def manager_environment_prestartup(env, env_ids, spec):
+    """Isaac Lab calls prestartup after clone construction and before sim.reset."""
+    env.environment_receipt = apply_startup_environment(env.scene, spec)

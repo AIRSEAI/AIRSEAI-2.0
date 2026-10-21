@@ -1,46 +1,64 @@
-# 最小 YAML / Isaac 原生 LUT 集成说明
+# YAML 公共初始化集成说明
 
-版本：3，2026-10-20。基线为用户原始 `AIRSEAI-2.0-main.zip`，SHA256：`149d7a2d562dd17e7c54b8c0f96f00a063a68596d11255ca19c240fa9df2a5a8`。
+版本：4，2026-10-21。基线为用户原始 AIRSEAI-2.0-main.zip；SHA256 `149d7a2d562dd17e7c54b8c0f96f00a063a68596d11255ca19c240fa9df2a5a8`。本版取代 v3 独立预览入口的接入方式；原生 LUT 数学模型不变。
 
-## 1. 结构与修改范围
+## 1. 默认启动行为与修改范围
 
-原项目已有 Harness。本版本从原 ZIP 重新建立，只新增独立文件，原项目全部 187 个已有文件逐字节保持一致。它替代此前覆盖训练、评估、采集、录像和 manager 的广泛集成；那些外围改动没有进入此包。
+**原项目启动现在默认强制加载项目内 `config/environment.example.yaml`。** 路径以源码所在项目定位，不依赖工作目录。也可用 `AIRSEAI_ENVIRONMENT_YAML` 指定另一份文件；空路径、文件缺失、未知字段、三相机/四指不完整、矩阵非法、USD prim 不匹配或 LUT 写入失败都会抛错，停止当前初始化，不回退到原资产参数。
+
+只修改五个原文件，其余原文件保留：
+
+| 原文件 | 必要修改 |
+| --- | --- |
+| `src/sim/harness.py` | 构造时加载 YAML，场景创建后应用，首次 reset 前完成；三相机尺寸来自 YAML；默认触觉类复用原项目已有的 Isaac5.1 dtype 适配 |
+| `src/sim/manager_based/common/env_cfg.py` | 公共配置加载一次 YAML；用 prestartup 事件在所有环境克隆完成后、首次 reset 前应用；三路 TiledCamera 按 YAML 配置 |
+| `benchmark/run/launch_env.py` | 旧 minimal 预览绕过以上两个公共构造器，因此补一个相同加载/应用调用 |
+| `benchmark/run/env_server.py` | 启动后先初始化触觉基准，保证 Gym 首次 meta 请求可读取触觉观测；原始 ZIP 也能复现缺失初始化的错误 |
+| `src/sim/recording.py` | 录像元数据读取相机配置尺寸，避免 YAML 改分辨率后仍声明640×480；不改图像 |
+
+新增运行实现仍集中于 `src/sim/yaml_scene.py`，包含加载校验、安装矩阵、原生 LUT 和公共启动适配。新增 `benchmark/run/yaml_scene.py` 只保留便捷的单环境图片导出，已改为复用 Harness 的公共接入，避免重复畸变。manager 工厂、Gym客户端、训练、评估、采集、动作、碰撞、控制和图像读取逻辑没有各自再加畸变补丁。
 
 ```text
-config/environment.example.yaml
-       ↓ 加载、校验、生成 LUT（初始化一次）
-src/sim/yaml_scene.py
-       ↓ 应用 USD 安装外参、四指参考帧和 RTX 镜头属性
-benchmark/run/yaml_scene.py
-       ↓ 原 Harness + 指定尺寸的 TiledCamera
-Isaac RTX 原生 RGB → 原 cam_rgb()/image_batch() 或直接读取传感器
+原 Harness / manager 公共配置 / 旧 minimal 预览
+  → 加载同一 YAML 快照
+  → 场景与克隆建立 → 所有实例应用相机外参、四指帧、原生 LUT
+  → 写 receipt → 首次 reset / 相机初始化 → 原控制、采集、录像、策略流程
 ```
 
-运行实现只有两个新增 Python 文件：加载与应用模块、启动入口。另附 YAML、额外依赖清单、离线测试、本文及验证/几何来源记录。没有修改原 Harness、manager、录像、数据 shape、其他 CLI、Gym 或 `pyproject.toml`；也没有全局环境变量自动启用行为。
+默认启用意味着相机图像会按 YAML 改变。保留的是原有接口、动作/状态、任务和数据流程，不承诺既有策略在新图像域下的成功率。源 USD 不保存，四指仅创建参考帧，不修改胶面、碰撞、TacSL ROI 或 IK TCP。
 
-本版本不存在 `Calibration.rgb()`、`cv2.remap()`、源针孔图二次采样、录像专用补丁或每帧 CPU 畸变处理。新入口创建原 Harness 时用已有的 `cameras=False`，随后把配置好的相机加入其公开的 `cams` 字典。原有读取方法直接获得 RTX 最终图像。
+## 2. 安装、原入口使用与核实加载
 
-范围是三相机成像/安装和四指接触参考帧。机器人 USD、关节初态、世界放置、场景物体、光照、动力学仍由原项目提供；一份相机 YAML 不等于完整任务场景重建。四指参考帧不修改胶面、碰撞体、TacSL ROI 或 IK TCP。
-
-## 2. 安装与使用
-
-使用已配置的 Ubuntu / Isaac Sim 5.1.0 / Isaac Lab v2.3.2 / Python 3.11 环境，并准备原项目官方 `openarm_tactile.usd` 及其外部引用。原 ZIP 不包含这些 USD 依赖，本次代码包也不复制它们。
+使用已有 Ubuntu / Isaac Sim 5.1.0 / Isaac Lab v2.3.2 / Python3.11 环境，按原项目准备官方 openarm_tactile.usd 及外部引用。代码包不复制这些资产。以可编辑方式安装此交付项目，避免仍导入另一份旧 checkout：
 
 ```bash
 python -m pip install -e .
 python -m pip install -r requirements-environment.txt
-python benchmark/run/yaml_scene.py \
-  --environment-yaml config/environment.example.yaml \
-  --robot_usd /absolute/path/openarm_tactile.usd \
-  --out /tmp/airseai-native-lut \
-  --steps 90 --headless --enable_cameras
+# 不需要新增参数：默认加载本项目 config/environment.example.yaml
+python benchmark/run/launch_env.py --env minimal \
+  --robot_usd /absolute/path/openarm_tactile.usd --snapshot /tmp/minimal.png
+python benchmark/run/launch_env.py --env stack_cube --num_envs 2 \
+  --robot_usd /absolute/path/openarm_tactile.usd --snapshot /tmp/two-envs.png
 ```
 
-新增运行依赖为 PyYAML 和 OpenEXR 3.3.5，NumPy 使用原 Isaac 环境。OpenEXR 只在初始化时写入 float32 LUT 纹理；运行不需要 RealSense SDK，也不连接设备。服务器验证采用隔离依赖目录，没有覆盖已有环境包。
+为当前命令指定校准文件和输出目录，原命令其他参数保持使用方式：
 
-输出包含 `base.png`、`left_wrist.png`、`right_wrist.png`、`environment-receipt.json` 和 `lut/*.exr`。图片为传感器直接输出，已有畸变；不要再执行旧版 RGB 后处理。EXR 是自动推导结果，不需要手填或单独标定。receipt 保存 YAML 哈希、输入参数、实际安装 prim、两张 LUT 路径/哈希及所用后端。
+```bash
+AIRSEAI_ENVIRONMENT_YAML=/absolute/path/environment.yaml \
+AIRSEAI_ENVIRONMENT_OUTPUT=/tmp/calibration-receipts \
+python benchmark/run/launch_env.py --env stack_cube --num_envs 2 \
+  --robot_usd /absolute/path/openarm_tactile.usd --snapshot /tmp/two-envs.png
+```
 
-其他原项目入口保持原行为，不会自动读取这份 YAML。若以后需要接入另一个入口，应在创建相机/physics reset 前显式调用 `apply_environment(stage, robot_root, spec, lut_directory)`，并按 YAML 尺寸创建相机；无需给每个图像消费者再写畸变代码。
+这两个变量由原 Gym 子进程正常继承。无需改 Gym 协议或给每个 CLI 增加选项。直接使用 Harness 时还可传 `environment_yaml=...`，优先于环境变量；其他公共入口采用环境变量或默认文件。文件选择优先级：显式 Harness 参数 > 环境变量 > 项目内默认文件。解析/应用错误始终抛出，不自动回退。依赖未安装也会明确失败。
+
+成功时标准输出包含 `[environment] APPLIED ... sha256=... num_envs=... receipt=...`。默认结果目录为启动工作目录的 `outputs/environment/startup-*`；每次构造使用独立目录，保存 `environment-receipt.json` 和 `lut/*.exr`。receipt 记录读取文件的绝对路径/哈希、解析参数、全部实例 prim、LUT 哈希和后端。`applied_before_first_reset` 只表示参数应用完成，不能替代后续仿真/渲染成功检查。失败的初始化可能留下未完成纹理目录，但不会写成功 receipt。
+
+每个环境实例分别设置相同父 link 局部外参，world 放置由原场景与 `env_origins` 决定，不假定各实例 world 原点相同。相同内参的不同实例共享本次生成的纹理。原多环境共享一个 USD stage，因此相机远处可能看见邻近实例；保留原项目的物理隔离机制，本版没有新增逐相机的渲染可见性隔离。reset 不重新应用或累积外参、不重复生成 LUT；腕相机和四指参考帧随父链接运动。
+
+`cameras=False` 仍不创建 RGB 图像传感器，但仍校验并配置 USD 中相机与四指，便于保持同一安装定义。旧 minimal 预览仍显示原第三人称相机，三路本体相机 prim 已应用 YAML；它不会额外导出三路 RGB。原生 LUT 没有 CPU 图像后处理。直接在 Isaac GUI 打开原 USD、或另写不经过以上初始化路径的脚本，不会自动读取 YAML。
+
+运行新增依赖仅 PyYAML 与 OpenEXR3.3.5；EXR 在初始化时生成，运行不需要 RealSense SDK。请保持每路 K、畸变、尺寸属于同一图像流。若更改尺寸，已有数据集/模型的预处理仍需匹配；新录像会按实际相机尺寸写入元数据，既有数据集不会被改写。
 
 ## 3. YAML 参数填写规范
 
@@ -84,27 +102,39 @@ python benchmark/run/yaml_scene.py \
 
 官方参考：[Replicator generalizedProjection 接口](https://docs.omniverse.nvidia.com/kit/docs/omni_replicator/1.12.27/source/extensions/omni.replicator.core/docs/API.html)、[RTX LUT 纹理约定](https://docs.omniverse.nvidia.com/materials-and-rendering/latest/cameras.html)。实现兼容性以本次服务器验证为准。
 
-## 5. 验证与复跑
+## 5. 验证记录
 
-4090 上的独立 RealSense SDK 标靶验证：三路每路 63 点、共 189 点，覆盖画面中心与边缘。实际 `TiledCamera` 原生 LUT 最大像素误差为 base 0.2820、左腕 0.3147、右腕 0.3051；RMS 均小于 0.20 px。测试阈值预设为 max <0.65 px、RMS <0.35 px。小球中心检测包含渲染采样误差，不等于实物标定精度。
+本轮验收通过，摘要见 [validation.json](validation.json)。12项YAML/LUT/USD离线测试、原项目11项Gym客户端测试均通过；Python3.11语法与Ruff检查通过。
 
-相同目标关闭畸变后的两腕最大误差为 5.6012/6.2729 px，验证了 LUT 不是被忽略；base 原设备系数全零，对照自然接近。另完成整机两姿态、四个官方接触帧和三路 native RGB 检阅，原 Harness 的 `image_batch()` 与 `cam_rgb()` 输出相同。全部验收摘要见 [validation.json](validation.json)。
+| 4090检查 | 结果 |
+| --- | --- |
+| 原 `launch_env.py --env minimal` | 默认YAML成功应用，原第三人称截图输出，退出0 |
+| 原 `launch_env.py --env stack_cube --num_envs 2` | 两实例默认YAML、原动作/触觉/渲染/15帧视频正常，退出0 |
+| manager双环境专项 | 三相机/实例、四官方参考帧/实例；单实例运动与局部reset通过，另一实例状态不被reset改动 |
+| YAML分辨率与录像 | 512×384、320×240、640×480三路，各3帧；实际视频解码尺寸/帧数与元数据相符 |
+| 原Gym→原env_server→Harness | tacff变体的meta/reset/step/render/close通过，RGB三路、触觉四路、状态/动作16维 |
+| 指定不存在的YAML、错误USD父链接 | 均退出1，包含具体错误，不生成成功receipt |
 
-另验证反向 LUT：目标连续移动 0.005 m/帧，三相机原生运动向量相对 SDK 理论像素位移的最大误差均小于 0.01 px/帧。在目标周围 9×9 区域筛选非零运动表面样本，取中位数；这不等于全图稠密光流验收。CPU 反向表插值在内部小于 0.01 px，八面体边界夹取小于 0.35 px。
+双环境world原点为(+1.5,0,0)/(-1.5,0,0)m；三相机姿态矩阵与所属父链接FK组合的最大元素差约2.05e-7。相同内参在两实例共享6张EXR，局部reset不重建纹理。该检查不等同于相机逐环境可见性隔离。
 
-离线 9 项测试使用真实 USD Core、RealSense SDK、OpenEXR，验证双向 LUT 插值、无效视场拒绝、文件通道精度、YAML 校验和四指父系随动。运行方式：
+Gym对照发现原始ZIP同样在首次meta请求报“Nominal tactile is not set”。本版在env_server启动后初始化触觉基准，并让Harness默认触觉类复用原项目manager已有的CompatibleTactileSensor，处理当前Isaac5.1深度/RGB缓冲dtype；不重写触觉模型，不覆盖用户自定义传感器类。修复后原Gym完整链路通过。
+
+静态 LUT 模型沿用 v3 已验证结果：三相机189点最大0.3147 px，原生运动向量误差小于0.01 px/帧。不能把这些数学/渲染误差当作实物标定精度。
+
+离线测试：
 
 ```bash
+# 以下仅用于独立离线 Python，不要把 usd-core 安装进 Isaac 环境
+python -m pip install -r requirements-environment.txt
 python -m pip install pytest usd-core==25.11 pyrealsense2==2.56.5.9235
 python -m pytest tests/test_yaml_scene.py -q
 ```
 
-上述额外包仅用于离线测试，建议独立环境安装；不要把另一个 USD Core 安装进 Isaac 的 Python。缺少对照依赖时相关测试会跳过，不能把跳过算作通过。RTX 标靶及双姿态脚本和原图随独立验证资料包保存；正常使用只需第 2 节的单一入口。
-
-未执行真机操作。没有证明候选相机外参已与实物对齐，也没有复现桌面/孔板等完整任务场景。多环境、训练和录像的自动 YAML 集成已移除出本版本范围。
+未执行硬件操作。相机外参仍为历史候选、官方四指值为资产几何推导。没有验证每个任务/策略的完整成功率，也不声称任意环境数量都可在24GB显存上运行。多环境数量与传感器尺寸受实际资源约束。
 
 ## 变更记录
 
 | 日期 | 版本 | 内容 |
 | --- | --- | --- |
-| 2026-10-20 | 3 | 从原 ZIP 重建最小独立入口；采用已验证的 RTX 原生 LUT，移除上一集成的图像后处理和外围接入；保留官方四指、数值和实际渲染证据 |
+| 2026-10-21 | 4 | 接入原公共初始化，默认加载/失败报错，多实例应用共享LUT，录像尺寸元数据跟随相机；修复原Gym触觉首次观测初始化并复用已有dtype适配 |
+| 2026-10-20 | 3 | 独立入口的原生 LUT；原始187文件未改；历史包保留 |

@@ -23,12 +23,13 @@ REVIEW_DIRNAME = ("review", "third_person")
 CAMERAS = ("base", "left_wrist", "right_wrist")
 
 
-def features(rows: int, cols: int) -> dict:
+def features(rows: int, cols: int, camera_shapes: dict | None = None) -> dict:
     """The recording's columns: three cameras, four tactile pads in three
     encodings each, the 16-dim state and action, and the episode flags."""
     from tactile_codec import PROFILES
 
-    feats = {f"observation.images.{k}": {"dtype": "video", "shape": (480, 640, 3)} for k in CAMERAS}
+    camera_shapes = camera_shapes or {k: (480, 640, 3) for k in CAMERAS}
+    feats = {f"observation.images.{k}": {"dtype": "video", "shape": camera_shapes[k]} for k in CAMERAS}
     for pn in TACTILE_SENSORS:
         sname = SENSOR_FEATURE_NAME[pn]
         feats[f"observation.images.{sname}_tactile"] = {"dtype": "video", "shape": (288, 384, 3)}
@@ -66,7 +67,10 @@ class EpisodeRecorder:
         self.writer = LeRobotTactileWriter(
             str(self.root),
             fps=fps,
-            features=features(h.rows, h.cols),
+            features=features(
+                h.rows, h.cols,
+                {k: (h.cams[k].cfg.height, h.cams[k].cfg.width, 3) for k in CAMERAS},
+            ),
             task=task.instruction,
             disk_buffer=disk_buffer,
         )

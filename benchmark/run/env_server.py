@@ -91,6 +91,8 @@ def main() -> int:
     )
     TASK.apply_collision(h)
     h.start()
+    # Gym requests tactile shapes before its first reset.
+    h.initial_render()
     keys = observation_keys(args_cli.variant, h)
     frozen = (
         init_state_io.load(os.path.expanduser(args_cli.init_states))["states"]

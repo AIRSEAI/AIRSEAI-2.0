@@ -7,37 +7,25 @@ import json
 import os
 from pathlib import Path
 
-from sim.yaml_scene import CAMERA_PATHS, apply_environment, intrinsics, load_environment
+from sim.yaml_scene import load_startup_environment
 
 
 def create_scene(spec, robot_usd, device, lut_directory, cfg=None):
     """Compose the original Harness and calibrated sensors before physics reset."""
-    import omni.usd
-    from isaaclab.sensors import TiledCamera, TiledCameraCfg
-
     from sim.envs.bimanual_tactile import make_preview_cfg
     from sim.harness import Harness
     from sim.tactile import apply_sdf_collision
 
-    h = Harness(cfg or make_preview_cfg(), device=device, grid=(36, 48), robot_usd=robot_usd, cameras=False)
-    # The original preview's TacSL requires an SDF collider for its placeholder.
+    h = Harness(
+        cfg or make_preview_cfg(),
+        device=device,
+        grid=(36, 48),
+        robot_usd=robot_usd,
+        environment_yaml=spec["source"],
+    )
     if not apply_sdf_collision("/World/envs/env_0/manipuland", sdf_resolution=256):
         raise RuntimeError("Failed to configure preview SDF collider")
-    root = "/World/envs/env_0/Robot"
-    receipt = apply_environment(omni.usd.get_context().get_stage(), root, spec, lut_directory)
-    for name, item in spec["cameras"].items():
-        k = intrinsics(item)
-        h.cams[name] = TiledCamera(
-            TiledCameraCfg(
-                prim_path=root + "/" + CAMERA_PATHS[name],
-                width=k["width"],
-                height=k["height"],
-                data_types=["rgb"],
-                update_latest_camera_pose=True,
-                spawn=None,
-            )
-        )
-    return h, receipt
+    return h, h.environment_receipt
 
 
 def main():
@@ -55,7 +43,7 @@ def main():
     args = parser.parse_args()
     if args.steps < 1:
         parser.error("--steps must be positive")
-    spec = load_environment(args.environment_yaml)
+    spec = load_startup_environment(args.environment_yaml)
     args.enable_cameras = True
     app = AppLauncher(args).app
     if not app.is_running():

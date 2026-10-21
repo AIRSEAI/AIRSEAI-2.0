@@ -21,12 +21,15 @@ from isaaclab.managers import SceneEntityCfg
 from isaaclab.scene import InteractiveScene
 from isaaclab.sensors import TiledCamera, TiledCameraCfg
 from isaaclab.utils.math import quat_from_angle_axis, quat_mul, subtract_frame_transforms
+from isaaclab_contrib.sensors.tacsl_sensor import VisuoTactileSensor
 
 from sim.assets.provision import ensure_robot_asset
 from sim.envs.bimanual_tactile import SENSOR_FEATURE_NAME, TACTILE_SENSORS
+from sim.manager_based.common.tactile import CompatibleTactileSensor
 from sim.physx_settings import small_scene_physx_cfg
 from sim.tactile import contact_area, taxel_pitch
 from sim.tactile.quantities import quat_apply
+from sim.yaml_scene import apply_startup_environment, intrinsics, load_startup_environment
 from tactile_codec.tacff import DEPTH_MAX_MM as TACFF_DEPTH_MAX_MM
 from tactile_codec.tacff import SHEAR_MAX as TACFF_SHEAR_MAX
 
@@ -94,6 +97,7 @@ class Harness:
         robot_usd: str = "",
         scene_cam: tuple | None = None,
         cameras: bool = True,
+        environment_yaml: str | None = None,
     ):
         """`cfg` is a fully-configured scene cfg (knobs already applied).
         `scene_cam=(eye, target)` adds a third-person debug camera.
@@ -101,6 +105,7 @@ class Harness:
         `cameras=False` builds no image sensors, for scripts that need only IK
         and physics; without cameras this class does not depend on the RTX
         renderer."""
+        environment = load_startup_environment(environment_yaml)
         self.device = device
         self.rows, self.cols = grid
         self.sim = sim_utils.SimulationContext(
@@ -108,9 +113,14 @@ class Harness:
         )
         cfg.robot.spawn.usd_path = ensure_robot_asset(robot_usd)
         for pad in TACTILE_SENSORS:
-            getattr(cfg, pad).tactile_array_size = (self.rows, self.cols)
+            sensor_cfg = getattr(cfg, pad)
+            sensor_cfg.tactile_array_size = (self.rows, self.cols)
+            # Use the project's existing Isaac 5.1 dtype adapter, as the manager does.
+            if sensor_cfg.class_type is VisuoTactileSensor:
+                sensor_cfg.class_type = CompatibleTactileSensor
         self.cfg = cfg
         self.scene = InteractiveScene(cfg)
+        self.environment_receipt = apply_startup_environment(self.scene, environment)
 
         # Dataset cameras: the head camera is the `base` stream; the two D405s
         # ride the hand links. All are prims welded in by the asset builder.
@@ -128,8 +138,9 @@ class Harness:
                 TiledCameraCfg(
                     prim_path=f"/World/envs/env_0/Robot/{prim}",
                     offset=TiledCameraCfg.OffsetCfg(convention="opengl"),
-                    width=640,
-                    height=480,
+                    width=intrinsics(environment["cameras"][key])["width"],
+                    height=intrinsics(environment["cameras"][key])["height"],
+                    update_latest_camera_pose=True,
                     data_types=["rgb"],
                     spawn=None,
                 )

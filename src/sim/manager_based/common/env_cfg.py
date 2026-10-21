@@ -14,6 +14,7 @@ from sim.assets.provision import ensure_robot_asset
 from sim.envs.bimanual_tactile import TACTILE_SENSORS
 from sim.harness import look_at
 from sim.physx_settings import small_scene_physx_cfg
+from sim.yaml_scene import intrinsics, load_startup_environment, manager_environment_prestartup
 
 from . import mdp
 from .tactile import CompatibleTactileSensor
@@ -46,6 +47,7 @@ class ObservationsCfg:
 
 @configclass
 class EventsCfg:
+    environment = EventTermCfg(func=manager_environment_prestartup, mode="prestartup")
     collisions = EventTermCfg(func=mdp.configure_collisions, mode="prestartup")
     reset = EventTermCfg(func=mdp.reset_scene, mode="reset")
 
@@ -66,6 +68,7 @@ def build_cfg(
     seed=0,
     review_size=(960, 720),
 ):
+    environment = load_startup_environment()
     if num_envs < 1:
         raise ValueError("num_envs must be positive")
     scene = scene_module.make_preview_cfg() if scene_cfg is None else scene_cfg
@@ -99,8 +102,9 @@ def build_cfg(
             f"{name}_camera",
             TiledCameraCfg(
                 prim_path=f"{{ENV_REGEX_NS}}/Robot/{link}",
-                width=640,
-                height=480,
+                width=intrinsics(environment["cameras"][name])["width"],
+                height=intrinsics(environment["cameras"][name])["height"],
+                update_latest_camera_pose=True,
                 data_types=["rgb"],
                 spawn=None,
             ),
@@ -108,6 +112,7 @@ def build_cfg(
     for name in TACTILE_SENSORS:
         getattr(scene, name).class_type = CompatibleTactileSensor
     events = EventsCfg()
+    events.environment.params = {"spec": environment}
     events.collisions.params = dict(
         sdf_prims=spec.sdf_prims, tri_prims=spec.tri_prims, sdf_resolution=spec.sdf_resolution
     )
