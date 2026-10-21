@@ -1,4 +1,4 @@
-# AIRSEAI 公共初始化原生 LUT 示例。填写说明：../docs/ENVIRONMENT.md
+# AIRSEAI 公共初始化原生 LUT 示例。
 # 原仿真入口默认强制加载本文件；可用 AIRSEAI_ENVIRONMENT_YAML 指定其他文件，失败直接报错。
 # 列向量：p_parent = T_parent_from_child @ p_child；矩阵平移单位 m。
 # 相机外参仍为 2026-10-15 历史候选；四指为官方 GelSight R1.5 胶面几何推导，非实物验收。
